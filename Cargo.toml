@@ -1,0 +1,12 @@
+[package]
+name = "pdf_merger"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+lopdf = "0.31.0"
+clap = { version = "4.4", features = ["derive", "string"] }
+nom = "7.1"
+font-kit = "0.14.3" # For finding system fonts
+chrono = "0.4"     # For PDF metadata dates
+
