@@ -3,6 +3,7 @@
 use lopdf::content::{Content, Operation};
 use lopdf::{dictionary, Document, Object, ObjectId, Stream, Dictionary};
 use std::io::{Error, ErrorKind, Result};
+use std::collections::BTreeMap;
 
 // Helper to convert lopdf::Error to std::io::Error
 fn lopdf_err_to_io(err: lopdf::Error) -> Error {
@@ -59,6 +60,63 @@ fn get_page_object_id_from_doc(doc: &Document, page_num: u32) -> Result<ObjectId
 }
 
 
+fn deep_copy_object(
+    dest_doc: &mut Document,
+    source_doc: &Document,
+    object_id: &ObjectId,
+    copied_objects: &mut BTreeMap<ObjectId, ObjectId>,
+) -> Result<Object> {
+    if let Some(new_id) = copied_objects.get(object_id) {
+        return Ok(Object::Reference(*new_id));
+    }
+
+    let obj = source_doc.get_object(*object_id).map_err(lopdf_err_to_io)?.clone();
+
+    let new_obj = match obj {
+        Object::Dictionary(mut dict) => {
+            for (_, value) in dict.iter_mut() {
+                if let Object::Reference(id) = value {
+                    *value = deep_copy_object(dest_doc, source_doc, id, copied_objects)?;
+                }
+            }
+            let new_id = dest_doc.add_object(dict);
+            copied_objects.insert(*object_id, new_id);
+            Object::Reference(new_id)
+        }
+        Object::Array(mut arr) => {
+            for item in arr.iter_mut() {
+                if let Object::Reference(id) = item {
+                    *item = deep_copy_object(dest_doc, source_doc, id, copied_objects)?;
+                }
+            }
+            let new_id = dest_doc.add_object(arr);
+            copied_objects.insert(*object_id, new_id);
+            Object::Reference(new_id)
+        }
+        Object::Stream(stream) => {
+            let mut dict = stream.dict;
+            let content = stream.content;
+
+            for (_, value) in dict.iter_mut() {
+                if let Object::Reference(id) = value {
+                    *value = deep_copy_object(dest_doc, source_doc, id, copied_objects)?;
+                }
+            }
+            let new_stream = Stream::new(dict, content);
+            let new_id = dest_doc.add_object(new_stream);
+            copied_objects.insert(*object_id, new_id);
+            Object::Reference(new_id)
+        }
+        _ => {
+            let new_id = dest_doc.add_object(obj);
+            copied_objects.insert(*object_id, new_id);
+            Object::Reference(new_id)
+        }
+    };
+
+    Ok(new_obj)
+}
+
 /// Copies a page from a source document to the destination document.
 /// It also copies all referenced objects, such as fonts and images.
 pub fn copy_page(
@@ -68,7 +126,12 @@ pub fn copy_page(
 ) -> Result<ObjectId> {
     let page_id = get_page_object_id_from_doc(source_doc, page_num)?;
 
-    let new_page_id = dest_doc.copy_object(source_doc, &page_id).map_err(lopdf_err_to_io)?;
+    let mut copied_objects = BTreeMap::new();
+    let new_page_object = deep_copy_object(dest_doc, source_doc, &page_id, &mut copied_objects)?;
+    let new_page_id = match new_page_object {
+        Object::Reference(id) => id,
+        _ => return Err(Error::new(ErrorKind::Other, "Copied page is not a reference")),
+    };
 
     let pages_id = dest_doc
         .catalog()
@@ -77,27 +140,39 @@ pub fn copy_page(
         .and_then(Object::as_reference)
         .map_err(|_| Error::new(ErrorKind::NotFound, "Pages object not found in destination document"))?;
 
-    let pages = dest_doc
-        .get_object_mut(pages_id)
-        .map_err(lopdf_err_to_io)?
-        .as_dict_mut()
-        .map_err(|_| Error::new(ErrorKind::InvalidData, "Pages object is not a dictionary"))?;
+    let kids_object_clone = {
+        let pages = dest_doc
+            .get_object(pages_id)
+            .map_err(lopdf_err_to_io)?
+            .as_dict()
+            .map_err(|_| Error::new(ErrorKind::InvalidData, "Pages object is not a dictionary"))?;
+        pages
+            .get(b"Kids")
+            .map_err(|_| Error::new(ErrorKind::NotFound, "Kids array not found in Pages dictionary"))?
+            .clone()
+    };
 
-    let kids_entry = pages
-        .get_mut(b"Kids")
-        .map_err(|_| Error::new(ErrorKind::NotFound, "Kids array not found in Pages dictionary"))?;
-
-    match kids_entry {
-        Object::Array(kids) => {
-            kids.push(Object::Reference(new_page_id));
-        }
+    match kids_object_clone {
         Object::Reference(ref_id) => {
             let kids = dest_doc
-                .get_object_mut(*ref_id)
+                .get_object_mut(ref_id)
                 .map_err(lopdf_err_to_io)?
                 .as_array_mut()
                 .map_err(|_| Error::new(ErrorKind::InvalidData, "Kids object is not an array"))?;
             kids.push(Object::Reference(new_page_id));
+        }
+        Object::Array(_) => {
+            let pages = dest_doc
+                .get_object_mut(pages_id)
+                .map_err(lopdf_err_to_io)?
+                .as_dict_mut()
+                .map_err(|_| Error::new(ErrorKind::InvalidData, "Pages object is not a dictionary"))?;
+            let kids_entry = pages
+                .get_mut(b"Kids")
+                .map_err(|_| Error::new(ErrorKind::NotFound, "Kids array not found in Pages dictionary"))?;
+            if let Object::Array(kids) = kids_entry {
+                kids.push(Object::Reference(new_page_id));
+            }
         }
         _ => {
             return Err(Error::new(
@@ -106,6 +181,12 @@ pub fn copy_page(
             ));
         }
     }
+
+    let pages = dest_doc
+        .get_object_mut(pages_id)
+        .map_err(lopdf_err_to_io)?
+        .as_dict_mut()
+        .map_err(|_| Error::new(ErrorKind::InvalidData, "Pages object is not a dictionary"))?;
 
     let count = pages
         .get(b"Count")
