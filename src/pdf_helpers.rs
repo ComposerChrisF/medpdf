@@ -204,49 +204,114 @@ pub fn overlay_page(
     overlay_doc: &Document,
     overlay_page_num: u32,
 ) -> Result<()> {
-    let overlay_page_id = overlay_doc
-        .get_page_object_id(overlay_page_num)
-        .ok_or_else(|| Error::new(ErrorKind::NotFound, "Overlay page not found"))?;
+    let overlay_page_id = get_page_object_id_from_doc(overlay_doc, overlay_page_num)?;
 
-    let new_xobject_id = dest_doc.copy_object(overlay_doc, &overlay_page_id).map_err(lopdf_err_to_io)?;
+    let mut copied_objects = BTreeMap::new();
+    let new_xobject = deep_copy_object(dest_doc, overlay_doc, &overlay_page_id, &mut copied_objects)?;
+    let new_xobject_id = match new_xobject {
+        Object::Reference(id) => id,
+        _ => return Err(Error::new(ErrorKind::Other, "Copied XObject is not a reference")),
+    };
 
-    let xobject_dict = dest_doc
-        .get_object_mut(new_xobject_id)
-        .map_err(lopdf_err_to_io)?
-        .as_dict_mut()
-        .map_err(|_| Error::new(ErrorKind::InvalidData, "XObject is not a dictionary"))?;
-    xobject_dict.set(b"Type", Object::Name(b"XObject".to_vec()));
-    xobject_dict.set(b"Subtype", Object::Name(b"Form".to_vec()));
-
-    let page_dict = dest_doc
-        .get_object_mut(dest_page_id)
-        .map_err(lopdf_err_to_io)?
-        .as_dict_mut()
-        .map_err(|_| Error::new(ErrorKind::InvalidData, "Page object is not a dictionary"))?;
+    {
+        let xobject_dict = dest_doc
+            .get_object_mut(new_xobject_id)
+            .map_err(lopdf_err_to_io)?
+            .as_dict_mut()
+            .map_err(|_| Error::new(ErrorKind::InvalidData, "XObject is not a dictionary"))?;
+        xobject_dict.set(b"Type", Object::Name(b"XObject".to_vec()));
+        xobject_dict.set(b"Subtype", Object::Name(b"Form".to_vec()));
+    }
 
     let xobject_name = format!("Ov{}", new_xobject_id.0);
+
+    let resources_id = {
+        let resources_obj = dest_doc
+            .get_object(dest_page_id)
+            .map_err(lopdf_err_to_io)?
+            .as_dict()
+            .map_err(|_| Error::new(ErrorKind::InvalidData, "Page object is not a dictionary"))?
+            .get(b"Resources")
+            .cloned();
+
+        let (id, needs_update) = match resources_obj {
+            Ok(Object::Reference(id)) => (id, false),
+            Ok(Object::Dictionary(dict)) => (dest_doc.add_object(dict), true),
+            Ok(v) => (dest_doc.add_object(v), true),
+            Err(_) => return Err(Error::new(ErrorKind::InvalidData, "Resources is not a dictionary or reference")),
+        };
+
+        if needs_update {
+            let page_dict = dest_doc
+                .get_object_mut(dest_page_id)
+                .map_err(lopdf_err_to_io)?
+                .as_dict_mut()
+                .map_err(|_| Error::new(ErrorKind::InvalidData, "Page object is not a dictionary"))?;
+            page_dict.set(b"Resources", Object::Reference(id));
+        }
+        id
+    };
+
+    let xobjects_id = {
+        let xobjects_obj = dest_doc
+            .get_object(resources_id)
+            .map_err(lopdf_err_to_io)?
+            .as_dict()
+            .map_err(|_| Error::new(ErrorKind::InvalidData, "Resources object is not a dictionary"))?
+            .get(b"XObject")
+            .cloned();
+
+        let (id, needs_update) = match xobjects_obj {
+            Ok(Object::Reference(id)) => (id, false),
+            Ok(Object::Dictionary(dict)) => (dest_doc.add_object(dict), true),
+            Ok(v) => (dest_doc.add_object(v), true),
+            Err(_) => return Err(Error::new(ErrorKind::InvalidData, "XObject is not a dictionary or reference")),
+        };
+
+        if needs_update {
+            let resources_dict = dest_doc
+                .get_object_mut(resources_id)
+                .map_err(lopdf_err_to_io)?
+                .as_dict_mut()
+                .map_err(|_| Error::new(ErrorKind::InvalidData, "Resources object is not a dictionary"))?;
+            resources_dict.set(b"XObject", Object::Reference(id));
+        }
+        id
+    };
+
     {
-        let resources = get_or_create_dictionary_mut(dest_doc, page_dict, b"Resources")?;
-        let xobjects = get_or_create_dictionary_mut(dest_doc, resources, b"XObject")?;
+        let xobjects = dest_doc
+            .get_object_mut(xobjects_id)
+            .map_err(lopdf_err_to_io)?
+            .as_dict_mut()
+            .map_err(|_| Error::new(ErrorKind::InvalidData, "XObjects object is not a dictionary"))?;
         xobjects.set(xobject_name.as_bytes().to_vec(), Object::Reference(new_xobject_id));
     }
 
-    let content_op = Operation::new("Do", vec![Object::Name(xobject_name.as_bytes().to_vec())]);
-    let content = Content { operations: vec![Operation::new("q", vec![]), content_op, Operation::new("Q", vec![])] };
-    let content_stream = Stream::new(dictionary! {}, content.encode().map_err(lopdf_err_to_io)?);
-    let content_id = dest_doc.add_object(content_stream);
+    {
+        let content_op = Operation::new("Do", vec![Object::Name(xobject_name.as_bytes().to_vec())]);
+        let content = Content { operations: vec![Operation::new("q", vec![]), content_op, Operation::new("Q", vec![])] };
+        let content_stream = Stream::new(dictionary! {}, content.encode().map_err(lopdf_err_to_io)?);
+        let content_id = dest_doc.add_object(content_stream);
 
-    if let Ok(contents) = page_dict.get_mut(b"Contents") {
-        match contents {
-            Object::Array(ref mut arr) => arr.push(Object::Reference(content_id)),
-            Object::Reference(id) => {
-                let old_id = id;
-                *contents = Object::Array(vec![Object::Reference(old_id), Object::Reference(content_id)]);
+        let page_dict = dest_doc
+            .get_object_mut(dest_page_id)
+            .map_err(lopdf_err_to_io)?
+            .as_dict_mut()
+            .map_err(|_| Error::new(ErrorKind::InvalidData, "Page object is not a dictionary"))?;
+
+        if let Ok(contents) = page_dict.get_mut(b"Contents") {
+            match contents {
+                Object::Array(ref mut arr) => arr.push(Object::Reference(content_id)),
+                Object::Reference(id) => {
+                    let old_id = *id;
+                    *contents = Object::Array(vec![Object::Reference(old_id), Object::Reference(content_id)]);
+                }
+                _ => return Err(Error::new(ErrorKind::InvalidData, "Unexpected page Contents type")),
             }
-            _ => return Err(Error::new(ErrorKind::InvalidData, "Unexpected page Contents type")),
+        } else {
+            page_dict.set(b"Contents", Object::Reference(content_id));
         }
-    } else {
-        page_dict.set(b"Contents", Object::Reference(content_id));
     }
 
     Ok(())
