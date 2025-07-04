@@ -322,13 +322,16 @@ pub fn add_text(
     dest_doc: &mut Document,
     page_id: ObjectId,
     text: &str,
+    _font_data: &[u8], // TODO: Embed font data
+    font_name: &str,
+    font_size: f32,
     x: i32,
     y: i32,
 ) -> Result<()> {
     let font_dict = dictionary! {
         "Type" => "Font",
         "Subtype" => "Type1",
-        "BaseFont" => "Helvetica",
+        "BaseFont" => font_name.to_string(),
     };
     let font_id = dest_doc.add_object(font_dict);
     let font_key = format!("F{}", font_id.0);
@@ -346,10 +349,8 @@ pub fn add_text(
             Ok(Object::Dictionary(dict)) => (dest_doc.add_object(dict), true),
             Ok(v) => (dest_doc.add_object(v), true),
             Err(_) => {
-                return Err(Error::new(
-                    ErrorKind::InvalidData,
-                    "Resources is not a dictionary or reference",
-                ))
+                let new_dict_id = dest_doc.add_object(dictionary! {});
+                (new_dict_id, true)
             }
         };
 
@@ -380,10 +381,8 @@ pub fn add_text(
                 Ok(Object::Dictionary(dict)) => (dest_doc.add_object(dict), true),
                 Ok(v) => (dest_doc.add_object(v), true),
                 Err(_) => {
-                    return Err(Error::new(
-                        ErrorKind::InvalidData,
-                        "Font is not a dictionary or reference",
-                    ))
+                    let new_dict_id = dest_doc.add_object(dictionary! {});
+                    (new_dict_id, true)
                 }
             };
 
@@ -413,7 +412,7 @@ pub fn add_text(
             Operation::new("BT", vec![]),
             Operation::new("Tf", vec![
                 Object::Name(font_key.as_bytes().to_vec()),
-                12.into(),
+                font_size.into(),
             ]),
             Operation::new("Td", vec![x.into(), y.into()]),
             Operation::new("Tj", vec![Object::string_literal(text)]),
