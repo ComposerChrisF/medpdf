@@ -217,7 +217,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         let target_page_indices = parse_page_spec(&spec.pages, page_ids.len() as u32)?;
         for page_index in target_page_indices {
             let dest_page_id = page_ids[(page_index - 1) as usize];
-            pdf_helpers::add_overlay(&mut doc, &overlay_doc, dest_page_id, spec.from_page.into())?;
+            pdf_helpers::overlay_page(&mut doc, dest_page_id, &overlay_doc, spec.from_page.into())?;
         }
     }
 
@@ -241,7 +241,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
         for page_index in target_page_indices {
             let page_id = page_ids[(page_index - 1) as usize];
-            pdf_helpers::add_text(&mut doc, page_id, &spec.text, &font_data, font_name, spec.size, x_points, y_points)?;
+            pdf_helpers::add_text(&mut doc, page_id, &spec.text, x_points as i32, y_points as i32)?;
         }
     }
     

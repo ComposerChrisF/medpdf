@@ -331,24 +331,90 @@ pub fn add_text(
         "BaseFont" => "Helvetica",
     };
     let font_id = dest_doc.add_object(font_dict);
-
-    let page_dict = dest_doc
-        .get_object_mut(page_id)
-        .map_err(lopdf_err_to_io)?
-        .as_dict_mut()
-        .or_else(|_| Err(Error::new(ErrorKind::InvalidData, "Page object is not a dictionary")))?;
-
     let font_key = format!("F{}", font_id.0);
+
+    let resources_id = {
+        let page_dict = dest_doc
+            .get_object(page_id)
+            .map_err(lopdf_err_to_io)?
+            .as_dict()
+            .map_err(|_| Error::new(ErrorKind::InvalidData, "Page object is not a dictionary"))?;
+        let resources_obj = page_dict.get(b"Resources").cloned();
+
+        let (id, needs_update) = match resources_obj {
+            Ok(Object::Reference(id)) => (id, false),
+            Ok(Object::Dictionary(dict)) => (dest_doc.add_object(dict), true),
+            Ok(v) => (dest_doc.add_object(v), true),
+            Err(_) => {
+                return Err(Error::new(
+                    ErrorKind::InvalidData,
+                    "Resources is not a dictionary or reference",
+                ))
+            }
+        };
+
+        if needs_update {
+            let page_dict_mut = dest_doc
+                .get_object_mut(page_id)
+                .map_err(lopdf_err_to_io)?
+                .as_dict_mut()
+                .map_err(|_| Error::new(ErrorKind::InvalidData, "Page object is not a dictionary"))?;
+            page_dict_mut.set(b"Resources", Object::Reference(id));
+        }
+        id
+    };
+
     {
-        let resources = get_or_create_dictionary_mut(dest_doc, page_dict, b"Resources")?;
-        let fonts = get_or_create_dictionary_mut(dest_doc, resources, b"Font")?;
-        fonts.set(font_key.as_bytes().to_vec(), Object::Reference(font_id));
+        let font_dict_id = {
+            let resources_dict = dest_doc
+                .get_object(resources_id)
+                .map_err(lopdf_err_to_io)?
+                .as_dict()
+                .map_err(|_|
+                    Error::new(ErrorKind::InvalidData, "Resources object is not a dictionary")
+                )?;
+            let font_obj = resources_dict.get(b"Font").cloned();
+
+            let (id, needs_update) = match font_obj {
+                Ok(Object::Reference(id)) => (id, false),
+                Ok(Object::Dictionary(dict)) => (dest_doc.add_object(dict), true),
+                Ok(v) => (dest_doc.add_object(v), true),
+                Err(_) => {
+                    return Err(Error::new(
+                        ErrorKind::InvalidData,
+                        "Font is not a dictionary or reference",
+                    ))
+                }
+            };
+
+            if needs_update {
+                let resources_dict_mut = dest_doc
+                    .get_object_mut(resources_id)
+                    .map_err(lopdf_err_to_io)?
+                    .as_dict_mut()
+                    .map_err(|_|
+                        Error::new(ErrorKind::InvalidData, "Resources object is not a dictionary")
+                    )?;
+                resources_dict_mut.set(b"Font", Object::Reference(id));
+            }
+            id
+        };
+
+        let font_dict_mut = dest_doc
+            .get_object_mut(font_dict_id)
+            .map_err(lopdf_err_to_io)?
+            .as_dict_mut()
+            .map_err(|_| Error::new(ErrorKind::InvalidData, "Font dictionary is not a dictionary"))?;
+        font_dict_mut.set(font_key.as_bytes().to_vec(), Object::Reference(font_id));
     }
 
     let content = Content {
         operations: vec![
             Operation::new("BT", vec![]),
-            Operation::new("Tf", vec![Object::Name(font_key.as_bytes().to_vec()), 12.into()]),
+            Operation::new("Tf", vec![
+                Object::Name(font_key.as_bytes().to_vec()),
+                12.into(),
+            ]),
             Operation::new("Td", vec![x.into(), y.into()]),
             Operation::new("Tj", vec![Object::string_literal(text)]),
             Operation::new("ET", vec![]),
@@ -357,17 +423,31 @@ pub fn add_text(
     let content_stream = Stream::new(dictionary! {}, content.encode().map_err(lopdf_err_to_io)?);
     let content_id = dest_doc.add_object(content_stream);
 
-    if let Ok(contents) = page_dict.get_mut(b"Contents") {
-        match contents {
-            Object::Array(ref mut arr) => arr.push(Object::Reference(content_id)),
-            Object::Reference(id) => {
-                let old_id = id;
-                *contents = Object::Array(vec![Object::Reference(*old_id), Object::Reference(content_id)]);
+    {
+        let page_dict = dest_doc
+            .get_object_mut(page_id)
+            .map_err(lopdf_err_to_io)?
+            .as_dict_mut()
+            .or_else(|_| Err(Error::new(ErrorKind::InvalidData, "Page object is not a dictionary")))?;
+
+        if let Ok(contents) = page_dict.get_mut(b"Contents") {
+            match contents {
+                Object::Array(ref mut arr) => arr.push(Object::Reference(content_id)),
+                Object::Reference(id) => {
+                    let old_id = *id;
+                    *contents =
+                        Object::Array(vec![Object::Reference(old_id), Object::Reference(content_id)]);
+                }
+                _ => {
+                    return Err(Error::new(
+                        ErrorKind::InvalidData,
+                        "Unexpected page Contents type",
+                    ))
+                }
             }
-            _ => return Err(Error::new(ErrorKind::InvalidData, "Unexpected page Contents type")),
+        } else {
+            page_dict.set(b"Contents", Object::Reference(content_id));
         }
-    } else {
-        page_dict.set(b"Contents", Object::Reference(content_id));
     }
 
     Ok(())
@@ -394,23 +474,30 @@ pub fn create_blank_page(dest_doc: &mut Document, width: f32, height: f32) -> Re
         .and_then(Object::as_reference)
         .map_err(|_| Error::new(ErrorKind::NotFound, "Pages object not found in destination document"))?;
 
-    let pages = dest_doc
-        .get_object_mut(pages_id)
-        .map_err(lopdf_err_to_io)?
-        .as_dict_mut()
-        .map_err(|_| Error::new(ErrorKind::InvalidData, "Pages object is not a dictionary"))?;
+    // Add page to Kids array
+    let kids_obj = {
+        let pages = dest_doc
+            .get_object(pages_id)
+            .map_err(lopdf_err_to_io)?
+            .as_dict()
+            .map_err(|_| Error::new(ErrorKind::InvalidData, "Pages object is not a dictionary"))?;
+        pages.get(b"Kids").cloned()
+            .map_err(|_| Error::new(ErrorKind::NotFound, "Kids array not found in Pages dictionary"))?
+    };
 
-    let kids_entry = pages
-        .get_mut(b"Kids")
-        .map_err(|_| Error::new(ErrorKind::NotFound, "Kids array not found in Pages dictionary"))?;
-
-    match kids_entry {
-        Object::Array(kids) => {
+    match kids_obj {
+        Object::Array(mut kids) => {
             kids.push(page_id.into());
+            let pages = dest_doc
+                .get_object_mut(pages_id)
+                .map_err(lopdf_err_to_io)?
+                .as_dict_mut()
+                .map_err(|_| Error::new(ErrorKind::InvalidData, "Pages object is not a dictionary"))?;
+            pages.set(b"Kids", Object::Array(kids));
         }
-        Object::Reference(ref_id) => {
+        Object::Reference(kids_id) => {
             let kids = dest_doc
-                .get_object_mut(*ref_id)
+                .get_object_mut(kids_id)
                 .map_err(lopdf_err_to_io)?
                 .as_array_mut()
                 .map_err(|_| Error::new(ErrorKind::InvalidData, "Kids object is not an array"))?;
@@ -424,17 +511,29 @@ pub fn create_blank_page(dest_doc: &mut Document, width: f32, height: f32) -> Re
         }
     }
 
-    let page_object = dest_doc
-        .get_object_mut(page_id)
-        .map_err(lopdf_err_to_io)?
-        .as_dict_mut()
-        .map_err(|_| Error::new(ErrorKind::InvalidData, "Page object is not a dictionary"))?;
-    page_object.set(b"Parent".to_vec(), Object::Reference(pages_id));
+    // Set Parent for the new page
+    {
+        let page_object = dest_doc
+            .get_object_mut(page_id)
+            .map_err(lopdf_err_to_io)?
+            .as_dict_mut()
+            .map_err(|_| Error::new(ErrorKind::InvalidData, "Page object is not a dictionary"))?;
+        page_object.set(b"Parent".to_vec(), Object::Reference(pages_id));
+    }
 
-    let count = pages
-        .get(b"Count")
-        .map_err(|_| Error::new(ErrorKind::InvalidData, "Page count (`Count`) is missing or not an integer"))?;
-    pages.set(b"Count".to_vec(), Object::Integer(count + 1));
+    // Update page count
+    {
+        let pages = dest_doc
+            .get_object_mut(pages_id)
+            .map_err(lopdf_err_to_io)?
+            .as_dict_mut()
+            .map_err(|_| Error::new(ErrorKind::InvalidData, "Pages object is not a dictionary"))?;
+        let count = pages
+            .get(b"Count")
+            .and_then(Object::as_i64)
+            .map_err(|_| Error::new(ErrorKind::InvalidData, "Page count (`Count`) is missing or not an integer"))?;
+        pages.set(b"Count".to_vec(), Object::Integer(count + 1));
+    }
 
     Ok(page_id)
 }
