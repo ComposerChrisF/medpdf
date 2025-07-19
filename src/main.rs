@@ -1,8 +1,10 @@
 // src/main.rs
+#[macro_use]
+extern crate lopdf;
 
 use clap::{Parser, ValueEnum};
 use font_kit::source::SystemSource;
-use lopdf::Document;
+use lopdf::{Document, Object};
 use std::collections::HashMap;
 use std::error::Error;
 use std::fs;
@@ -183,14 +185,26 @@ struct Args {
     owner_password: Option<String>,
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
+fn main() -> Result<(), pdf_helpers::PdfMergeError> {
     let args = Args::parse();
     if args.inputs.len() % 2 != 0 {
         return Err("Input arguments must be in pairs of file paths and page specifications.".into());
     }
 
-    let mut doc = Document::with_version("1.7");
-    let mut page_ids: Vec<lopdf::ObjectId> = vec![];
+    let mut dest_doc = Document::with_version("1.7");
+    let pages_id = dest_doc.new_object_id();
+    let pages = dictionary! {
+        "Type" => "Pages",
+        "Kids" => vec![],
+        "Count" => 0,
+    };
+    dest_doc.objects.insert(pages_id, lopdf::Object::Dictionary(pages));
+    let catalog_id = dest_doc.add_object(dictionary! {
+        "Type" => "Catalog",
+        "Pages" => pages_id,
+    });
+    dest_doc.trailer.set("Root", catalog_id);
+    let mut dest_page_ids: Vec<lopdf::ObjectId> = vec![];
     let mut font_cache: HashMap<PathBuf, Vec<u8>> = HashMap::new();
 
     // --- Phase 1: Merge Pages ---
@@ -200,12 +214,46 @@ fn main() -> Result<(), Box<dyn Error>> {
         let page_spec = &input_chunk[1];
         println!("Processing '{}' with pages '{}'...", source_path, page_spec);
         let source_doc = Document::load(source_path)?;
-        let source_page_count = source_doc.get_pages().len();
+        //let trailer = &source_doc.trailer;
+        //println!("Trailer:");
+        //for (key, value) in trailer.iter() {
+        //    println!("{} => {value:?}", String::from_utf8_lossy(key));
+        //}
+//
+        //let root_ref = match trailer.get(b"Root") {
+        //    Ok(r) => r,
+        //    Err(e) => { println!("No Root found in Trailer: {e:?}"); return Ok(()); } 
+        //};
+        //println!("Got root_ref: {root_ref:?}");
+//
+        //let root_id = match root_ref.as_reference() {
+        //    Ok(v) => v,
+        //    Err(e) => { println!("Root not a reference! root_ref: {root_ref:?}; err={e:?}"); return Ok(()); }
+        //};
+        //println!("Got root_id: {root_id:?}");
+//
+        //let root = match source_doc.get_object(root_id) {
+        //    Ok(v) => v,
+        //    Err(e) => { println!("root_id object not found! root_id: {root_id:?}; err={e:?}"); return Ok(()); }
+        //};
+        //println!("Got root: {root:?}");
+        //
+        //let catalog = match root.as_dict() {
+        //    Ok(c) => c,
+        //    Err(e) => { println!("No Root not a Dictionary: root={root:?}; err = {e:?}"); return Ok(()); }
+        //};
+        //println!("Got catalog: {catalog:?}:");
+        //for (key, value) in catalog.iter() {
+        //    println!("{} => {value:?}", String::from_utf8_lossy(key));
+        //}
+        let source_page_count = source_doc.page_iter().count();
         let page_numbers_to_import = parse_page_spec(page_spec, source_page_count as u32)?;
+        println!("page_numbers_to_import: {page_numbers_to_import:?}; source_page_count: {source_page_count}");
         
         for page_num in page_numbers_to_import {
-            let new_page_id = pdf_helpers::copy_page(&mut doc, &source_doc, page_num)?;
-            page_ids.push(new_page_id);
+            println!("Copying page: {page_num} from {source_path}");
+            let new_page_id = pdf_helpers::copy_page(&mut dest_doc, &source_doc, page_num)?;
+            dest_page_ids.push(new_page_id);
         }
     }
 
@@ -214,10 +262,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     for spec in args.overlay.iter() {
         println!("Applying overlay from {}", spec.file.display());
         let overlay_doc = Document::load(&spec.file)?;
-        let target_page_indices = parse_page_spec(&spec.pages, page_ids.len() as u32)?;
+        let target_page_indices = parse_page_spec(&spec.pages, dest_page_ids.len() as u32)?;
         for page_index in target_page_indices {
-            let dest_page_id = page_ids[(page_index - 1) as usize];
-            pdf_helpers::overlay_page(&mut doc, dest_page_id, &overlay_doc, spec.from_page.into())?;
+            let dest_page_id = dest_page_ids[(page_index - 1) as usize];
+            pdf_helpers::overlay_page(&mut dest_doc, dest_page_id, &overlay_doc, spec.from_page.into())?;
         }
     }
 
@@ -235,26 +283,26 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
         };
         let font_name = font_path.file_stem().unwrap().to_str().unwrap();
-        let target_page_indices = parse_page_spec(&spec.pages, page_ids.len() as u32)?;
+        let target_page_indices = parse_page_spec(&spec.pages, dest_page_ids.len() as u32)?;
         let x_points = convert_to_points(spec.x, spec.units);
         let y_points = convert_to_points(spec.y, spec.units);
 
         for page_index in target_page_indices {
-            let page_id = page_ids[(page_index - 1) as usize];
-            pdf_helpers::add_text(&mut doc, page_id, &spec.text, &font_data, font_name, spec.size, x_points as i32, y_points as i32)?;
+            let page_id = dest_page_ids[(page_index - 1) as usize];
+            pdf_helpers::add_text(&mut dest_doc, page_id, &spec.text, &font_data, font_name, spec.size, x_points as i32, y_points as i32)?;
         }
     }
     
     // --- Phase 4: Padding ---
     println!("\n--- Checking for Padding ---");
-    let current_page_count = doc.get_pages().len();
+    let current_page_count = dest_doc.get_pages().len();
     println!("Current page count: {}", current_page_count);
 
     if let Some(spec) = &args.pad_to_even {
         if current_page_count > 0 && current_page_count % 2 != 0 {
             println!("   -> Padding to make page count even.");
             let pad_doc = Document::load(&spec.file)?;
-            pdf_helpers::copy_page(&mut doc, &pad_doc, spec.page.into())?;
+            pdf_helpers::copy_page(&mut dest_doc, &pad_doc, spec.page.into())?;
         }
     }
 
@@ -263,24 +311,24 @@ fn main() -> Result<(), Box<dyn Error>> {
             let pages_to_add = (4 - (current_page_count % 4)) % 4;
             if pages_to_add > 0 {
                 println!("   -> Padding with {} page(s) to reach a multiple of 4.", pages_to_add);
-                let last_page_id = *page_ids.last().unwrap();
-                let last_page = doc.get_object(last_page_id).unwrap().as_dict().unwrap();
+                let last_page_id = *dest_page_ids.last().unwrap();
+                let last_page = dest_doc.get_object(last_page_id).unwrap().as_dict().unwrap();
                 let media_box = last_page.get(b"MediaBox").unwrap().as_array().unwrap();
                 let width = media_box[2].as_f32().unwrap();
                 let height = media_box[3].as_f32().unwrap();
 
                 for _ in 0..(pages_to_add - 1) {
-                    pdf_helpers::create_blank_page(&mut doc, width, height)?;
+                    pdf_helpers::create_blank_page(&mut dest_doc, width, height)?;
                 }
                 let pad_doc = Document::load(&spec.file)?;
-                pdf_helpers::copy_page(&mut doc, &pad_doc, spec.page.into())?;
+                pdf_helpers::copy_page(&mut dest_doc, &pad_doc, spec.page.into())?;
             }
         }
     }
 
     // --- Phase 5: Saving ---
     println!("\nSaving file to {}", args.output.display());
-    doc.change_producer("PDF Merger Command-Line Tool");
+    dest_doc.change_producer("PDF Merger Command-Line Tool");
     //doc.set_creation_date(Local::now());
  
     //let mut save_options = lopdf::SaveOptions::new();
@@ -294,13 +342,13 @@ fn main() -> Result<(), Box<dyn Error>> {
     //    save_options.set_user_password(args.user_password.as_deref().map(|s| s.as_bytes().to_vec()));
     //    save_options.set_owner_password(args.owner_password.as_deref().map(|s| s.as_bytes().to_vec()));
     //}
-    doc.save(args.output)?;//.save_with_options(&args.output, &save_options)?;
+    dest_doc.save(args.output)?;//.save_with_options(&args.output, &save_options)?;
     
     println!("✅ Operation successful!");
     Ok(())
 }
 
-fn find_font(font_path: &Path) -> Result<PathBuf, Box<dyn Error>> {
+fn find_font(font_path: &Path) -> Result<PathBuf, pdf_helpers::PdfMergeError> {
     if font_path.exists() {
         return Ok(font_path.to_path_buf());
     }
@@ -327,7 +375,3 @@ fn convert_to_points(value: f32, units: Unit) -> f32 {
         Unit::Mm => value * POINTS_PER_MM,
     }
 }
-
-// NOTE: The user spec structs (WatermarkSpec, etc.) are omitted for brevity,
-// but should be included here as they were in previous answers. They are identical.
-// You can copy them from the prompt.
