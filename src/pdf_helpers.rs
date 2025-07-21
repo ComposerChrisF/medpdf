@@ -2,100 +2,9 @@
 
 use lopdf::content::{Content, Operation};
 use lopdf::{dictionary, Document, Object, ObjectId, Stream, Dictionary};
-use std::fmt::Debug;
 use std::collections::BTreeMap;
+use crate::error::{Result, PdfMergeError};
 
-pub enum PdfMergeError {
-    Io(std::io::Error),
-    LoPdf(lopdf::Error),
-    FontKit(font_kit::error::SelectionError),
-    Message(String),
-}
-impl PdfMergeError {
-    fn new<T: Into<String>>(msg: T) -> Self {
-        PdfMergeError::Message(msg.into())
-    }
-}
-impl From<lopdf::Error> for PdfMergeError {
-    fn from(err: lopdf::Error) -> Self {
-        PdfMergeError::LoPdf(err)
-    }
-}
-impl From<std::io::Error> for PdfMergeError {
-    fn from(err: std::io::Error) -> Self {
-        PdfMergeError::Io(err)
-    }
-}
-impl From<&str> for PdfMergeError {
-    fn from(err: &str) -> Self {
-        PdfMergeError::Message(err.into())
-    }
-}
-impl From<String> for PdfMergeError {
-    fn from(err: String) -> Self {
-        PdfMergeError::Message(err)
-    }
-}
-impl From<font_kit::error::SelectionError> for PdfMergeError {
-    fn from(err: font_kit::error::SelectionError) -> Self {
-        PdfMergeError::FontKit(err)
-    }
-}
-
-impl Debug for PdfMergeError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Io(e) => f.debug_tuple("Io").field(e).finish(),
-            Self::LoPdf(e) => f.debug_tuple("LoPdf").field(e).finish(),
-            Self::Message(e) => f.debug_tuple("Message").field(e).finish(),
-            Self::FontKit(e) => f.debug_tuple("FontKit").field(e).finish(),
-        }
-    }
-}
-type Error = PdfMergeError;
-type Result<T> = std::result::Result<T, Error>;
-
-// Helper to convert lopdf::Error to std::io::Error
-fn lopdf_err_to_io(err: lopdf::Error) -> Error {
-    PdfMergeError::LoPdf(err)
-}
-
-/// Gets or creates a mutable dictionary from a parent dictionary.
-/// If the dictionary does not exist, it is created and inserted into the parent.
-/// If the dictionary exists as an indirect reference, it is resolved.
-fn get_or_create_dictionary_mut<'a>(
-    doc: &'a mut Document,
-    parent: &'a mut Dictionary,
-    key: &[u8],
-) -> Result<&'a mut Dictionary> {
-    if parent.has(key) {
-        let object = parent.get_mut(key).unwrap(); // Safe to unwrap because we checked.
-        match object {
-            Object::Reference(id) => doc
-                .get_object_mut(*id)?
-                .as_dict_mut()
-                .or_else(|_| Err(PdfMergeError::new("Object is not a dictionary"))),
-            Object::Dictionary(inline_dict) => {
-                let new_dict = inline_dict.clone();
-                let new_id = doc.add_object(new_dict);
-                *object = Object::Reference(new_id);
-                doc.get_object_mut(new_id)
-                    .map_err(lopdf_err_to_io)?
-                    .as_dict_mut()
-                    .or_else(|_| Err(PdfMergeError::new("Newly created object is not a dictionary")))
-            }
-            _ => Err(PdfMergeError::new("Resources key points to something other than a dictionary or reference.")),
-        }
-    } else {
-        let new_dict = Dictionary::new();
-        let new_id = doc.add_object(new_dict);
-        parent.set(key.to_vec(), Object::Reference(new_id));
-        doc.get_object_mut(new_id)
-            .map_err(lopdf_err_to_io)?
-            .as_dict_mut()
-            .map_err(|_| PdfMergeError::new("Newly created object is not a dictionary"))
-    }
-}
 
 /// Gets the object ID of a page from a document.
 fn get_page_object_id_from_doc(doc: &Document, page_num: u32) -> Result<ObjectId> {
@@ -115,7 +24,7 @@ fn deep_copy_object_by_id(
         return Ok(new_id);
     }
 
-    let new_obj = deep_copy_object(dest_doc, source_doc, source_doc.get_object(source_object_id).map_err(lopdf_err_to_io)?, copied_objects)?;
+    let new_obj = deep_copy_object(dest_doc, source_doc, source_doc.get_object(source_object_id)?, copied_objects)?;
     let new_id = dest_doc.add_object(new_obj);
     copied_objects.insert(source_object_id, new_id);
     Ok(new_id)
@@ -186,24 +95,21 @@ pub fn copy_page(
     page_num: u32,
 ) -> Result<ObjectId> {
     let source_page_id = get_page_object_id_from_doc(source_doc, page_num)?;
-    //let source_pages_id = source_doc.catalog().unwrap().get(b"Pages").unwrap().as_reference().unwrap();
-    let dest_pages_id = dest_doc.catalog().unwrap().get(b"Pages").unwrap().as_reference().unwrap();
+    let dest_pages_id = dest_doc.catalog()?.get(b"Pages")?.as_reference()?;
 
     let mut copied_objects = BTreeMap::new();
     let new_page_id = deep_copy_object_by_id(dest_doc, source_doc, source_page_id, &mut copied_objects)?;
-    let page = dest_doc.get_object_mut(new_page_id).unwrap().as_dict_mut().unwrap();
+    let page = dest_doc.get_object_mut(new_page_id)?.as_dict_mut()?;
     page.set(b"Parent", Object::Reference(dest_pages_id));
 
     let dest_pages_id = dest_doc
-        .catalog_mut()
-        .map_err(lopdf_err_to_io)?
+        .catalog_mut()?
         .get_mut(b"Pages")
         .map_err(|_| PdfMergeError::new("Pages object not found in destination document"))?
         .as_reference()
         .map_err(|_| PdfMergeError::new("Pages object not a reference"))?;
     let dest_pages = dest_doc
-        .get_object_mut(dest_pages_id)
-        .map_err(lopdf_err_to_io)?
+        .get_object_mut(dest_pages_id)?
         .as_dict_mut()
         .map_err(|e| PdfMergeError::new(format!("Pages object is not a dictionary. e={e:?}")))?;
 
@@ -236,8 +142,7 @@ pub fn overlay_page(
 
     {
         let xobject_dict = dest_doc
-            .get_object_mut(new_xobject_id)
-            .map_err(lopdf_err_to_io)?
+            .get_object_mut(new_xobject_id)?
             .as_dict_mut()
             .map_err(|_| PdfMergeError::new("XObject is not a dictionary"))?;
         xobject_dict.set(b"Type", Object::Name(b"XObject".to_vec()));
@@ -248,8 +153,7 @@ pub fn overlay_page(
 
     let resources_id = {
         let resources_obj = dest_doc
-            .get_object(dest_page_id)
-            .map_err(lopdf_err_to_io)?
+            .get_object(dest_page_id)?
             .as_dict()
             .map_err(|_| PdfMergeError::new("Page object is not a dictionary"))?
             .get(b"Resources")
@@ -264,8 +168,7 @@ pub fn overlay_page(
 
         if needs_update {
             let page_dict = dest_doc
-                .get_object_mut(dest_page_id)
-                .map_err(lopdf_err_to_io)?
+                .get_object_mut(dest_page_id)?
                 .as_dict_mut()
                 .map_err(|_| PdfMergeError::new("Page object is not a dictionary"))?;
             page_dict.set(b"Resources", Object::Reference(id));
@@ -275,8 +178,7 @@ pub fn overlay_page(
 
     let xobjects_id = {
         let xobjects_obj = dest_doc
-            .get_object(resources_id)
-            .map_err(lopdf_err_to_io)?
+            .get_object(resources_id)?
             .as_dict()
             .map_err(|_| PdfMergeError::new("Resources object is not a dictionary"))?
             .get(b"XObject")
@@ -291,8 +193,7 @@ pub fn overlay_page(
 
         if needs_update {
             let resources_dict = dest_doc
-                .get_object_mut(resources_id)
-                .map_err(lopdf_err_to_io)?
+                .get_object_mut(resources_id)?
                 .as_dict_mut()
                 .map_err(|_| PdfMergeError::new("Resources object is not a dictionary"))?;
             resources_dict.set(b"XObject", Object::Reference(id));
@@ -302,8 +203,7 @@ pub fn overlay_page(
 
     {
         let xobjects = dest_doc
-            .get_object_mut(xobjects_id)
-            .map_err(lopdf_err_to_io)?
+            .get_object_mut(xobjects_id)?
             .as_dict_mut()
             .map_err(|_| PdfMergeError::new("XObjects object is not a dictionary"))?;
         xobjects.set(xobject_name.as_bytes().to_vec(), Object::Reference(new_xobject_id));
@@ -312,12 +212,11 @@ pub fn overlay_page(
     {
         let content_op = Operation::new("Do", vec![Object::Name(xobject_name.as_bytes().to_vec())]);
         let content = Content { operations: vec![Operation::new("q", vec![]), content_op, Operation::new("Q", vec![])] };
-        let content_stream = Stream::new(dictionary! {}, content.encode().map_err(lopdf_err_to_io)?);
+        let content_stream = Stream::new(dictionary! {}, content.encode()?);
         let content_id = dest_doc.add_object(content_stream);
 
         let page_dict = dest_doc
-            .get_object_mut(dest_page_id)
-            .map_err(lopdf_err_to_io)?
+            .get_object_mut(dest_page_id)?
             .as_dict_mut()
             .map_err(|_| PdfMergeError::new("Page object is not a dictionary"))?;
 
@@ -343,94 +242,20 @@ pub fn add_text(
     dest_doc: &mut Document,
     page_id: ObjectId,
     text: &str,
-    _font_data: &[u8], // TODO: Embed font data
+    font_data: &[u8], // TODO: Embed font data
     font_name: &str,
     font_size: f32,
     x: i32,
     y: i32,
 ) -> Result<()> {
-    let font_dict = dictionary! {
-        "Type" => "Font",
-        "Subtype" => "Type1",
-        "BaseFont" => font_name.to_string(),
-    };
-    let font_id = dest_doc.add_object(font_dict);
-    let font_key = format!("F{}", font_id.0);
-
-    let resources_id = {
-        let page_dict = dest_doc
-            .get_object(page_id)
-            .map_err(lopdf_err_to_io)?
-            .as_dict()
-            .map_err(|_| PdfMergeError::new("Page object is not a dictionary"))?;
-        let resources_obj = page_dict.get(b"Resources").cloned();
-
-        let (id, needs_update) = match resources_obj {
-            Ok(Object::Reference(id)) => (id, false),
-            Ok(Object::Dictionary(dict)) => (dest_doc.add_object(dict), true),
-            Ok(v) => (dest_doc.add_object(v), true),
-            Err(_) => {
-                let new_dict_id = dest_doc.add_object(dictionary! {});
-                (new_dict_id, true)
-            }
-        };
-
-        if needs_update {
-            let page_dict_mut = dest_doc
-                .get_object_mut(page_id)
-                .map_err(lopdf_err_to_io)?
-                .as_dict_mut()
-                .map_err(|_| PdfMergeError::new("Page object is not a dictionary"))?;
-            page_dict_mut.set(b"Resources", Object::Reference(id));
-        }
-        id
-    };
-
-    {
-        let font_dict_id = {
-            let resources_dict = dest_doc
-                .get_object(resources_id)
-                .map_err(lopdf_err_to_io)?
-                .as_dict()
-                .map_err(|_|
-                    PdfMergeError::new("Resources object is not a dictionary")
-                )?;
-            let font_obj = resources_dict.get(b"Font").cloned();
-
-            let (id, needs_update) = match font_obj {
-                Ok(Object::Reference(id)) => (id, false),
-                Ok(Object::Dictionary(dict)) => (dest_doc.add_object(dict), true),
-                Ok(v) => (dest_doc.add_object(v), true),
-                Err(_) => {
-                    let new_dict_id = dest_doc.add_object(dictionary! {});
-                    (new_dict_id, true)
-                }
-            };
-
-            if needs_update {
-                let resources_dict_mut = dest_doc
-                    .get_object_mut(resources_id)
-                    .map_err(lopdf_err_to_io)?
-                    .as_dict_mut()
-                    .map_err(|_|
-                        PdfMergeError::new("Resources object is not a dictionary")
-                    )?;
-                resources_dict_mut.set(b"Font", Object::Reference(id));
-            }
-            id
-        };
-
-        let font_dict_mut = dest_doc
-            .get_object_mut(font_dict_id)
-            .map_err(lopdf_err_to_io)?
-            .as_dict_mut()
-            .map_err(|_| PdfMergeError::new("Font dictionary is not a dictionary"))?;
-        font_dict_mut.set(font_key.as_bytes().to_vec(), Object::Reference(font_id));
-    }
+    let font_key = add_font_info(dest_doc, page_id, font_data, font_name)?;
+    println!("Font key = {font_key}");
 
     let content = Content {
         operations: vec![
+            Operation::new("rg", vec![0.into(), 0.0.into(), 0.51.into()]),
             Operation::new("BT", vec![]),
+            Operation::new("Tr", vec![0.into()]),
             Operation::new("Tf", vec![
                 Object::Name(font_key.as_bytes().to_vec()),
                 font_size.into(),
@@ -440,19 +265,19 @@ pub fn add_text(
             Operation::new("ET", vec![]),
         ],
     };
-    let content_stream = Stream::new(dictionary! {}, content.encode().map_err(lopdf_err_to_io)?);
+    println!("Content={content:?}");
+    let content_stream = Stream::new(dictionary! {}, content.encode()?);
     let content_id = dest_doc.add_object(content_stream);
 
     {
         let page_dict = dest_doc
-            .get_object_mut(page_id)
-            .map_err(lopdf_err_to_io)?
+            .get_object_mut(page_id)?
             .as_dict_mut()
             .or_else(|_| Err(PdfMergeError::new("Page object is not a dictionary")))?;
 
         if let Ok(contents) = page_dict.get_mut(b"Contents") {
             match contents {
-                Object::Array(ref mut arr) => arr.push(Object::Reference(content_id)),
+                Object::Array(ref mut arr) => { arr.insert(0, Object::Reference(content_id)); println!("Added Contents to Array!"); },
                 Object::Reference(id) => {
                     let old_id = *id;
                     *contents =
@@ -463,11 +288,74 @@ pub fn add_text(
                 }
             }
         } else {
-            page_dict.set(b"Contents", Object::Reference(content_id));
+            page_dict.set(b"Contents", Object::Array(vec![Object::Reference(content_id)]));
         }
     }
 
     Ok(())
+}
+
+fn add_font_info(dest_doc: &mut Document, page_id: (u32, u16), font_data: &[u8], font_name: &str) -> Result<String> {
+    if font_data.len() == 1 && font_data[0] != '@' as u8 {
+        return Ok(format!("F{}", font_data[0]));
+    }
+
+    let font_dict = dictionary! {
+        "Type" => "Font",
+        "Subtype" => "Type1",
+        "BaseFont" => if font_data[0] == ('@' as u8) { font_name[1..].to_string() } else { font_name.to_string() },
+    };
+    let font_id = dest_doc.add_object(font_dict);
+    let font_key =format!("F{}", font_id.0);
+    let fn_add_font_to_fonts_dict = |dict: &mut Dictionary| { dict.set(font_key.as_bytes(), Object::Reference(font_id)); };
+
+    let fn_add_fonts_to_resources_and_add_font = |resources_dict: &mut Dictionary| -> Result<Option<ObjectId>> {
+        let fonts_obj = resources_dict.get_mut(b"Font");
+        let fonts_id = match fonts_obj {
+            Ok(Object::Reference(id_fonts)) => Some(*id_fonts),
+            Ok(Object::Dictionary(dict_fonts)) => { fn_add_font_to_fonts_dict(dict_fonts); None }
+            Ok(_) => { return Err(PdfMergeError::new("/Font key of Resource not a Reference nor a Dictionary!")); }
+            Err(_) => {
+                let mut dict_fonts = dictionary! { };
+                fn_add_font_to_fonts_dict(&mut dict_fonts);
+                resources_dict.set(b"Font",Object::Dictionary(dict_fonts));
+                None
+            }
+        };
+        Ok(fonts_id)
+    };
+
+    let page_dict = dest_doc
+        .get_object_mut(page_id)?
+        .as_dict_mut()
+        .map_err(|_| PdfMergeError::new("Page object is not a dictionary"))?;
+
+    let resources_obj = page_dict.get_mut(b"Resources");
+    let (mut fonts_id, resources_dict_id) = match resources_obj {
+        Ok(Object::Reference(id_resources)) => (None, Some(*id_resources)),
+        Ok(Object::Dictionary(dict_resources)) => (fn_add_fonts_to_resources_and_add_font(dict_resources)?, None),
+        Ok(_) => { return Err(PdfMergeError::new("/Resource key of page not a Reference nor a Dictionary!")); }
+        Err(_) => {
+            let mut dict_resources = dictionary! { };
+            let fonts_id = fn_add_fonts_to_resources_and_add_font(&mut dict_resources)?;
+            page_dict.set(b"Resources", Object::Dictionary(dict_resources));
+            (fonts_id, None)
+        }
+    };
+    assert!(fonts_id.is_none() || resources_dict_id.is_none());  // Only one of these two is ever set, but both can be None
+
+    if let Some(resources_dict_id) = resources_dict_id {
+        let resources_dict = dest_doc.get_object_mut(resources_dict_id)?.as_dict_mut()?;
+        assert!(fonts_id.is_none());       // If we entered this branch, then fonts_id should not be set yet!
+        fonts_id = fn_add_fonts_to_resources_and_add_font(resources_dict)?;
+    }
+
+    if let Some(fonts_id) = fonts_id {
+        let fonts_dict = dest_doc.get_object_mut(fonts_id)?.as_dict_mut()?;
+        fn_add_font_to_fonts_dict(fonts_dict);
+    }
+
+    Ok(font_key)
 }
 
 /// Creates a new, blank page with the specified dimensions and adds it to the document.
@@ -485,69 +373,30 @@ pub fn create_blank_page(dest_doc: &mut Document, width: f32, height: f32) -> Re
     let page_id = dest_doc.add_object(page);
 
     let pages_id = dest_doc
-        .catalog()
-        .map_err(lopdf_err_to_io)?
+        .catalog()?
         .get(b"Pages")
         .and_then(Object::as_reference)
         .map_err(|_| PdfMergeError::new("Pages object not found in destination document"))?;
 
     // Add page to Kids array
-    let kids_obj = {
-        let pages = dest_doc
-            .get_object(pages_id)
-            .map_err(lopdf_err_to_io)?
-            .as_dict()
-            .map_err(|_| PdfMergeError::new("Pages object is not a dictionary"))?;
-        pages.get(b"Kids").cloned()
-            .map_err(|_| PdfMergeError::new("Kids array not found in Pages dictionary"))?
-    };
-
-    match kids_obj {
-        Object::Array(mut kids) => {
-            kids.push(page_id.into());
-            let pages = dest_doc
-                .get_object_mut(pages_id)
-                .map_err(lopdf_err_to_io)?
-                .as_dict_mut()
-                .map_err(|_| PdfMergeError::new("Pages object is not a dictionary"))?;
-            pages.set(b"Kids", Object::Array(kids));
-        }
-        Object::Reference(kids_id) => {
-            let kids = dest_doc
-                .get_object_mut(kids_id)
-                .map_err(lopdf_err_to_io)?
-                .as_array_mut()
-                .map_err(|_| PdfMergeError::new("Kids object is not an array"))?;
-            kids.push(page_id.into());
-        }
-        _ => {
-            return Err(PdfMergeError::new("Kids object is not an array or a reference"));
-        }
-    }
+    let pages = dest_doc
+        .get_object_mut(pages_id)?
+        .as_dict_mut()
+        .map_err(|_| PdfMergeError::new("Pages object is not a dictionary"))?;
+    let kids = pages.get_mut(b"Kids")
+        .map_err(|_| PdfMergeError::new("Kids array not found in Pages dictionary"))?
+        .as_array_mut()?;
+    kids.push(page_id.into());
+    // Update page count
+    let new_page_count = kids.len();
+    pages.set(b"Count", Object::Integer(new_page_count as i64));
 
     // Set Parent for the new page
-    {
-        let page_object = dest_doc
-            .get_object_mut(page_id)
-            .map_err(lopdf_err_to_io)?
-            .as_dict_mut()
-            .map_err(|_| PdfMergeError::new("Page object is not a dictionary"))?;
-        page_object.set(b"Parent".to_vec(), Object::Reference(pages_id));
-    }
-
-    // Update page count
-    {
-        let pages = dest_doc
-            .get_object_mut(pages_id)
-            .map_err(lopdf_err_to_io)?
-            .as_dict_mut()
-            .map_err(|_| PdfMergeError::new("Pages object is not a dictionary"))?;
-        let count = pages
-            .get(b"Count")
-            .and_then(Object::as_i64)
-            .map_err(|_| PdfMergeError::new("Page count (`Count`) is missing or not an integer"))?;
-        pages.set(b"Count".to_vec(), Object::Integer(count + 1));
-    }
+    let page_object = dest_doc
+        .get_object_mut(page_id)?
+        .as_dict_mut()
+        .map_err(|_| PdfMergeError::new("Page object is not a dictionary"))?;
+    page_object.set(b"Parent", Object::Reference(pages_id));
 
     Ok(page_id)
 }

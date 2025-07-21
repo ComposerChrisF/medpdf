@@ -4,19 +4,18 @@ extern crate lopdf;
 
 use clap::{Parser, ValueEnum};
 use font_kit::source::SystemSource;
-use lopdf::{Document, Object};
+use lopdf::{Document};
 use std::collections::HashMap;
-use std::error::Error;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
+mod error;
 mod parsing;
 mod pdf_helpers;
 use parsing::parse_page_spec;
 
-// --- Command-Line Argument Specification Structs ---
-// (These are the same as the user provided spec, with Clone derived)
+use crate::error::PdfMergeError;
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 enum Unit { In, Mm }
@@ -105,59 +104,47 @@ impl FromStr for OverlaySpec {
 }
 
 #[derive(Debug, Clone)]
-struct PadToEvenSpec {
-    file: PathBuf,
-    page: u16,
+struct PadToSpec {
+    pages: u16,
 }
 
-impl FromStr for PadToEvenSpec {
+impl FromStr for PadToSpec {
     type Err = String;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut file = None;
-        let mut page = None;
-        for part in s.split(',') {
-            let kv: Vec<&str> = part.splitn(2, '=').collect();
-            if kv.len() != 2 { return Err(format!("Invalid key-value pair: '{}'.", part)); }
-            let key = kv[0].trim();
-            let value = kv[1].trim();
-            match key {
-                "file" => file = Some(PathBuf::from(value)),
-                "page" => page = Some(value.parse::<u16>().map_err(|e| e.to_string())?),
-                _ => return Err(format!("Unknown pad-to-even key: '{}'", key)),
-            }
-        }
-        Ok(PadToEvenSpec {
-            file: file.ok_or("pad-to-even 'file' is required")?,
-            page: page.ok_or("pad-to-even 'page' is required")?,
-        })
+        let pages = s.parse::<u16>().map_err(|e| e.to_string())?;
+        Ok(PadToSpec { pages })
     }
 }
 
+// FUTURE: Turn page into a page_range_spec, and use that to determine how many blank pages to 
+// add.  NOTE, we'd have to decide what to do when we only need to add 1 page, but page_range_spec
+// specifies more (just the first "n", or should it be the last "n", or a mode spec?).  If
+// added, note that an unspecified page_range_spec probably should default to "all".
 #[derive(Debug, Clone)]
-struct PadTo4Spec {
+struct PadFileSpec {
     file: PathBuf,
     page: u16,
 }
 
-impl FromStr for PadTo4Spec {
+impl FromStr for PadFileSpec {
     type Err = String;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut file = None;
         let mut page = None;
         for part in s.split(',') {
             let kv: Vec<&str> = part.splitn(2, '=').collect();
-            if kv.len() != 2 { return Err(format!("Invalid key-value pair: '{}'.", part)); }
+            if kv.len() != 2 { return Err(format!("Invalid key-value pair: '{part}'.")); }
             let key = kv[0].trim();
             let value = kv[1].trim();
             match key {
                 "file" => file = Some(PathBuf::from(value)),
                 "page" => page = Some(value.parse::<u16>().map_err(|e| e.to_string())?),
-                _ => return Err(format!("Unknown pad-to-multiple-of-4 key: '{}'", key)),
+                _ => return Err(format!("Unknown pad-file key: '{key}'")),
             }
         }
-        Ok(PadTo4Spec {
-            file: file.ok_or("pad-to-multiple-of-4 'file' is required")?,
-            page: page.ok_or("pad-to-multiple-of-4 'page' is required")?,
+        Ok(PadFileSpec {
+            file: file.ok_or("pad-file 'file' is required")?,
+            page: page.unwrap_or(1),
         })
     }
 }
@@ -175,17 +162,17 @@ struct Args {
     watermark: Vec<WatermarkSpec>,
     #[arg(long, action = clap::ArgAction::Append)]
     overlay: Vec<OverlaySpec>,
-    #[arg(long, group = "padding")]
-    pad_to_even: Option<PadToEvenSpec>,
-    #[arg(long, group = "padding")]
-    pad_to_multiple_of_4: Option<PadTo4Spec>,
+    #[arg(long)]
+    pad_to: Option<PadToSpec>,
+    #[arg(long)]
+    pad_file: Option<PadFileSpec>,
     #[arg(long, value_name = "PASSWORD")]
     user_password: Option<String>,
     #[arg(long, value_name = "PASSWORD")]
     owner_password: Option<String>,
 }
 
-fn main() -> Result<(), pdf_helpers::PdfMergeError> {
+fn main() -> Result<(), PdfMergeError> {
     let args = Args::parse();
     if args.inputs.len() % 2 != 0 {
         return Err("Input arguments must be in pairs of file paths and page specifications.".into());
@@ -214,38 +201,6 @@ fn main() -> Result<(), pdf_helpers::PdfMergeError> {
         let page_spec = &input_chunk[1];
         println!("Processing '{}' with pages '{}'...", source_path, page_spec);
         let source_doc = Document::load(source_path)?;
-        //let trailer = &source_doc.trailer;
-        //println!("Trailer:");
-        //for (key, value) in trailer.iter() {
-        //    println!("{} => {value:?}", String::from_utf8_lossy(key));
-        //}
-//
-        //let root_ref = match trailer.get(b"Root") {
-        //    Ok(r) => r,
-        //    Err(e) => { println!("No Root found in Trailer: {e:?}"); return Ok(()); } 
-        //};
-        //println!("Got root_ref: {root_ref:?}");
-//
-        //let root_id = match root_ref.as_reference() {
-        //    Ok(v) => v,
-        //    Err(e) => { println!("Root not a reference! root_ref: {root_ref:?}; err={e:?}"); return Ok(()); }
-        //};
-        //println!("Got root_id: {root_id:?}");
-//
-        //let root = match source_doc.get_object(root_id) {
-        //    Ok(v) => v,
-        //    Err(e) => { println!("root_id object not found! root_id: {root_id:?}; err={e:?}"); return Ok(()); }
-        //};
-        //println!("Got root: {root:?}");
-        //
-        //let catalog = match root.as_dict() {
-        //    Ok(c) => c,
-        //    Err(e) => { println!("No Root not a Dictionary: root={root:?}; err = {e:?}"); return Ok(()); }
-        //};
-        //println!("Got catalog: {catalog:?}:");
-        //for (key, value) in catalog.iter() {
-        //    println!("{} => {value:?}", String::from_utf8_lossy(key));
-        //}
         let source_page_count = source_doc.page_iter().count();
         let page_numbers_to_import = parse_page_spec(page_spec, source_page_count as u32)?;
         println!("page_numbers_to_import: {page_numbers_to_import:?}; source_page_count: {source_page_count}");
@@ -274,12 +229,19 @@ fn main() -> Result<(), pdf_helpers::PdfMergeError> {
     for spec in args.watermark.iter() {
         println!("Applying watermark '{}'", spec.text);
         let font_path = find_font(&spec.font)?;
+        println!("Found font!!!");
         let font_data = match font_cache.get(&font_path) {
             Some(data) => data.clone(),
             None => {
-                let data = fs::read(&font_path)?;
-                font_cache.insert(font_path.clone(), data.clone());
-                data
+                if let Some(number) = parse_font_path_a_number(&font_path) {
+                    vec![number]
+                } else if font_path.to_string_lossy().starts_with("@") {
+                    vec!['@' as u8]
+                } else {
+                    let data = fs::read(&font_path)?;
+                    font_cache.insert(font_path.clone(), data.clone());
+                    data
+                }
             }
         };
         let font_name = font_path.file_stem().unwrap().to_str().unwrap();
@@ -298,30 +260,27 @@ fn main() -> Result<(), pdf_helpers::PdfMergeError> {
     let current_page_count = dest_doc.get_pages().len();
     println!("Current page count: {}", current_page_count);
 
-    if let Some(spec) = &args.pad_to_even {
-        if current_page_count > 0 && current_page_count % 2 != 0 {
-            println!("   -> Padding to make page count even.");
-            let pad_doc = Document::load(&spec.file)?;
-            pdf_helpers::copy_page(&mut dest_doc, &pad_doc, spec.page.into())?;
-        }
-    }
-
-    if let Some(spec) = &args.pad_to_multiple_of_4 {
+    if let Some(spec) = &args.pad_to {
+        let pages = spec.pages as usize;
         if current_page_count > 0 {
-            let pages_to_add = (4 - (current_page_count % 4)) % 4;
+            let pages_to_add = (pages - (current_page_count % pages)) % pages;
             if pages_to_add > 0 {
-                println!("   -> Padding with {} page(s) to reach a multiple of 4.", pages_to_add);
+                println!("   -> Padding with {pages_to_add} page(s) to reach a multiple of {pages}.");
                 let last_page_id = *dest_page_ids.last().unwrap();
-                let last_page = dest_doc.get_object(last_page_id).unwrap().as_dict().unwrap();
-                let media_box = last_page.get(b"MediaBox").unwrap().as_array().unwrap();
-                let width = media_box[2].as_f32().unwrap();
-                let height = media_box[3].as_f32().unwrap();
+                let last_page = dest_doc.get_object(last_page_id)?.as_dict()?;
+                let media_box = last_page.get(b"MediaBox")?.as_array()?;
+                let width = media_box[2].as_f32()?;
+                let height = media_box[3].as_f32()?;
 
                 for _ in 0..(pages_to_add - 1) {
                     pdf_helpers::create_blank_page(&mut dest_doc, width, height)?;
                 }
-                let pad_doc = Document::load(&spec.file)?;
-                pdf_helpers::copy_page(&mut dest_doc, &pad_doc, spec.page.into())?;
+                if let Some(spec) = &args.pad_file {
+                    let pad_doc = Document::load(&spec.file)?;
+                    pdf_helpers::copy_page(&mut dest_doc, &pad_doc, spec.page.into())?;
+                } else {
+                    pdf_helpers::create_blank_page(&mut dest_doc, width, height)?;
+                }
             }
         }
     }
@@ -342,14 +301,38 @@ fn main() -> Result<(), pdf_helpers::PdfMergeError> {
     //    save_options.set_user_password(args.user_password.as_deref().map(|s| s.as_bytes().to_vec()));
     //    save_options.set_owner_password(args.owner_password.as_deref().map(|s| s.as_bytes().to_vec()));
     //}
+    dest_doc.compress();
     dest_doc.save(args.output)?;//.save_with_options(&args.output, &save_options)?;
     
     println!("✅ Operation successful!");
     Ok(())
 }
 
-fn find_font(font_path: &Path) -> Result<PathBuf, pdf_helpers::PdfMergeError> {
+fn parse_font_path_a_number(font_path: &Path) -> Option<u8> {
+    font_path.to_string_lossy().parse::<u8>().ok()
+}
+
+fn find_font(font_path: &Path) -> Result<PathBuf, PdfMergeError> {
+    if let Some(_) = parse_font_path_a_number(&font_path) {
+        // This is a short-hand to use a font already in this document, although not necessarily stable!
+        return Ok(font_path.into())
+    }
+    if font_path.to_string_lossy().starts_with("@") {
+        // This is a "named" font--we special case text starting with '@' to be a valid font name
+        // we can reference without embedding the font itself.  We will see the '@' in later code
+        // and remove it, and reference this font by this given name (without the ampersand), and
+        // without embedding the font.
+        //
+        // NOTE: This mechanism is primarily designed to reference the "standard" PDF fonts (e.g.
+        // "Helvetica", "Courier", etc.) for debugging.  But it might be usable to reference fonts 
+        // already install on a user's system.
+        //
+        // NOTE that for PDF 2.0 format, ther are *NO* built-in fonts (like "Helvetica", "Courier",
+        // etc.), so all fonts are supposed to be embedded.
+        return Ok(font_path.to_path_buf());
+    }
     if font_path.exists() {
+        // Full path to font, no need to search
         return Ok(font_path.to_path_buf());
     }
     // Search system fonts

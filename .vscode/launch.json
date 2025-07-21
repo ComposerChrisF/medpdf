@@ -1,0 +1,57 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'pdf_merger'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=pdf_merger",
+                    "--package=pdf_merger"
+                ],
+                "filter": {
+                    "name": "pdf_merger",
+                    "kind": "bin"
+                }
+            },
+            "args": [
+                "-o",
+                "out.pdf",
+                "in1.pdf",
+                "all",
+                "in2.pdf",
+                "all",
+                "--watermark",
+                "text=Perusal Score saljdflas SJAKLHSJHJF SHKHLQWGIHHJGKGSF,font=@Courier,size=24,x=2,y=3,units=in,pages=ALL",
+                "--pad-to",
+                "4"
+            ],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'pdf_merger'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=pdf_merger",
+                    "--package=pdf_merger"
+                ],
+                "filter": {
+                    "name": "pdf_merger",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        }
+    ]
+}
