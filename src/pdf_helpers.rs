@@ -147,6 +147,11 @@ pub fn overlay_page(
             .map_err(|_| PdfMergeError::new("XObject is not a dictionary"))?;
         xobject_dict.set(b"Type", Object::Name(b"XObject".to_vec()));
         xobject_dict.set(b"Subtype", Object::Name(b"Form".to_vec()));
+        xobject_dict.set(b"BBox", Object::Array(vec![0.into(), 0.into(), 612.into(), 792.into()]));
+        xobject_dict.set(b"Matrix", Object::Array(vec![1.into(), 0.into(), 0.into(), (-1).into(), 0.into(), 0.into()]));
+        xobject_dict.set(b"Rotate", Object::Integer(0.into()));
+        xobject_dict.remove(b"MediaBox");
+        xobject_dict.remove(b"CropBox");
     }
 
     let xobject_name = format!("Ov{}", new_xobject_id.0);
@@ -210,8 +215,13 @@ pub fn overlay_page(
     }
 
     {
-        let content_op = Operation::new("Do", vec![Object::Name(xobject_name.as_bytes().to_vec())]);
-        let content = Content { operations: vec![Operation::new("q", vec![]), content_op, Operation::new("Q", vec![])] };
+        let content = Content { operations: vec![
+            //Operation::new("m", vec![0.into(), 0.into()]),
+            Operation::new("cm", vec![1.333.into(), 0.into(), 0.into(), 1.333.into(), 0.into(), (792.0 * 1.3333).into()]),
+            Operation::new("q", vec![]),
+            Operation::new("Do", vec![Object::Name(xobject_name.into())]), 
+            Operation::new("Q", vec![])
+        ] };
         let content_stream = Stream::new(dictionary! {}, content.encode()?);
         let content_id = dest_doc.add_object(content_stream);
 
