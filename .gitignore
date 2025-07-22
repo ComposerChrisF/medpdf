@@ -1,4 +1,4 @@
 /target
-in1.pdf
-in2.pdf
-out.pdf
+in*.pdf
+out*.pdf
+*.docx.pdf
