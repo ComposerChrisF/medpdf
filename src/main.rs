@@ -13,6 +13,10 @@ use std::str::FromStr;
 mod error;
 mod parsing;
 mod pdf_helpers;
+mod pdf_copy_page;
+mod pdf_blank_page;
+mod pdf_watermark;
+mod pdf_overlay;
 use parsing::parse_page_spec;
 
 use crate::error::PdfMergeError;
@@ -207,7 +211,7 @@ fn main() -> Result<(), PdfMergeError> {
         
         for page_num in page_numbers_to_import {
             println!("Copying page: {page_num} from {source_path}");
-            let new_page_id = pdf_helpers::copy_page(&mut dest_doc, &source_doc, page_num)?;
+            let new_page_id = pdf_copy_page::copy_page(&mut dest_doc, &source_doc, page_num)?;
             dest_page_ids.push(new_page_id);
         }
     }
@@ -220,7 +224,7 @@ fn main() -> Result<(), PdfMergeError> {
         let target_page_indices = parse_page_spec(&spec.pages, dest_page_ids.len() as u32)?;
         for page_index in target_page_indices {
             let dest_page_id = dest_page_ids[(page_index - 1) as usize];
-            pdf_helpers::overlay_page(&mut dest_doc, dest_page_id, &overlay_doc, spec.from_page.into())?;
+            pdf_overlay::overlay_page(&mut dest_doc, dest_page_id, &overlay_doc, spec.from_page.into())?;
         }
     }
 
@@ -251,7 +255,7 @@ fn main() -> Result<(), PdfMergeError> {
 
         for page_index in target_page_indices {
             let page_id = dest_page_ids[(page_index - 1) as usize];
-            pdf_helpers::add_text(&mut dest_doc, page_id, &spec.text, &font_data, font_name, spec.size, x_points as i32, y_points as i32)?;
+            pdf_watermark::add_text(&mut dest_doc, page_id, &spec.text, &font_data, font_name, spec.size, x_points as i32, y_points as i32)?;
         }
     }
     
@@ -273,13 +277,13 @@ fn main() -> Result<(), PdfMergeError> {
                 let height = media_box[3].as_f32()?;
 
                 for _ in 0..(pages_to_add - 1) {
-                    pdf_helpers::create_blank_page(&mut dest_doc, width, height)?;
+                    pdf_blank_page::create_blank_page(&mut dest_doc, width, height)?;
                 }
                 if let Some(spec) = &args.pad_file {
                     let pad_doc = Document::load(&spec.file)?;
-                    pdf_helpers::copy_page(&mut dest_doc, &pad_doc, spec.page.into())?;
+                    pdf_copy_page::copy_page(&mut dest_doc, &pad_doc, spec.page.into())?;
                 } else {
-                    pdf_helpers::create_blank_page(&mut dest_doc, width, height)?;
+                    pdf_blank_page::create_blank_page(&mut dest_doc, width, height)?;
                 }
             }
         }
