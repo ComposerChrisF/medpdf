@@ -1,17 +1,14 @@
-// src/main.rs
 #[macro_use]
 extern crate lopdf;
 
 use clap::{Parser, ValueEnum};
-use font_kit::source::SystemSource;
-use lopdf::{Document};
-use std::collections::HashMap;
-use std::fs;
-use std::path::{Path, PathBuf};
+use lopdf::Document;
+use std::path::PathBuf;
 use std::str::FromStr;
 
 mod error;
 mod parsing;
+mod pdf_font;
 mod pdf_helpers;
 mod pdf_copy_page;
 mod pdf_blank_page;
@@ -20,9 +17,9 @@ mod pdf_overlay;
 use parsing::parse_page_spec;
 
 use crate::error::PdfMergeError;
+use crate::pdf_font::{find_font, FontCache};
+use crate::pdf_helpers::{Unit, KEY_MEDIA_BOX};
 
-#[derive(Debug, Clone, Copy, ValueEnum)]
-enum Unit { In, Mm }
 
 
 #[derive(Debug, Clone)]
@@ -58,6 +55,11 @@ impl FromStr for WatermarkSpec {
                 "x" => x = Some(value.parse::<f32>().map_err(|_| format!("Invalid x value: '{}'", value))?),
                 "y" => y = Some(value.parse::<f32>().map_err(|_| format!("Invalid y value: '{}'", value))?),
                 "units" => units = Some(Unit::from_str(value, true).map_err(|e| e.to_string())?),
+                // FUTURE: Move units into "x" and "y", e.g. "x=1.25in,y=3pt".  Support pt, in, mm, cm, % of page(?)
+                // FUTURE: Add centering options: LCR for x axis (L default), TCBb for y axis (b=baseline default)
+                // FUTURE: Add color support (specify kind, too), e.g. "0,0,0" is RGB black, "0,0,0,1" is CMYK black, "0" is gray black.
+                // FUTURE: Add transparancy (e.g. "alpha=0.5")
+                // FUTURE: Add rotation (in degrees, about x,y origina after LCR/TCBb layout)
                 "pages" => pages = Some(value.to_string()),
                 _ => return Err(format!("Unknown watermark key: '{}'", key)),
             }
@@ -77,8 +79,8 @@ impl FromStr for WatermarkSpec {
 #[derive(Debug, Clone)]
 struct OverlaySpec {
     file: PathBuf,
-    from_page: u16,
-    pages: String,
+    src_page: u16,
+    target_pages: String,
 }
 
 impl FromStr for OverlaySpec {
@@ -94,15 +96,15 @@ impl FromStr for OverlaySpec {
             let value = kv[1].trim();
             match key {
                 "file" => file = Some(PathBuf::from(value)),
-                "from_page" => from_page = Some(value.parse::<u16>().map_err(|_| format!("Invalid from_page value: '{}'", value))?),
-                "pages" => pages = Some(value.to_string()),
+                "src_page" => from_page = Some(value.parse::<u16>().map_err(|_| format!("Invalid src_page value: '{}'", value))?),
+                "target_pages" => pages = Some(value.to_string()),
                 _ => return Err(format!("Unknown overlay key: '{}'", key)),
             }
         }
         Ok(OverlaySpec {
             file: file.ok_or("Overlay 'file' is required")?,
-            from_page: from_page.ok_or("Overlay 'from_page' is required")?,
-            pages: pages.unwrap_or_else(|| "all".to_string()),
+            src_page: from_page.ok_or("Overlay 'src_page' is required")?,
+            target_pages: pages.unwrap_or_else(|| "all".to_string()),
         })
     }
 }
@@ -169,7 +171,7 @@ struct Args {
     #[arg(long)]
     pad_to: Option<PadToSpec>,
     #[arg(long)]
-    pad_file: Option<PadFileSpec>,
+    pad_last_page_file: Option<PadFileSpec>,
     #[arg(long, value_name = "PASSWORD")]
     user_password: Option<String>,
     #[arg(long, value_name = "PASSWORD")]
@@ -196,7 +198,6 @@ fn main() -> Result<(), PdfMergeError> {
     });
     dest_doc.trailer.set("Root", catalog_id);
     let mut dest_page_ids: Vec<lopdf::ObjectId> = vec![];
-    let mut font_cache: HashMap<PathBuf, Vec<u8>> = HashMap::new();
 
     // --- Phase 1: Merge Pages ---
     println!("\n--- Merging Pages ---");
@@ -221,48 +222,35 @@ fn main() -> Result<(), PdfMergeError> {
     for spec in args.overlay.iter() {
         println!("Applying overlay from {}", spec.file.display());
         let overlay_doc = Document::load(&spec.file)?;
-        let target_page_indices = parse_page_spec(&spec.pages, dest_page_ids.len() as u32)?;
+        let target_page_indices = parse_page_spec(&spec.target_pages, dest_page_ids.len() as u32)?;
         for page_index in target_page_indices {
             let dest_page_id = dest_page_ids[(page_index - 1) as usize];
-            pdf_overlay::overlay_page(&mut dest_doc, dest_page_id, &overlay_doc, spec.from_page.into())?;
+            pdf_overlay::overlay_page(&mut dest_doc, dest_page_id, &overlay_doc, spec.src_page.into())?;
         }
     }
 
     // --- Phase 3: Apply Watermarks ---
     println!("\n--- Applying Watermarks ---");
+    let mut font_cache = FontCache::new();
     for spec in args.watermark.iter() {
-        println!("Applying watermark '{}'", spec.text);
+        // FUTURE: Encapsulate font_path, font_data, font_name all within Font struct; Cache becomes FontManager
         let font_path = find_font(&spec.font)?;
-        println!("Found font!!!");
-        let font_data = match font_cache.get(&font_path) {
-            Some(data) => data.clone(),
-            None => {
-                if let Some(number) = parse_font_path_a_number(&font_path) {
-                    vec![number]
-                } else if font_path.to_string_lossy().starts_with("@") {
-                    vec!['@' as u8]
-                } else {
-                    let data = fs::read(&font_path)?;
-                    font_cache.insert(font_path.clone(), data.clone());
-                    data
-                }
-            }
-        };
-        let font_name = font_path.file_stem().unwrap().to_str().unwrap();
+        let font_data = font_cache.get_data(&font_path)?;
+        let font_name = font_path.get_name();
         let target_page_indices = parse_page_spec(&spec.pages, dest_page_ids.len() as u32)?;
-        let x_points = convert_to_points(spec.x, spec.units);
-        let y_points = convert_to_points(spec.y, spec.units);
+        let x_points = spec.units.to_points(spec.x);
+        let y_points = spec.units.to_points(spec.y);
 
+        println!("Applying watermark '{}' to pages '{target_page_indices:?}'", spec.text);
         for page_index in target_page_indices {
             let page_id = dest_page_ids[(page_index - 1) as usize];
-            pdf_watermark::add_text(&mut dest_doc, page_id, &spec.text, &font_data, font_name, spec.size, x_points as i32, y_points as i32)?;
+            pdf_watermark::add_text(&mut dest_doc, page_id, &spec.text, &font_data, &font_name, spec.size, x_points as i32, y_points as i32)?;
         }
     }
     
     // --- Phase 4: Padding ---
     println!("\n--- Checking for Padding ---");
     let current_page_count = dest_doc.get_pages().len();
-    println!("Current page count: {}", current_page_count);
 
     if let Some(spec) = &args.pad_to {
         let pages = spec.pages as usize;
@@ -272,14 +260,14 @@ fn main() -> Result<(), PdfMergeError> {
                 println!("   -> Padding with {pages_to_add} page(s) to reach a multiple of {pages}.");
                 let last_page_id = *dest_page_ids.last().unwrap();
                 let last_page = dest_doc.get_object(last_page_id)?.as_dict()?;
-                let media_box = last_page.get(b"MediaBox")?.as_array()?;
+                let media_box = last_page.get(KEY_MEDIA_BOX)?.as_array()?;
                 let width = media_box[2].as_f32()?;
                 let height = media_box[3].as_f32()?;
 
                 for _ in 0..(pages_to_add - 1) {
                     pdf_blank_page::create_blank_page(&mut dest_doc, width, height)?;
                 }
-                if let Some(spec) = &args.pad_file {
+                if let Some(spec) = &args.pad_last_page_file {
                     let pad_doc = Document::load(&spec.file)?;
                     pdf_copy_page::copy_page(&mut dest_doc, &pad_doc, spec.page.into())?;
                 } else {
@@ -310,55 +298,4 @@ fn main() -> Result<(), PdfMergeError> {
     
     println!("✅ Operation successful!");
     Ok(())
-}
-
-fn parse_font_path_a_number(font_path: &Path) -> Option<u8> {
-    font_path.to_string_lossy().parse::<u8>().ok()
-}
-
-fn find_font(font_path: &Path) -> Result<PathBuf, PdfMergeError> {
-    if let Some(_) = parse_font_path_a_number(&font_path) {
-        // This is a short-hand to use a font already in this document, although not necessarily stable!
-        return Ok(font_path.into())
-    }
-    if font_path.to_string_lossy().starts_with("@") {
-        // This is a "named" font--we special case text starting with '@' to be a valid font name
-        // we can reference without embedding the font itself.  We will see the '@' in later code
-        // and remove it, and reference this font by this given name (without the ampersand), and
-        // without embedding the font.
-        //
-        // NOTE: This mechanism is primarily designed to reference the "standard" PDF fonts (e.g.
-        // "Helvetica", "Courier", etc.) for debugging.  But it might be usable to reference fonts 
-        // already install on a user's system.
-        //
-        // NOTE that for PDF 2.0 format, ther are *NO* built-in fonts (like "Helvetica", "Courier",
-        // etc.), so all fonts are supposed to be embedded.
-        return Ok(font_path.to_path_buf());
-    }
-    if font_path.exists() {
-        // Full path to font, no need to search
-        return Ok(font_path.to_path_buf());
-    }
-    // Search system fonts
-    let source = SystemSource::new();
-    let family_name = font_path.file_stem().unwrap().to_str().unwrap();
-    let properties = font_kit::properties::Properties::new();
-    let handle = source
-        .select_best_match(&[font_kit::family_name::FamilyName::Title(family_name.to_string())], &properties)?;
-        //.ok_or_else(|| format!("Font '{}' not found in CWD or system", family_name))?;
-
-    if let font_kit::handle::Handle::Path { path, .. } = handle {
-        Ok(path)
-    } else {
-        Err("In-memory fonts are not supported by this tool.".into())
-    }
-}
-
-fn convert_to_points(value: f32, units: Unit) -> f32 {
-    const POINTS_PER_INCH: f32 = 72.0;
-    const POINTS_PER_MM: f32 = POINTS_PER_INCH / 25.4;
-    match units {
-        Unit::In => value * POINTS_PER_INCH,
-        Unit::Mm => value * POINTS_PER_MM,
-    }
 }

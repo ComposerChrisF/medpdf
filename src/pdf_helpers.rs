@@ -1,7 +1,35 @@
+use clap::ValueEnum;
 use lopdf::{Document, Object, ObjectId, Stream, Dictionary};
 use std::collections::BTreeMap;
 use crate::error::{Result, PdfMergeError};
 
+
+pub const KEY_TYPE: &[u8] = b"Type";
+pub const KEY_PARENT: &[u8] = b"Parent";
+pub const KEY_PAGES: &[u8] = b"Pages";
+pub const KEY_PAGE: &[u8] = b"Page";
+pub const KEY_KIDS: &[u8] = b"Kids";
+pub const KEY_COUNT: &[u8] = b"Count";
+pub const KEY_RESOURCES: &[u8] = b"Resources";
+pub const KEY_CONTENTS: &[u8] = b"Contents";
+pub const KEY_FONT: &[u8] = b"Font";
+pub const KEY_MEDIA_BOX: &[u8] = b"MediaBox";
+
+
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum Unit { In, Mm }
+
+impl Unit {
+    pub fn to_points(&self, value: f32) -> f32 {
+        const POINTS_PER_INCH: f32 = 72.0;
+        const POINTS_PER_MM: f32 = POINTS_PER_INCH / 25.4;
+        match self {
+            Unit::In => value * POINTS_PER_INCH,
+            Unit::Mm => value * POINTS_PER_MM,
+        }
+    }
+}
 
 /// Gets the object ID of a page from a document.
 pub fn get_page_object_id_from_doc(doc: &Document, page_num: u32) -> Result<ObjectId> {
@@ -40,7 +68,7 @@ pub fn deep_copy_object(
         Object::Dictionary(source_dict) => {
             let mut dest_dict = Dictionary::new();
             for (key, value) in source_dict.iter() {
-                if key == b"Parent" { continue; }
+                if key == KEY_PARENT { continue; }
                 if let Object::Reference(id) = value {
                     dest_dict.set(key.clone(), Object::Reference(deep_copy_object_by_id(dest_doc, source_doc, *id, copied_objects)?));
                 } else {
