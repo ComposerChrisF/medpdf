@@ -1,6 +1,6 @@
 use lopdf::{Document, Object, ObjectId};
 use std::collections::{BTreeMap};
-use crate::{error::{PdfMergeError, Result}, pdf_helpers::{self, KEY_COUNT, KEY_KIDS, KEY_PAGES, KEY_PARENT}};
+use crate::{error::Result, pdf_helpers::{self, KEY_COUNT, KEY_KIDS, KEY_PAGES, KEY_PARENT}};
 
 
 /// Copies a page from a source document to the destination document.
@@ -19,22 +19,17 @@ pub fn copy_page(
     page.set(KEY_PARENT, Object::Reference(dest_pages_id));
 
     let dest_pages_id = dest_doc
-        .catalog_mut()?
-        .get_mut(KEY_PAGES)
-        .map_err(|_| PdfMergeError::new("Pages object not found in destination document"))?
-        .as_reference()
-        .map_err(|_| PdfMergeError::new("Pages object not a reference"))?;
+        .catalog()?
+        .get(KEY_PAGES)?
+        .as_reference()?;
     let dest_pages = dest_doc
         .get_object_mut(dest_pages_id)?
-        .as_dict_mut()
-        .map_err(|e| PdfMergeError::new(format!("Pages object is not a dictionary. e={e:?}")))?;
+        .as_dict_mut()?;
 
     let new_page_count = {
         let dest_kids = dest_pages
-            .get_mut(KEY_KIDS)
-            .map_err(|_| PdfMergeError::new("Kids array not found in Pages dictionary"))?
-            .as_array_mut()
-            .map_err(|_| PdfMergeError::new("Kids object is not an array"))?;
+            .get_mut(KEY_KIDS)?
+            .as_array_mut()?;
         dest_kids.push(Object::Reference(new_page_id));
         dest_kids.len()
     };

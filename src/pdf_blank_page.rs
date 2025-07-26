@@ -1,5 +1,5 @@
 use lopdf::{dictionary, Document, Object, ObjectId, Stream};
-use crate::{error::{PdfMergeError, Result}, pdf_helpers::{KEY_COUNT, KEY_KIDS, KEY_PAGES, KEY_PARENT}};
+use crate::{error::Result, pdf_helpers::{KEY_COUNT, KEY_KIDS, KEY_PAGES, KEY_PARENT}};
 
 
 
@@ -19,19 +19,18 @@ pub fn create_blank_page(dest_doc: &mut Document, width: f32, height: f32) -> Re
 
     let pages_id = dest_doc
         .catalog()?
-        .get(KEY_PAGES)
-        .and_then(Object::as_reference)
-        .map_err(|_| PdfMergeError::new("Pages object not found in destination document"))?;
+        .get(KEY_PAGES)?
+        .as_reference()?;
 
     // Add page to Kids array
     let pages = dest_doc
         .get_object_mut(pages_id)?
-        .as_dict_mut()
-        .map_err(|_| PdfMergeError::new("Pages object is not a dictionary"))?;
-    let kids = pages.get_mut(KEY_KIDS)
-        .map_err(|_| PdfMergeError::new("Kids array not found in Pages dictionary"))?
+        .as_dict_mut()?;
+    let kids = pages
+        .get_mut(KEY_KIDS)?
         .as_array_mut()?;
     kids.push(page_id.into());
+
     // Update page count
     let new_page_count = kids.len();
     pages.set(KEY_COUNT, Object::Integer(new_page_count as i64));
@@ -39,8 +38,7 @@ pub fn create_blank_page(dest_doc: &mut Document, width: f32, height: f32) -> Re
     // Set Parent for the new page
     let page_object = dest_doc
         .get_object_mut(page_id)?
-        .as_dict_mut()
-        .map_err(|_| PdfMergeError::new("Page object is not a dictionary"))?;
+        .as_dict_mut()?;
     page_object.set(KEY_PARENT, Object::Reference(pages_id));
 
     Ok(page_id)

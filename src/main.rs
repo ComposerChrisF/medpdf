@@ -14,6 +14,7 @@ mod pdf_copy_page;
 mod pdf_blank_page;
 mod pdf_watermark;
 mod pdf_overlay;
+mod font_helpers;
 use parsing::parse_page_spec;
 
 use crate::error::PdfMergeError;

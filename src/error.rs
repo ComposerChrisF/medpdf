@@ -5,6 +5,7 @@ pub enum PdfMergeError {
     Io(std::io::Error),
     LoPdf(lopdf::Error),
     FontKit(font_kit::error::SelectionError),
+    Face(ttf_parser::FaceParsingError),
     Message(String),
 }
 impl PdfMergeError {
@@ -20,6 +21,11 @@ impl From<lopdf::Error> for PdfMergeError {
 impl From<std::io::Error> for PdfMergeError {
     fn from(err: std::io::Error) -> Self {
         PdfMergeError::Io(err)
+    }
+}
+impl From<ttf_parser::FaceParsingError> for PdfMergeError {
+    fn from(err: ttf_parser::FaceParsingError) -> Self {
+        PdfMergeError::Face(err)
     }
 }
 impl From<&str> for PdfMergeError {
@@ -45,6 +51,7 @@ impl Debug for PdfMergeError {
             Self::LoPdf(e) => f.debug_tuple("LoPdf").field(e).finish(),
             Self::Message(e) => f.debug_tuple("Message").field(e).finish(),
             Self::FontKit(e) => f.debug_tuple("FontKit").field(e).finish(),
+            Self::Face(e) => f.debug_tuple("Face").field(e).finish(),
         }
     }
 }

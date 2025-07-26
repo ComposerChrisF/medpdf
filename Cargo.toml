@@ -9,4 +9,4 @@ clap = { version = "4.4", features = ["derive", "string"] }
 nom = "7.1"
 font-kit = "0.14.3" # For finding system fonts
 chrono = "0.4"     # For PDF metadata dates
-
+ttf-parser = "0.21.0"
