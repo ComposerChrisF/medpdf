@@ -174,6 +174,7 @@ fn add_embedded_font(dest_doc: &mut Document, page_id: (u32, u16), font_data: &[
     };
     let font_file_dict = dictionary! {
         //"Subtype" => font_descriptor.embedded_font_subtype,
+        "Length1" => font_data.len() as i64,
     };
     let font_file = Stream::new(font_file_dict, font_data.into());
     let font_file_id = dest_doc.add_object(font_file);

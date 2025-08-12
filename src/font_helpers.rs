@@ -59,7 +59,7 @@ pub struct FontDescriptorPdfInfo {
     pub stem_v: u16,
     pub cap_height: i16,
     pub font_file_key: String,  // "FontFile" for Type1 or MMType1; "FontFile2" for TrueType; others for compated formats
-    pub embedded_font_subtype: String, // "Type1" or "Type1C" or "TrueType" or "CIDFontType0" or "CIDFontType2"
+    //pub embedded_font_subtype: String, // "Type1" or "Type1C" or "TrueType" or "CIDFontType0" or "CIDFontType2"
 }
 
  
@@ -160,7 +160,7 @@ pub fn get_pdf_info_of_face(face: &Face) -> (FontPdfInfo, FontDescriptorPdfInfo)
             stem_v: guess_pdf_stem_v_for_font(face),
             cap_height: face.capital_height().unwrap_or(0),
             font_file_key: get_pdf_font_file_key(face),
-            embedded_font_subtype: get_pdf_font_subtype(face),
+            //embedded_font_subtype: get_pdf_font_subtype(face),
         }
     )
 }

@@ -2,9 +2,10 @@
 extern crate lopdf;
 
 use clap::{Parser, ValueEnum};
-use lopdf::Document;
+use lopdf::{Document, Object, Stream, StringFormat};
 use std::path::PathBuf;
 use std::str::FromStr;
+use uuid::Uuid;
 
 mod error;
 mod parsing;
@@ -179,6 +180,27 @@ struct Args {
     owner_password: Option<String>,
 }
 
+fn format_xmp_metadata(doc_uuid: &str) -> String {
+    let now = chrono::Local::now();
+    let metadata = format!("<?xpacket begin=\"?\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>
+<x:xmpmeta xmlns:x=\"adobe:ns:meta/\" xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\" xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\" xmlns:xmpMM=\"http://ns.adobe.com/xap/1.0/mm/\" xmlns:pdf=\"http://ns.adobe.com/pdf/1.3/\" xmlns:pdfaid=\"http://www.aiim.org/pdfa/ns/id/\" xmlns:pdfxid=\"http://www.npes.org/pdfx/ns/id/\">
+    <rdf:RDF>
+        <rdf:Description rdf:about=\"\">
+            <dc:title>
+                <rdf:Alt>
+                    <rdf:li xml:lang=\"x-default\"></rdf:li>
+                </rdf:Alt>
+            </dc:title>
+        </rdf:Description>
+        <rdf:Description rdf:about=\"\" pdf:Producer=\"lopdf\" pdf:Trapped=\"False\"/>
+        <rdf:Description rdf:about=\"\" xmp:CreatorTool=\"pdf_merger v0.1.0\" xmp:CreateDate=\"{now}\" xmp:ModifyDate=\"{now}\" xmp:MetadataDate=\"{now}\"/>
+        <rdf:Description rdf:about=\"\" xmpMM:DocumentID=\"uuid:{doc_uuid}\" xmpMM:VersionID=\"1\" xmpMM:RenditionClass=\"default\"/>
+    </rdf:RDF>
+</x:xmpmeta>
+<?xpacket end=\"w\"?>");
+    metadata
+}
+
 fn main() -> Result<(), PdfMergeError> {
     let args = Args::parse();
     if args.inputs.len() % 2 != 0 {
@@ -186,6 +208,7 @@ fn main() -> Result<(), PdfMergeError> {
     }
 
     let mut dest_doc = Document::with_version("1.7");
+    let doc_uuid = Uuid::new_v4().to_string();
     let pages_id = dest_doc.new_object_id();
     let pages = dictionary! {
         "Type" => "Pages",
@@ -193,11 +216,27 @@ fn main() -> Result<(), PdfMergeError> {
         "Count" => 0,
     };
     dest_doc.objects.insert(pages_id, lopdf::Object::Dictionary(pages));
+    let metadata_id = dest_doc.new_object_id();
+    let metadata = dictionary! {
+        "Type" => "Metadata",
+        "Subtype" => "XML",
+    };
+    dest_doc.objects.insert(metadata_id, lopdf::Object::Stream(Stream {
+        dict: metadata,
+        content: format_xmp_metadata(&doc_uuid).into_bytes(),
+        allows_compression: true,
+        start_position: None,
+    }));
     let catalog_id = dest_doc.add_object(dictionary! {
         "Type" => "Catalog",
         "Pages" => pages_id,
+        "Metadata" => metadata_id,
     });
     dest_doc.trailer.set("Root", catalog_id);
+    dest_doc.trailer.set("ID", Object::Array(vec![
+        Object::String(doc_uuid.clone().into_bytes(), StringFormat::Literal), 
+        Object::String(doc_uuid.into_bytes(), StringFormat::Literal)
+    ]));
     let mut dest_page_ids: Vec<lopdf::ObjectId> = vec![];
 
     // --- Phase 1: Merge Pages ---
