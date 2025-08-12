@@ -152,7 +152,7 @@ pub fn get_pdf_info_of_face(face: &Face) -> (FontPdfInfo, FontDescriptorPdfInfo)
             font_name: get_name(face, name_id::POST_SCRIPT_NAME).into(),
             flags: compute_pdf_font_flags(face),
             font_bbox: get_pdf_font_bbox(face),
-            italic_angle: face.italic_angle().unwrap_or(0.0).round() as i16,
+            italic_angle: face.italic_angle().round() as i16,
             ascent: face.ascender(),
             descent: face.descender(),
             leading: face.line_gap(),
