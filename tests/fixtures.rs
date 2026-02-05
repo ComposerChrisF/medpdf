@@ -1,6 +1,8 @@
 // tests/fixtures.rs
 // Helper functions for creating test PDF documents
 
+#![allow(dead_code)] // These are test utilities; not all are used in every test file
+
 use lopdf::{dictionary, Document, Object, ObjectId, Stream};
 
 /// Creates a minimal valid PDF document with no pages.

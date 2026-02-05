@@ -100,15 +100,55 @@ fn test_find_font_builtin_zapf() {
     }
 }
 
-// Note: System font tests are platform-dependent and may not work everywhere
+// System font test - checks for platform-appropriate default fonts.
+// Tries multiple common fonts per platform since availability varies.
+//
+// Platform defaults:
+// - macOS: Helvetica at /System/Library/Fonts/Helvetica.ttc
+// - Windows: Arial, Times New Roman, Courier New
+// - Linux: DejaVu Sans, Liberation Sans, FreeSans
+//
+// Note: On macOS we use full paths because font-kit returns Handle::Memory
+// for system fonts when searching by name, but find_font only handles Handle::Path.
 #[test]
-#[ignore] // Ignored by default as it depends on system fonts
-fn test_find_font_system_arial() {
-    let result = find_font(&PathBuf::from("Arial"));
-    // This may or may not succeed depending on the system
-    if result.is_ok() {
-        if let FontPath::Path(path) = result.unwrap() {
-            assert!(path.exists());
+fn test_find_font_system_default() {
+    let font_candidates: &[&str] = if cfg!(target_os = "macos") {
+        // Use full paths on macOS since font-kit returns Memory handles for name lookups
+        &[
+            "/System/Library/Fonts/Helvetica.ttc",
+            "/System/Library/Fonts/Times.ttc",
+            "/System/Library/Fonts/Courier.ttc",
+        ]
+    } else if cfg!(target_os = "windows") {
+        &["Arial", "Times New Roman", "Courier New", "Verdana"]
+    } else {
+        // Linux and other Unix-like systems
+        // DejaVu Sans is most common (Ubuntu, Debian, Fedora, RHEL)
+        // Liberation Sans is also widely available
+        // FreeSans is part of GNU FreeFont
+        &["DejaVu Sans", "Liberation Sans", "FreeSans", "Noto Sans"]
+    };
+
+    let mut found_font = None;
+    for font_name in font_candidates {
+        let result = find_font(&PathBuf::from(font_name));
+        if let Ok(FontPath::Path(path)) = result {
+            if path.exists() {
+                found_font = Some((font_name, path));
+                break;
+            }
+        }
+    }
+
+    match found_font {
+        Some((name, path)) => {
+            println!("Found system font '{}' at {:?}", name, path);
+        }
+        None => {
+            panic!(
+                "No system font found. Tried: {:?}",
+                font_candidates
+            );
         }
     }
 }

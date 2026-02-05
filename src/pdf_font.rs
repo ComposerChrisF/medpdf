@@ -70,7 +70,7 @@ pub fn find_font(font_path: &Path) -> Result<FontPath> {
         //
         // NOTE: This mechanism is primarily designed to reference the "standard" PDF fonts (e.g.
         // "Helvetica", "Courier", etc.) for debugging.  But it might be usable to reference fonts 
-        // already install on a user's system.
+        // already installed on a user's system.
         // 
         // Built in fonts (through PDF 1.7): Times-Roman, Helvetica, Courier, Symbol, Times-Bold,
         // Helvetica-Bold, Courier-Bold, ZapfDingbats, Times-Italic, Helvetica-Oblique,
