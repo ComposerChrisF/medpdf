@@ -65,7 +65,7 @@ pub struct FontDescriptorPdfInfo {
  
 pub fn get_name<'a>(face: &Face<'a>, name_id: u16) -> Cow<'a, str> {
     face.names().into_iter().find(|name| name.name_id == name_id)
-        .and_then(|name| Some(String::from_utf8_lossy(name.name)))
+        .map(|name| String::from_utf8_lossy(name.name))
         .unwrap_or("<none>".into())
 }
 
@@ -83,19 +83,16 @@ pub fn get_font_widths(face: &Face, first_char: u8, last_char: u8) -> Vec<u16> {
 pub fn compute_pdf_font_flags(face: &Face) -> u16 {
     let is_symbolic = false;
     let is_italic_flag = face.is_italic() || face.is_oblique();
-    let flags = 
-        if face.is_monospaced() { 0x0001 } else { 0x0000 } |    // Bit 1 = FixedPitch
-        if is_symbolic  { 0x0004 } else { 0x0000 } |            // Bit 3 = Symbolic
-        if !is_symbolic  { 0x0020 } else { 0x0000 } |           // Bit 6 = Nonsymbolic (we're assuming...)
-        if is_italic_flag { 0x0040 } else { 0x0000 };           // Bit 7 = Italic (slanted strokes)
-    flags
+    (if face.is_monospaced() { 0x0001 } else { 0x0000 }) |      // Bit 1 = FixedPitch
+        (if is_symbolic      { 0x0004 } else { 0x0000 }) |      // Bit 3 = Symbolic
+        (if !is_symbolic     { 0x0020 } else { 0x0000 }) |      // Bit 6 = Nonsymbolic (we're assuming...)
+        (if is_italic_flag   { 0x0040 } else { 0x0000 })        // Bit 7 = Italic (slanted strokes)
 }
 
 pub fn guess_pdf_stem_v_for_font(face: &Face) -> u16 {
     let w_temp = face.weight().to_number() as f32 / 65.0;
-    let stem_v = (50.0 + w_temp * w_temp + 0.5).floor() as u16;
-    // Also: let stem_v = (10.0 + 220. * ((face.weight().to_number() as f32 - 50.0) / 900.0)).floor() as u16;
-    stem_v
+    // Also: (10.0 + 220. * ((face.weight().to_number() as f32 - 50.0) / 900.0)).floor() as u16
+    (50.0 + w_temp * w_temp + 0.5).floor() as u16
 }
 
 pub fn get_pdf_font_bbox(face: &Face) -> [i16; 4] {
@@ -132,7 +129,7 @@ pub fn get_pdf_font_info_of_path(path: &Path) -> Result<(FontPdfInfo, FontDescri
 }
 
 pub fn get_pdf_font_info_of_data(font_data: &[u8]) -> Result<(FontPdfInfo, FontDescriptorPdfInfo), PdfMergeError> {
-    let face = Face::parse(&font_data, 0)?;
+    let face = Face::parse(font_data, 0)?;
     Ok(get_pdf_info_of_face(&face))
 }
 

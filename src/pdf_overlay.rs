@@ -27,21 +27,18 @@ fn accumulate_dictionary_keys(
 ) -> Result<()> {
     let o = doc.get_object(start)?;
     if let Object::Dictionary(dict) = o {
-        match dict.get(KEY_TYPE) {
-            Ok(Object::Name(v)) => {
-                if v == KEY_PAGES || v == KEY_PAGE {
-                    match dict.get(KEY_RESOURCES) {
-                        Ok(Object::Dictionary(dict_resources)) => { add_resource_keys(keys, dict_resources)?; }
-                        Ok(Object::Reference(id_resources)) => {
-                            if let Ok(dict_resources) = doc.get_dictionary(*id_resources) {
-                                add_resource_keys(keys, dict_resources)?;
-                            }
+        if let Ok(Object::Name(v)) = dict.get(KEY_TYPE) {
+            if v == KEY_PAGES || v == KEY_PAGE {
+                match dict.get(KEY_RESOURCES) {
+                    Ok(Object::Dictionary(dict_resources)) => { add_resource_keys(keys, dict_resources)?; }
+                    Ok(Object::Reference(id_resources)) => {
+                        if let Ok(dict_resources) = doc.get_dictionary(*id_resources) {
+                            add_resource_keys(keys, dict_resources)?;
                         }
-                        _ => { return Ok(()); } // Nothing to bother with
                     }
+                    _ => { return Ok(()); } // Nothing to bother with
                 }
             }
-            _ => ()
         }
     }
     Ok(())
@@ -49,8 +46,8 @@ fn accumulate_dictionary_keys(
 
 fn find_unique_name(
     keys_used: &HashSet<Vec<u8>>,
-    key_old: &Vec<u8>,
-    suffix: &Vec<u8>,
+    key_old: &[u8],
+    suffix: &[u8],
 ) -> Result<Vec<u8>> {
     let mut buffer = Vec::<u8>::with_capacity(16);
     for b in key_old.iter() { buffer.push(*b); }
@@ -87,14 +84,13 @@ fn rename_resources_in_dict(
                 if key_mapping.contains_key(&key) { continue; }
 
                 // These key/value pairs are a resource_name/resource_value pair.  We need to rename the name.
-                let key_new = find_unique_name(&keys_used, &key, &new_key_suffix)?;
+                let key_new = find_unique_name(keys_used, &key, &new_key_suffix)?;
                 key_mapping.insert(key.clone(), key_new.clone());
-                match dict.remove(&key) {
-                    Some(v) => dict.set(key_new, v),
-                    None => {}
+                if let Some(v) = dict.remove(&key) {
+                    dict.set(key_new, v);
                 }
                 
-                // NO!: keys_used.insert(key);  (See note above of abour preserving overlapping keys from source document.)
+                // NO!: keys_used.insert(key);  (See note above of about preserving overlapping keys from source document.)
             }
         }
     }
@@ -112,7 +108,7 @@ fn debug_dump_stream_by_id(doc: &Document, id_stream: ObjectId) -> Result<()> {
 fn debug_dump_stream_object(stream: &Object) -> Result<()> {
     #[cfg(debug_assertions)] {
         let s = stream.as_stream()?;
-        debug_dump_stream(&s)?;
+        debug_dump_stream(s)?;
     }
     Ok(())
 }
@@ -137,8 +133,8 @@ fn debug_dump_stream(stream: &Stream) -> Result<()> {
 }
 
 fn modify_content_stream(
-    dest_doc: &mut Document, 
-    contents_arr: &Vec<Object>,
+    dest_doc: &mut Document,
+    contents_arr: &[Object],
     key_mapping: Option<&HashMap<Vec<u8>, Vec<u8>>>
 ) -> Result<()> {
     for content_ref_obj in contents_arr.iter() {
@@ -293,7 +289,7 @@ pub fn overlay_page(
     #[cfg(debug_assertions)] {
         println!("key_mapping:");
         for (k, v) in key_mapping.iter() {
-            println!("{} => {}", String::from_utf8_lossy(&k), String::from_utf8_lossy(&v));
+            println!("{} => {}", String::from_utf8_lossy(k), String::from_utf8_lossy(v));
         }
     }
 
@@ -372,7 +368,7 @@ pub fn overlay_page(
     let dict_ref = match (dict_to_make_object, dict_ref) {
         (Some(dict_to_make_object), None) => dest_doc.add_object(Object::Dictionary(dict_to_make_object)),
         (None, Some(dict_ref)) => dict_ref,
-        _ => panic!("unexpected"),
+        _ => return Err(PdfMergeError::new("Internal error: unexpected state in resources normalization")),
     };
     //    iii. Finally, we update dest page's /Resources to be dict_ref
     let dest_page_dict = dest_doc.get_object_mut(dest_page_id)?.as_dict_mut()?;

@@ -1,7 +1,7 @@
 use font_kit::source::SystemSource;
-use std::{collections::HashMap, fs, path::{Path, PathBuf}};
+use std::{collections::HashMap, fs, path::{Path, PathBuf}, sync::Arc};
 
-use crate::error::Result;
+use crate::error::{Result, PdfMergeError};
 
 pub enum FontPath {
     Hack(u8),
@@ -14,14 +14,18 @@ impl FontPath {
         match self {
             FontPath::Hack(n) => format!("F{n}"),
             FontPath::BuiltIn(s) => s.clone(),
-            FontPath::Path(path) => path.file_stem().unwrap().to_str().unwrap().into(),
+            FontPath::Path(path) => path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("unknown_font")
+                .into(),
         }
     }
 }
 
 
 pub struct FontCache {
-    hash: HashMap<PathBuf, Vec<u8>>,
+    hash: HashMap<PathBuf, Arc<Vec<u8>>>,
 }
 
 impl FontCache {
@@ -31,13 +35,16 @@ impl FontCache {
         }
     }
 
-    pub fn get_data(&mut self, font_path: &FontPath) -> Result<Vec<u8>> {
+    pub fn get_data(&mut self, font_path: &FontPath) -> Result<Arc<Vec<u8>>> {
         match font_path {
-            FontPath::Hack(n) => Ok(vec![*n]),
-            FontPath::BuiltIn(_) => Ok(vec!['@' as u8]),
+            FontPath::Hack(n) => Ok(Arc::new(vec![*n])),
+            FontPath::BuiltIn(_) => Ok(Arc::new(vec![b'@'])),
             FontPath::Path(path) => {
-                let data = fs::read(&path)?;
-                self.hash.insert(path.clone(), data.clone());
+                if let Some(cached) = self.hash.get(path) {
+                    return Ok(Arc::clone(cached));
+                }
+                let data = Arc::new(fs::read(path)?);
+                self.hash.insert(path.clone(), Arc::clone(&data));
                 Ok(data)
             }
         }
@@ -51,7 +58,7 @@ fn parse_font_path_as_number(font_path: &Path) -> Option<u8> {
 }
 
 pub fn find_font(font_path: &Path) -> Result<FontPath> {
-    if let Some(n) = parse_font_path_as_number(&font_path) {
+    if let Some(n) = parse_font_path_as_number(font_path) {
         // This is a short-hand to use a font already in this document, although not necessarily stable!
         return Ok(FontPath::Hack(n));
     }
@@ -79,7 +86,10 @@ pub fn find_font(font_path: &Path) -> Result<FontPath> {
     }
     // Search system fonts
     let source = SystemSource::new();
-    let family_name = font_path.file_stem().unwrap().to_str().unwrap();
+    let family_name = font_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .ok_or_else(|| PdfMergeError::new(format!("Invalid font path: {:?}", font_path)))?;
     let properties = font_kit::properties::Properties::new();
     let handle = source
         .select_best_match(&[font_kit::family_name::FamilyName::Title(family_name.to_string())], &properties)?;

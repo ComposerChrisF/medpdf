@@ -22,7 +22,7 @@ pub const KEY_MEDIA_BOX: &[u8] = b"MediaBox";
 pub enum Unit { In, Mm }    // TODO: Add Pt, Cm, Percent (of page)
 
 impl Unit {
-    pub fn to_points(&self, value: f32) -> f32 {
+    pub fn to_points(self, value: f32) -> f32 {
         const POINTS_PER_INCH: f32 = 72.0;
         const POINTS_PER_MM: f32 = POINTS_PER_INCH / 25.4;
         match self {

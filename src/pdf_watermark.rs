@@ -41,7 +41,7 @@ pub fn add_text(
         let page_dict = dest_doc
             .get_object_mut(page_id)?
             .as_dict_mut()
-            .or_else(|_| Err(PdfMergeError::new("Page object is not a dictionary")))?;
+            .map_err(|_| PdfMergeError::new("Page object is not a dictionary"))?;
 
         if let Ok(contents) = page_dict.get_mut(KEY_CONTENTS) {
             match contents {
@@ -64,43 +64,33 @@ pub fn add_text(
 }
 
 fn add_font_objects(dest_doc: &mut Document, page_id: (u32, u16), font_data: &[u8], font_name: &str) -> Result<String> {
-    if font_data.len() == 1 && font_data[0] != '@' as u8 {
+    if font_data.len() == 1 && font_data[0] != b'@' {
         return Ok(format!("F{}", font_data[0]));        // No need to add font objects since we're just reusing existing ones...
     }
 
-    if font_data[0] == '@' as u8 {
+    if font_data[0] == b'@' {
         add_known_named_font(dest_doc, page_id, font_name)
     } else {
         add_embedded_font(dest_doc, page_id, font_data)
     }
 }
 
-fn add_known_named_font(dest_doc: &mut Document, page_id: (u32, u16), font_name: &str) -> Result<String> {
-    let font_dict = dictionary! {
-        "Type" => "Font",
-        "Subtype" => "Type1",
-        "BaseFont" => font_name.to_string(),
-    };
-    let font_id = dest_doc.add_object(font_dict);
-    let font_key =format!("F{}", font_id.0);
-    let fn_add_font_to_fonts_dict = |dict: &mut Dictionary| { dict.set(font_key.as_bytes(), Object::Reference(font_id)); };
+/// Registers a font object in the page's resources and returns the font key.
+/// This handles the complex logic of navigating/creating the Resources -> Font hierarchy.
+fn register_font_in_page_resources(
+    dest_doc: &mut Document,
+    page_id: ObjectId,
+    font_id: ObjectId,
+) -> Result<String> {
+    let font_key = format!("F{}", font_id.0);
+    let font_key_bytes = font_key.as_bytes().to_vec();
 
-    let fn_add_fonts_to_resources_and_add_font = |resources_dict: &mut Dictionary| -> Result<Option<ObjectId>> {
-        let fonts_obj = resources_dict.get_mut(KEY_FONT);
-        let fonts_id = match fonts_obj {
-            Ok(Object::Reference(id_fonts)) => Some(*id_fonts),
-            Ok(Object::Dictionary(dict_fonts)) => { fn_add_font_to_fonts_dict(dict_fonts); None }
-            Ok(_) => { return Err(PdfMergeError::new("/Font key of Resource not a Reference nor a Dictionary!")); }
-            Err(_) => {
-                let mut dict_fonts = dictionary! { };
-                fn_add_font_to_fonts_dict(&mut dict_fonts);
-                resources_dict.set(KEY_FONT,Object::Dictionary(dict_fonts));
-                None
-            }
-        };
-        Ok(fonts_id)
+    // Helper to add font reference to a fonts dictionary
+    let add_font_to_dict = |dict: &mut Dictionary, key: &[u8], id: ObjectId| {
+        dict.set(key.to_vec(), Object::Reference(id));
     };
 
+    // First pass: handle page's Resources (may be inline dict or reference)
     let page_dict = dest_doc
         .get_object_mut(page_id)?
         .as_dict_mut()
@@ -109,29 +99,73 @@ fn add_known_named_font(dest_doc: &mut Document, page_id: (u32, u16), font_name:
     let resources_obj = page_dict.get_mut(KEY_RESOURCES);
     let (mut fonts_id, resources_dict_id) = match resources_obj {
         Ok(Object::Reference(id_resources)) => (None, Some(*id_resources)),
-        Ok(Object::Dictionary(dict_resources)) => (fn_add_fonts_to_resources_and_add_font(dict_resources)?, None),
-        Ok(_) => { return Err(PdfMergeError::new("/Resource key of page not a Reference nor a Dictionary!")); }
+        Ok(Object::Dictionary(dict_resources)) => {
+            let fonts_id = handle_fonts_in_resources(dict_resources, &font_key_bytes, font_id)?;
+            (fonts_id, None)
+        }
+        Ok(_) => return Err(PdfMergeError::new("/Resource key of page not a Reference nor a Dictionary!")),
         Err(_) => {
+            // No resources yet - create inline
             let mut dict_resources = dictionary! { };
-            let fonts_id = fn_add_fonts_to_resources_and_add_font(&mut dict_resources)?;
+            let fonts_id = handle_fonts_in_resources(&mut dict_resources, &font_key_bytes, font_id)?;
             page_dict.set(KEY_RESOURCES, Object::Dictionary(dict_resources));
             (fonts_id, None)
         }
     };
-    assert!(fonts_id.is_none() || resources_dict_id.is_none());  // Only one of these two is ever set, but both can be None
-
-    if let Some(resources_dict_id) = resources_dict_id {
-        let resources_dict = dest_doc.get_object_mut(resources_dict_id)?.as_dict_mut()?;
-        assert!(fonts_id.is_none());       // If we entered this branch, then fonts_id should not be set yet!
-        fonts_id = fn_add_fonts_to_resources_and_add_font(resources_dict)?;
+    
+    // Only one of these two is ever set, but both can be None
+    // Was: assert!(fonts_id.is_none() || resources_dict_id.is_none());  
+    if fonts_id.is_some() && resources_dict_id.is_some() {
+        return Err(PdfMergeError::new("Internal error: both Fonts and Resources are set!"));
     }
 
+    // Second pass: if Resources was a reference, handle it now
+    if let Some(resources_dict_id) = resources_dict_id {
+        let resources_dict = dest_doc.get_object_mut(resources_dict_id)?.as_dict_mut()?;
+        fonts_id = handle_fonts_in_resources(resources_dict, &font_key_bytes, font_id)?;
+    }
+
+    // Third pass: if Fonts was a reference, handle it now
     if let Some(fonts_id) = fonts_id {
         let fonts_dict = dest_doc.get_object_mut(fonts_id)?.as_dict_mut()?;
-        fn_add_font_to_fonts_dict(fonts_dict);
+        add_font_to_dict(fonts_dict, &font_key_bytes, font_id);
     }
 
     Ok(font_key)
+}
+
+/// Handles adding a font to a Resources dictionary's Font entry.
+/// Returns Some(ObjectId) if the Font entry is a reference that needs separate handling.
+fn handle_fonts_in_resources(
+    resources_dict: &mut Dictionary,
+    font_key: &[u8],
+    font_id: ObjectId,
+) -> Result<Option<ObjectId>> {
+    match resources_dict.get_mut(KEY_FONT) {
+        Ok(Object::Reference(id_fonts)) => Ok(Some(*id_fonts)),
+        Ok(Object::Dictionary(dict_fonts)) => {
+            dict_fonts.set(font_key.to_vec(), Object::Reference(font_id));
+            Ok(None)
+        }
+        Ok(_) => Err(PdfMergeError::new("/Font key of Resource not a Reference nor a Dictionary!")),
+        Err(_) => {
+            // No Font dict yet - create inline
+            let mut dict_fonts = dictionary! { };
+            dict_fonts.set(font_key.to_vec(), Object::Reference(font_id));
+            resources_dict.set(KEY_FONT, Object::Dictionary(dict_fonts));
+            Ok(None)
+        }
+    }
+}
+
+fn add_known_named_font(dest_doc: &mut Document, page_id: ObjectId, font_name: &str) -> Result<String> {
+    let font_dict = dictionary! {
+        "Type" => "Font",
+        "Subtype" => "Type1",
+        "BaseFont" => font_name.to_string(),
+    };
+    let font_id = dest_doc.add_object(font_dict);
+    register_font_in_page_resources(dest_doc, page_id, font_id)
 }
 
 fn widths_as_object_array(widths: &[u16]) -> Object {
@@ -148,7 +182,7 @@ fn bbox_as_object_array(bbox: &[i16]) -> Object {
     ])
 }
 
-fn add_embedded_font(dest_doc: &mut Document, page_id: (u32, u16), font_data: &[u8]) -> Result<String> {
+fn add_embedded_font(dest_doc: &mut Document, page_id: ObjectId, font_data: &[u8]) -> Result<String> {
     let (font_info, font_descriptor) = font_helpers::get_pdf_font_info_of_data(font_data)?;
     let mut font_dict = dictionary! {
         "Type" => "Font",
@@ -183,54 +217,5 @@ fn add_embedded_font(dest_doc: &mut Document, page_id: (u32, u16), font_data: &[
     font_dict.set(KEY_FONT_DESTCRIPTOR, descriptor_id);
 
     let font_id = dest_doc.add_object(font_dict);
-    let font_key =format!("F{}", font_id.0);
-    let fn_add_font_to_fonts_dict = |dict: &mut Dictionary| { dict.set(font_key.as_bytes(), Object::Reference(font_id)); };
-
-    let fn_add_fonts_to_resources_and_add_font = |resources_dict: &mut Dictionary| -> Result<Option<ObjectId>> {
-        let fonts_obj = resources_dict.get_mut(KEY_FONT);
-        let fonts_id = match fonts_obj {
-            Ok(Object::Reference(id_fonts)) => Some(*id_fonts),
-            Ok(Object::Dictionary(dict_fonts)) => { fn_add_font_to_fonts_dict(dict_fonts); None }
-            Ok(_) => { return Err(PdfMergeError::new("/Font key of Resource not a Reference nor a Dictionary!")); }
-            Err(_) => {
-                let mut dict_fonts = dictionary! { };
-                fn_add_font_to_fonts_dict(&mut dict_fonts);
-                resources_dict.set(KEY_FONT,Object::Dictionary(dict_fonts));
-                None
-            }
-        };
-        Ok(fonts_id)
-    };
-
-    let page_dict = dest_doc
-        .get_object_mut(page_id)?
-        .as_dict_mut()
-        .map_err(|_| PdfMergeError::new("Page object is not a dictionary"))?;
-
-    let resources_obj = page_dict.get_mut(KEY_RESOURCES);
-    let (mut fonts_id, resources_dict_id) = match resources_obj {
-        Ok(Object::Reference(id_resources)) => (None, Some(*id_resources)),
-        Ok(Object::Dictionary(dict_resources)) => (fn_add_fonts_to_resources_and_add_font(dict_resources)?, None),
-        Ok(_) => { return Err(PdfMergeError::new("/Resource key of page not a Reference nor a Dictionary!")); }
-        Err(_) => {
-            let mut dict_resources = dictionary! { };
-            let fonts_id = fn_add_fonts_to_resources_and_add_font(&mut dict_resources)?;
-            page_dict.set(KEY_RESOURCES, Object::Dictionary(dict_resources));
-            (fonts_id, None)
-        }
-    };
-    assert!(fonts_id.is_none() || resources_dict_id.is_none());  // Only one of these two is ever set, but both can be None
-
-    if let Some(resources_dict_id) = resources_dict_id {
-        let resources_dict = dest_doc.get_object_mut(resources_dict_id)?.as_dict_mut()?;
-        assert!(fonts_id.is_none());       // If we entered this branch, then fonts_id should not be set yet!
-        fonts_id = fn_add_fonts_to_resources_and_add_font(resources_dict)?;
-    }
-
-    if let Some(fonts_id) = fonts_id {
-        let fonts_dict = dest_doc.get_object_mut(fonts_id)?.as_dict_mut()?;
-        fn_add_font_to_fonts_dict(fonts_dict);
-    }
-
-    Ok(font_key)
+    register_font_in_page_resources(dest_doc, page_id, font_id)
 }

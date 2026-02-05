@@ -298,7 +298,8 @@ fn main() -> Result<(), PdfMergeError> {
             let pages_to_add = (pages - (current_page_count % pages)) % pages;
             if pages_to_add > 0 {
                 println!("   -> Padding with {pages_to_add} page(s) to reach a multiple of {pages}.");
-                let last_page_id = *dest_page_ids.last().unwrap();
+                let last_page_id = *dest_page_ids.last()
+                    .ok_or_else(|| PdfMergeError::new("No pages in document to pad"))?;
                 let last_page = dest_doc.get_object(last_page_id)?.as_dict()?;
                 let media_box = last_page.get(KEY_MEDIA_BOX)?.as_array()?;
                 let width = media_box[2].as_f32()?;
