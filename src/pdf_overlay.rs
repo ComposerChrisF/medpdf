@@ -123,10 +123,10 @@ fn debug_dump_stream(stream: &Stream) -> Result<()> {
             if i > 20 { break; }
         }
         println!("    Raw dump:");
-        println!("{}\n", String::from_utf8_lossy(&stream.content[..100]));
+        println!("{}\n", String::from_utf8_lossy(&stream.content[..stream.content.len().min(100)]));
         if stream.is_compressed() {
             let x = stream.decompressed_content()?;
-            println!("{}\n", String::from_utf8_lossy(&x[..100]));
+            println!("{}\n", String::from_utf8_lossy(&x[..x.len().min(100)]));
         }
     }
     Ok(())
@@ -167,7 +167,7 @@ fn modify_content_stream(
         #[cfg(debug_assertions)] {
             println!("count_q = {count_q}");
         }
-        for _ in count_q..0 {
+        for _ in 0..count_q {
             println!("WARNING: Unbalanced q/Q pairs, so adding 'Q'.");
             content.operations.push(Operation::new("Q", vec![]));
         }
