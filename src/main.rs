@@ -1,10 +1,9 @@
 #[macro_use]
 extern crate lopdf;
 
-use clap::{Parser, ValueEnum};
+use clap::Parser;
 use lopdf::{Document, Object, Stream, StringFormat};
 use std::path::PathBuf;
-use std::str::FromStr;
 use uuid::Uuid;
 
 mod error;
@@ -16,146 +15,14 @@ mod pdf_blank_page;
 mod pdf_watermark;
 mod pdf_overlay;
 mod font_helpers;
+mod spec_types;
+
 use parsing::parse_page_spec;
+use spec_types::{WatermarkSpec, OverlaySpec, PadToSpec, PadFileSpec};
 
 use crate::error::PdfMergeError;
 use crate::pdf_font::{find_font, FontCache};
-use crate::pdf_helpers::{Unit, KEY_MEDIA_BOX};
-
-
-
-#[derive(Debug, Clone)]
-struct WatermarkSpec {
-    text: String,
-    font: PathBuf,
-    size: f32,
-    x: f32,
-    y: f32,
-    units: Unit,
-    pages: String,
-}
-
-impl FromStr for WatermarkSpec {
-    type Err = String;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut text = None;
-        let mut font = None;
-        let mut size = None;
-        let mut x = None;
-        let mut y = None;
-        let mut units = None;
-        let mut pages = None;
-        for part in s.split(',') {
-            let kv: Vec<&str> = part.splitn(2, '=').collect();
-            if kv.len() != 2 { return Err(format!("Invalid key-value pair: '{}'. Expected 'key=value'.", part)); }
-            let key = kv[0].trim();
-            let value = kv[1].trim();
-            match key {
-                "text" => text = Some(value.to_string()),
-                "font" => font = Some(PathBuf::from(value)),
-                "size" => size = Some(value.parse::<f32>().map_err(|_| format!("Invalid size value: '{}'", value))?),
-                "x" => x = Some(value.parse::<f32>().map_err(|_| format!("Invalid x value: '{}'", value))?),
-                "y" => y = Some(value.parse::<f32>().map_err(|_| format!("Invalid y value: '{}'", value))?),
-                "units" => units = Some(Unit::from_str(value, true).map_err(|e| e.to_string())?),
-                // FUTURE: Move units into "x" and "y", e.g. "x=1.25in,y=3pt".  Support pt, in, mm, cm, % of page(?)
-                // FUTURE: Add centering options: LCR for x axis (L default), TCBb for y axis (b=baseline default)
-                // FUTURE: Add color support (specify kind, too), e.g. "0,0,0" is RGB black, "0,0,0,1" is CMYK black, "0" is gray black.
-                // FUTURE: Add transparancy (e.g. "alpha=0.5")
-                // FUTURE: Add rotation (in degrees, about x,y origina after LCR/TCBb layout)
-                "pages" => pages = Some(value.to_string()),
-                _ => return Err(format!("Unknown watermark key: '{}'", key)),
-            }
-        }
-        Ok(WatermarkSpec {
-            text: text.ok_or("Watermark 'text' is required")?,
-            font: font.ok_or("Watermark 'font' is required")?,
-            size: size.unwrap_or(48.0),
-            x: x.ok_or("Watermark 'x' coordinate is required")?,
-            y: y.ok_or("Watermark 'y' coordinate is required")?,
-            units: units.unwrap_or(Unit::In),
-            pages: pages.unwrap_or_else(|| "all".to_string()),
-        })
-    }
-}
-
-#[derive(Debug, Clone)]
-struct OverlaySpec {
-    file: PathBuf,
-    src_page: u16,
-    target_pages: String,
-}
-
-impl FromStr for OverlaySpec {
-    type Err = String;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut file = None;
-        let mut from_page = None;
-        let mut pages = None;
-        for part in s.split(',') {
-            let kv: Vec<&str> = part.splitn(2, '=').collect();
-            if kv.len() != 2 { return Err(format!("Invalid key-value pair: '{}'. Expected 'key=value'.", part)); }
-            let key = kv[0].trim();
-            let value = kv[1].trim();
-            match key {
-                "file" => file = Some(PathBuf::from(value)),
-                "src_page" => from_page = Some(value.parse::<u16>().map_err(|_| format!("Invalid src_page value: '{}'", value))?),
-                "target_pages" => pages = Some(value.to_string()),
-                _ => return Err(format!("Unknown overlay key: '{}'", key)),
-            }
-        }
-        Ok(OverlaySpec {
-            file: file.ok_or("Overlay 'file' is required")?,
-            src_page: from_page.ok_or("Overlay 'src_page' is required")?,
-            target_pages: pages.unwrap_or_else(|| "all".to_string()),
-        })
-    }
-}
-
-#[derive(Debug, Clone)]
-struct PadToSpec {
-    pages: u16,
-}
-
-impl FromStr for PadToSpec {
-    type Err = String;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let pages = s.parse::<u16>().map_err(|e| e.to_string())?;
-        Ok(PadToSpec { pages })
-    }
-}
-
-// FUTURE: Turn page into a page_range_spec, and use that to determine how many blank pages to 
-// add.  NOTE, we'd have to decide what to do when we only need to add 1 page, but page_range_spec
-// specifies more (just the first "n", or should it be the last "n", or a mode spec?).  If
-// added, note that an unspecified page_range_spec probably should default to "all".
-#[derive(Debug, Clone)]
-struct PadFileSpec {
-    file: PathBuf,
-    page: u16,
-}
-
-impl FromStr for PadFileSpec {
-    type Err = String;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut file = None;
-        let mut page = None;
-        for part in s.split(',') {
-            let kv: Vec<&str> = part.splitn(2, '=').collect();
-            if kv.len() != 2 { return Err(format!("Invalid key-value pair: '{part}'.")); }
-            let key = kv[0].trim();
-            let value = kv[1].trim();
-            match key {
-                "file" => file = Some(PathBuf::from(value)),
-                "page" => page = Some(value.parse::<u16>().map_err(|e| e.to_string())?),
-                _ => return Err(format!("Unknown pad-file key: '{key}'")),
-            }
-        }
-        Ok(PadFileSpec {
-            file: file.ok_or("pad-file 'file' is required")?,
-            page: page.unwrap_or(1),
-        })
-    }
-}
+use crate::pdf_helpers::KEY_MEDIA_BOX;
 
 
 /// A command-line tool for advanced manipulation of PDF documents.
