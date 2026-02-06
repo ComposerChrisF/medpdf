@@ -4,6 +4,63 @@ use crate::error::{Result, PdfMergeError};
 use crate::font_helpers;
 use crate::pdf_helpers::{KEY_CONTENTS, KEY_FONT, KEY_FONT_DESTCRIPTOR, KEY_RESOURCES};
 
+/// Counts the net q/Q balance across content streams.
+/// Returns the number of unclosed 'q' operations (positive means more q's than Q's).
+fn count_q_balance(dest_doc: &Document, content_refs: &[ObjectId]) -> Result<isize> {
+    let mut total_balance: isize = 0;
+
+    for &content_id in content_refs {
+        let obj = dest_doc.get_object(content_id)?;
+        if let Ok(stream) = obj.as_stream() {
+            // Need to decompress if necessary
+            let content_bytes = if stream.is_compressed() {
+                stream.decompressed_content()?
+            } else {
+                stream.content.clone()
+            };
+
+            // Parse and count q/Q operations
+            if let Ok(content) = Content::decode(&content_bytes) {
+                for operation in content.operations.iter() {
+                    match operation.operator.as_str() {
+                        "q" => total_balance += 1,
+                        "Q" => total_balance -= 1,
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(total_balance)
+}
+
+/// Gets all content stream ObjectIds from a page's Contents entry.
+fn get_content_stream_ids(dest_doc: &Document, page_id: ObjectId) -> Result<Vec<ObjectId>> {
+    let page_dict = dest_doc.get_object(page_id)?.as_dict()?;
+
+    match page_dict.get(KEY_CONTENTS) {
+        Ok(Object::Array(arr)) => {
+            arr.iter()
+                .filter_map(|obj| obj.as_reference().ok())
+                .collect::<Vec<_>>()
+                .pipe(Ok)
+        }
+        Ok(Object::Reference(id)) => Ok(vec![*id]),
+        Ok(_) => Err(PdfMergeError::new("Unexpected Contents type")),
+        Err(_) => Ok(vec![]), // No contents yet
+    }
+}
+
+/// Helper trait for pipe syntax
+trait Pipe: Sized {
+    fn pipe<F, R>(self, f: F) -> R where F: FnOnce(Self) -> R {
+        f(self)
+    }
+}
+
+impl<T> Pipe for Vec<T> {}
+
 /// Converts a UTF-8 string to WinAnsiEncoding (Windows Code Page 1252) bytes.
 /// Characters that cannot be represented in WinAnsiEncoding are replaced with '?'.
 pub fn utf8_to_winansi(text: &str) -> Vec<u8> {
@@ -95,13 +152,31 @@ pub fn add_text(
     let content_stream = Stream::new(dictionary! {}, content.encode()?);
     let content_id = dest_doc.add_object(content_stream);
 
-    // For layer_over, we need q/Q streams to wrap existing content and isolate its graphics state
-    let (q_id, cap_q_id) = if layer_over {
+    // For layer_over, we need to:
+    // 1. Wrap existing content with q/Q to isolate its graphics state
+    // 2. Add extra Q's to balance any unclosed q's from existing content
+    let (q_id, closing_q_id) = if layer_over {
+        // First, count q/Q balance in existing content
+        let existing_content_ids = get_content_stream_ids(dest_doc, page_id)?;
+        let q_balance = count_q_balance(dest_doc, &existing_content_ids)?;
+
+        // Create opening q stream
         let q_stream = Stream::new(dictionary! {}, b"q\n".to_vec());
         let q_id = dest_doc.add_object(q_stream);
-        let cap_q_stream = Stream::new(dictionary! {}, b"Q\n".to_vec());
-        let cap_q_id = dest_doc.add_object(cap_q_stream);
-        (Some(q_id), Some(cap_q_id))
+
+        // Create closing stream with enough Q's to balance:
+        // - 1 Q for our opening q
+        // - Additional Q's for any unclosed q's from existing content
+        let num_closing_qs = 1 + q_balance.max(0) as usize;
+        let closing_content = "Q\n".repeat(num_closing_qs);
+        let closing_stream = Stream::new(dictionary! {}, closing_content.into_bytes());
+        let closing_q_id = dest_doc.add_object(closing_stream);
+
+        if q_balance > 0 {
+            eprintln!("WARNING: Page content has {} unclosed q operator(s), adding balancing Q's", q_balance);
+        }
+
+        (Some(q_id), Some(closing_q_id))
     } else {
         (None, None)
     };
@@ -118,7 +193,7 @@ pub fn add_text(
                     if layer_over {
                         // Wrap existing content with q/Q to isolate its graphics state
                         arr.insert(0, Object::Reference(q_id.unwrap()));
-                        arr.push(Object::Reference(cap_q_id.unwrap()));
+                        arr.push(Object::Reference(closing_q_id.unwrap()));
                         arr.push(Object::Reference(content_id));
                     } else {
                         arr.insert(0, Object::Reference(content_id));
@@ -130,7 +205,7 @@ pub fn add_text(
                         Object::Array(vec![
                             Object::Reference(q_id.unwrap()),
                             Object::Reference(old_id),
-                            Object::Reference(cap_q_id.unwrap()),
+                            Object::Reference(closing_q_id.unwrap()),
                             Object::Reference(content_id),
                         ])
                     } else {
