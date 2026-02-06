@@ -58,15 +58,18 @@ pub fn unicode_to_winansi(c: char) -> u8 {
 
 
 /// Adds text to a page at a specific position.
+/// If `layer_over` is true, the text renders on top of existing content.
+/// If `layer_over` is false, the text renders behind existing content.
 pub fn add_text(
     dest_doc: &mut Document,
     page_id: ObjectId,
     text: &str,
-    font_data: &[u8], // TODO: Embed font data
+    font_data: &[u8],
     font_name: &str,
     font_size: f32,
     x: i32,
     y: i32,
+    layer_over: bool,
 ) -> Result<()> {
     let font_key = add_font_objects(dest_doc, page_id, font_data, font_name)?;
 
@@ -92,6 +95,17 @@ pub fn add_text(
     let content_stream = Stream::new(dictionary! {}, content.encode()?);
     let content_id = dest_doc.add_object(content_stream);
 
+    // For layer_over, we need q/Q streams to wrap existing content and isolate its graphics state
+    let (q_id, cap_q_id) = if layer_over {
+        let q_stream = Stream::new(dictionary! {}, b"q\n".to_vec());
+        let q_id = dest_doc.add_object(q_stream);
+        let cap_q_stream = Stream::new(dictionary! {}, b"Q\n".to_vec());
+        let cap_q_id = dest_doc.add_object(cap_q_stream);
+        (Some(q_id), Some(cap_q_id))
+    } else {
+        (None, None)
+    };
+
     {
         let page_dict = dest_doc
             .get_object_mut(page_id)?
@@ -100,11 +114,28 @@ pub fn add_text(
 
         if let Ok(contents) = page_dict.get_mut(KEY_CONTENTS) {
             match contents {
-                Object::Array(ref mut arr) => { arr.insert(0, Object::Reference(content_id)); },
+                Object::Array(ref mut arr) => {
+                    if layer_over {
+                        // Wrap existing content with q/Q to isolate its graphics state
+                        arr.insert(0, Object::Reference(q_id.unwrap()));
+                        arr.push(Object::Reference(cap_q_id.unwrap()));
+                        arr.push(Object::Reference(content_id));
+                    } else {
+                        arr.insert(0, Object::Reference(content_id));
+                    }
+                },
                 Object::Reference(id) => {
                     let old_id = *id;
-                    *contents =
-                        Object::Array(vec![Object::Reference(old_id), Object::Reference(content_id)]);
+                    *contents = if layer_over {
+                        Object::Array(vec![
+                            Object::Reference(q_id.unwrap()),
+                            Object::Reference(old_id),
+                            Object::Reference(cap_q_id.unwrap()),
+                            Object::Reference(content_id),
+                        ])
+                    } else {
+                        Object::Array(vec![Object::Reference(content_id), Object::Reference(old_id)])
+                    };
                 }
                 _ => {
                     return Err(PdfMergeError::new("Unexpected page Contents type"))

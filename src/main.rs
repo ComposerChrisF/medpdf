@@ -36,6 +36,8 @@ struct Args {
     #[arg(long, action = clap::ArgAction::Append)]
     watermark: Vec<WatermarkSpec>,
     #[arg(long, action = clap::ArgAction::Append)]
+    watermark_under: Vec<WatermarkSpec>,
+    #[arg(long, action = clap::ArgAction::Append)]
     overlay: Vec<OverlaySpec>,
     #[arg(long)]
     pad_to: Option<PadToSpec>,
@@ -139,21 +141,31 @@ fn main() -> Result<(), PdfMergeError> {
     // --- Phase 3: Apply Watermarks ---
     println!("\n--- Applying Watermarks ---");
     let mut font_cache = FontCache::new();
-    for spec in args.watermark.iter() {
-        // FUTURE: Encapsulate font_path, font_data, font_name all within Font struct; Cache becomes FontManager
-        let font_path = find_font(&spec.font)?;
-        let font_data = font_cache.get_data(&font_path)?;
-        let font_name = font_path.get_name();
-        let target_page_indices = parse_page_spec(&spec.pages, dest_page_ids.len() as u32)?;
-        let x_points = spec.units.to_points(spec.x);
-        let y_points = spec.units.to_points(spec.y);
 
-        println!("Applying watermark '{}' to pages '{target_page_indices:?}'", spec.text);
-        for page_index in target_page_indices {
-            let page_id = dest_page_ids[(page_index - 1) as usize];
-            pdf_watermark::add_text(&mut dest_doc, page_id, &spec.text, &font_data, &font_name, spec.size, x_points as i32, y_points as i32)?;
+    // Helper to apply watermarks with specified layer
+    let apply_watermarks = |specs: &[WatermarkSpec], layer_over: bool, font_cache: &mut FontCache, dest_doc: &mut Document, dest_page_ids: &[_]| -> Result<(), PdfMergeError> {
+        let layer_name = if layer_over { "over" } else { "under" };
+        for spec in specs.iter() {
+            let font_path = find_font(&spec.font)?;
+            let font_data = font_cache.get_data(&font_path)?;
+            let font_name = font_path.get_name();
+            let target_page_indices = parse_page_spec(&spec.pages, dest_page_ids.len() as u32)?;
+            let x_points = spec.units.to_points(spec.x);
+            let y_points = spec.units.to_points(spec.y);
+
+            println!("Applying watermark ({layer_name}) '{}' to pages '{target_page_indices:?}'", spec.text);
+            for page_index in target_page_indices {
+                let page_id = dest_page_ids[(page_index - 1) as usize];
+                pdf_watermark::add_text(dest_doc, page_id, &spec.text, &font_data, &font_name, spec.size, x_points as i32, y_points as i32, layer_over)?;
+            }
         }
-    }
+        Ok(())
+    };
+
+    // Apply under-watermarks first (so they render behind everything)
+    apply_watermarks(&args.watermark_under, false, &mut font_cache, &mut dest_doc, &dest_page_ids)?;
+    // Apply over-watermarks (on top of content)
+    apply_watermarks(&args.watermark, true, &mut font_cache, &mut dest_doc, &dest_page_ids)?;
     
     // --- Phase 4: Padding ---
     println!("\n--- Checking for Padding ---");

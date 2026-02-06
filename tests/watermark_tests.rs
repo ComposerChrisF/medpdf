@@ -18,7 +18,7 @@ fn test_watermark_with_builtin_font() {
     let font_data = b"@";
     let font_name = "Helvetica";
 
-    let result = add_text(&mut dest_doc, page_id, "DRAFT", font_data, font_name, 24.0, 72, 72);
+    let result = add_text(&mut dest_doc, page_id, "DRAFT", font_data, font_name, 24.0, 72, 72, true);
     assert!(result.is_ok(), "Watermark with built-in font should succeed: {:?}", result.err());
 }
 
@@ -40,7 +40,7 @@ fn test_watermark_adds_content() {
         _ => 0,
     };
 
-    add_text(&mut dest_doc, page_id, "TEST", font_data, font_name, 12.0, 100, 100).unwrap();
+    add_text(&mut dest_doc, page_id, "TEST", font_data, font_name, 12.0, 100, 100, true).unwrap();
 
     // Get contents after
     let page_after = dest_doc.get_dictionary(page_id).unwrap();
@@ -64,7 +64,7 @@ fn test_watermark_registers_font() {
     let font_data = b"@";
     let font_name = "Courier";
 
-    add_text(&mut dest_doc, page_id, "TEST", font_data, font_name, 12.0, 100, 100).unwrap();
+    add_text(&mut dest_doc, page_id, "TEST", font_data, font_name, 12.0, 100, 100, true).unwrap();
 
     // Check that Resources/Font exists
     let page = dest_doc.get_dictionary(page_id).unwrap();
@@ -91,9 +91,9 @@ fn test_watermark_different_positions() {
     let font_name = "Helvetica";
 
     // Test various positions
-    add_text(&mut dest_doc, page_id, "Top-Left", font_data, font_name, 12.0, 0, 700).unwrap();
-    add_text(&mut dest_doc, page_id, "Bottom-Right", font_data, font_name, 12.0, 500, 50).unwrap();
-    add_text(&mut dest_doc, page_id, "Center", font_data, font_name, 12.0, 250, 400).unwrap();
+    add_text(&mut dest_doc, page_id, "Top-Left", font_data, font_name, 12.0, 0, 700, true).unwrap();
+    add_text(&mut dest_doc, page_id, "Bottom-Right", font_data, font_name, 12.0, 500, 50, true).unwrap();
+    add_text(&mut dest_doc, page_id, "Center", font_data, font_name, 12.0, 250, 400, true).unwrap();
 
     // Page should still be valid
     let page = dest_doc.get_dictionary(page_id).unwrap();
@@ -110,7 +110,7 @@ fn test_watermark_negative_position() {
     let font_name = "Helvetica";
 
     // Negative positions are valid (off-page)
-    let result = add_text(&mut dest_doc, page_id, "Off-page", font_data, font_name, 12.0, -100, -100);
+    let result = add_text(&mut dest_doc, page_id, "Off-page", font_data, font_name, 12.0, -100, -100, true);
     assert!(result.is_ok());
 }
 
@@ -124,7 +124,7 @@ fn test_watermark_large_position() {
     let font_name = "Helvetica";
 
     // Large positions (off-page) are valid
-    let result = add_text(&mut dest_doc, page_id, "Far away", font_data, font_name, 12.0, 10000, 10000);
+    let result = add_text(&mut dest_doc, page_id, "Far away", font_data, font_name, 12.0, 10000, 10000, true);
     assert!(result.is_ok());
 }
 
@@ -138,7 +138,7 @@ fn test_watermark_zero_font_size() {
     let font_name = "Helvetica";
 
     // Zero font size - valid but invisible
-    let result = add_text(&mut dest_doc, page_id, "Invisible", font_data, font_name, 0.0, 100, 100);
+    let result = add_text(&mut dest_doc, page_id, "Invisible", font_data, font_name, 0.0, 100, 100, true);
     assert!(result.is_ok());
 }
 
@@ -152,7 +152,7 @@ fn test_watermark_large_font_size() {
     let font_name = "Helvetica";
 
     // Large font size
-    let result = add_text(&mut dest_doc, page_id, "BIG", font_data, font_name, 500.0, 100, 100);
+    let result = add_text(&mut dest_doc, page_id, "BIG", font_data, font_name, 500.0, 100, 100, true);
     assert!(result.is_ok());
 }
 
@@ -166,7 +166,7 @@ fn test_watermark_empty_text() {
     let font_name = "Helvetica";
 
     // Empty text is valid
-    let result = add_text(&mut dest_doc, page_id, "", font_data, font_name, 12.0, 100, 100);
+    let result = add_text(&mut dest_doc, page_id, "", font_data, font_name, 12.0, 100, 100, true);
     assert!(result.is_ok());
 }
 
@@ -180,7 +180,7 @@ fn test_watermark_special_characters() {
     let font_name = "Helvetica";
 
     // Text with special characters
-    let result = add_text(&mut dest_doc, page_id, "Test (with) [brackets] & symbols!", font_data, font_name, 12.0, 100, 100);
+    let result = add_text(&mut dest_doc, page_id, "Test (with) [brackets] & symbols!", font_data, font_name, 12.0, 100, 100, true);
     assert!(result.is_ok());
 }
 
@@ -195,7 +195,7 @@ fn test_watermark_unicode_text() {
 
     // Note: Built-in fonts may not support all unicode characters properly
     // This test just verifies it doesn't crash
-    let result = add_text(&mut dest_doc, page_id, "Test with accents: cafe", font_data, font_name, 12.0, 100, 100);
+    let result = add_text(&mut dest_doc, page_id, "Test with accents: cafe", font_data, font_name, 12.0, 100, 100, true);
     assert!(result.is_ok());
 }
 
@@ -209,9 +209,9 @@ fn test_multiple_watermarks_same_page() {
     let font_name = "Helvetica";
 
     // Add multiple watermarks
-    add_text(&mut dest_doc, page_id, "First", font_data, font_name, 12.0, 100, 100).unwrap();
-    add_text(&mut dest_doc, page_id, "Second", font_data, font_name, 14.0, 200, 200).unwrap();
-    add_text(&mut dest_doc, page_id, "Third", font_data, font_name, 16.0, 300, 300).unwrap();
+    add_text(&mut dest_doc, page_id, "First", font_data, font_name, 12.0, 100, 100, true).unwrap();
+    add_text(&mut dest_doc, page_id, "Second", font_data, font_name, 14.0, 200, 200, true).unwrap();
+    add_text(&mut dest_doc, page_id, "Third", font_data, font_name, 16.0, 300, 300, true).unwrap();
 
     // Page should have multiple content entries
     let page = dest_doc.get_dictionary(page_id).unwrap();
@@ -231,9 +231,9 @@ fn test_watermark_different_builtin_fonts() {
     let font_data = b"@";
 
     // Test various built-in fonts
-    add_text(&mut dest_doc, page_id, "Helvetica", font_data, "Helvetica", 12.0, 100, 700).unwrap();
-    add_text(&mut dest_doc, page_id, "Courier", font_data, "Courier", 12.0, 100, 600).unwrap();
-    add_text(&mut dest_doc, page_id, "Times-Roman", font_data, "Times-Roman", 12.0, 100, 500).unwrap();
+    add_text(&mut dest_doc, page_id, "Helvetica", font_data, "Helvetica", 12.0, 100, 700, true).unwrap();
+    add_text(&mut dest_doc, page_id, "Courier", font_data, "Courier", 12.0, 100, 600, true).unwrap();
+    add_text(&mut dest_doc, page_id, "Times-Roman", font_data, "Times-Roman", 12.0, 100, 500, true).unwrap();
 
     assert_eq!(dest_doc.get_pages().len(), 1);
 }
@@ -253,7 +253,7 @@ fn test_watermark_font_hack_mode() {
     let font_name = "F1";
 
     // This uses an existing font reference - may or may not work depending on document
-    let result = add_text(&mut dest_doc, page_id, "Reuse", font_data, font_name, 12.0, 100, 100);
+    let result = add_text(&mut dest_doc, page_id, "Reuse", font_data, font_name, 12.0, 100, 100, true);
     assert!(result.is_ok());
 }
 
