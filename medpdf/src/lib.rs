@@ -14,7 +14,7 @@ pub mod pdf_watermark;
 pub use error::{Error, PdfMergeError, Result};
 pub use pdf_helpers::Unit;
 pub use parsing::parse_page_spec;
-pub use pdf_copy_page::copy_page;
+pub use pdf_copy_page::{copy_page, copy_page_with_cache};
 pub use pdf_blank_page::create_blank_page;
 pub use pdf_overlay::overlay_page;
 pub use pdf_watermark::add_text;

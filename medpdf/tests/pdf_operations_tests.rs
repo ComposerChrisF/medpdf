@@ -4,7 +4,8 @@
 mod fixtures;
 
 use lopdf::Object;
-use medpdf::pdf_copy_page::copy_page;
+use std::collections::BTreeMap;
+use medpdf::pdf_copy_page::{copy_page, copy_page_with_cache};
 use medpdf::pdf_blank_page::create_blank_page;
 
 // --- create_blank_page Tests ---
@@ -274,4 +275,78 @@ fn test_copied_pages_are_independent() {
 
     // The two copied pages should have different ObjectIds
     assert_ne!(page_id1, page_id2);
+}
+
+// --- copy_page_with_cache Tests ---
+
+#[test]
+fn test_copy_page_with_cache_deduplicates_shared_resources() {
+    let source_doc = fixtures::create_pdf_with_shared_font(3);
+
+    // Copy pages WITHOUT cache (using copy_page) - resources will be duplicated
+    let mut dest_without_cache = fixtures::create_empty_pdf();
+    let initial_objects_without_cache = dest_without_cache.objects.len();
+    for page_num in 1..=3 {
+        copy_page(&mut dest_without_cache, &source_doc, page_num).unwrap();
+    }
+    let objects_added_without_cache = dest_without_cache.objects.len() - initial_objects_without_cache;
+
+    // Copy pages WITH cache - shared resources should be deduplicated
+    let mut dest_with_cache = fixtures::create_empty_pdf();
+    let initial_objects_with_cache = dest_with_cache.objects.len();
+    let mut cache = BTreeMap::new();
+    for page_num in 1..=3 {
+        copy_page_with_cache(&mut dest_with_cache, &source_doc, page_num, &mut cache).unwrap();
+    }
+    let objects_added_with_cache = dest_with_cache.objects.len() - initial_objects_with_cache;
+
+    // Both should have the same number of pages
+    assert_eq!(dest_without_cache.get_pages().len(), 3);
+    assert_eq!(dest_with_cache.get_pages().len(), 3);
+
+    // With cache should have fewer objects due to deduplication of shared font/resources
+    assert!(
+        objects_added_with_cache < objects_added_without_cache,
+        "With cache: {} objects, without cache: {} objects. Cache should result in fewer objects.",
+        objects_added_with_cache,
+        objects_added_without_cache
+    );
+}
+
+#[test]
+fn test_copy_page_with_cache_basic() {
+    let source_doc = fixtures::create_pdf_with_pages(2);
+    let mut dest_doc = fixtures::create_empty_pdf();
+    let mut cache = BTreeMap::new();
+
+    let page1_id = copy_page_with_cache(&mut dest_doc, &source_doc, 1, &mut cache).unwrap();
+    let page2_id = copy_page_with_cache(&mut dest_doc, &source_doc, 2, &mut cache).unwrap();
+
+    assert_eq!(dest_doc.get_pages().len(), 2);
+    assert_ne!(page1_id, page2_id);
+}
+
+#[test]
+fn test_copy_page_with_cache_tracks_objects() {
+    let source_doc = fixtures::create_pdf_with_shared_font(2);
+    let mut dest_doc = fixtures::create_empty_pdf();
+    let mut cache = BTreeMap::new();
+
+    // Cache should be empty initially
+    assert!(cache.is_empty());
+
+    copy_page_with_cache(&mut dest_doc, &source_doc, 1, &mut cache).unwrap();
+
+    // Cache should now contain mappings for copied objects
+    assert!(!cache.is_empty(), "Cache should contain object mappings after first copy");
+
+    let cache_size_after_first = cache.len();
+    copy_page_with_cache(&mut dest_doc, &source_doc, 2, &mut cache).unwrap();
+
+    // Cache may grow for page-specific objects, but shared objects shouldn't be re-added
+    // (the cache prevents re-copying the same source object)
+    assert!(
+        cache.len() >= cache_size_after_first,
+        "Cache should retain mappings from previous copies"
+    );
 }

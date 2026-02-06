@@ -171,3 +171,49 @@ pub fn count_q_operators(content: &[u8]) -> (i32, i32) {
 
     (q_count, big_q_count)
 }
+
+/// Creates a PDF with multiple pages that share a common font resource.
+/// This is useful for testing resource deduplication during page copying.
+pub fn create_pdf_with_shared_font(page_count: usize) -> Document {
+    let mut doc = create_empty_pdf();
+    let pages_id = doc.catalog().unwrap().get(b"Pages").unwrap().as_reference().unwrap();
+
+    // Create a shared font object
+    let font_dict = dictionary! {
+        "Type" => "Font",
+        "Subtype" => "Type1",
+        "BaseFont" => "Helvetica",
+    };
+    let font_id = doc.add_object(font_dict);
+
+    // Create a shared Resources dictionary referencing the font
+    let resources = dictionary! {
+        "Font" => dictionary! {
+            "F1" => Object::Reference(font_id),
+        },
+    };
+    let resources_id = doc.add_object(resources);
+
+    // Create pages that all share the same Resources
+    for _ in 0..page_count {
+        let media_box = vec![0.0.into(), 0.0.into(), 612.0.into(), 792.0.into()];
+        let content_id = doc.add_object(Stream::new(dictionary! {}, b"BT /F1 12 Tf ET".to_vec()));
+
+        let page = dictionary! {
+            "Type" => "Page",
+            "Parent" => pages_id,
+            "MediaBox" => media_box,
+            "Contents" => Object::Reference(content_id),
+            "Resources" => Object::Reference(resources_id),
+        };
+        let page_id = doc.add_object(page);
+
+        let pages = doc.get_object_mut(pages_id).unwrap().as_dict_mut().unwrap();
+        let kids = pages.get_mut(b"Kids").unwrap().as_array_mut().unwrap();
+        kids.push(page_id.into());
+        let new_page_count = kids.len();
+        pages.set("Count", Object::Integer(new_page_count as i64));
+    }
+
+    doc
+}
