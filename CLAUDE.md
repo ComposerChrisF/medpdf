@@ -11,7 +11,7 @@ cargo run -- [args]      # Run with arguments
 cargo check              # Fast type checking without building
 ```
 
-No test suite exists yet. Run `cargo test` to execute any future tests.
+Never commit changes to git without permission from the user.
 
 ## Architecture Overview
 

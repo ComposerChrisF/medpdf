@@ -47,6 +47,8 @@ struct Args {
     user_password: Option<String>,
     #[arg(long, value_name = "PASSWORD")]
     owner_password: Option<String>,
+    #[arg(long, help = "Use traditional PDF format for maximum compatibility with older tools")]
+    broad_compatibility: bool,
 }
 
 fn format_xmp_metadata(doc_uuid: &str) -> String {
@@ -200,21 +202,13 @@ fn main() -> Result<(), PdfMergeError> {
     // --- Phase 5: Saving ---
     println!("\nSaving file to {}", args.output.display());
     dest_doc.change_producer("PDF Merger Command-Line Tool");
-    //doc.set_creation_date(Local::now());
- 
-    //let mut save_options = lopdf::SaveOptions::new();
-    //if args.owner_password.is_some() || args.user_password.is_some() {
-    //    println!("Applying security settings...");
-    //    let mut permissions = lopdf::Permissions::new();
-    //    if args.owner_password.is_some() {
-    //        permissions.set_print(true).set_copy(false).set_modify(false);
-    //    }
-    //    save_options.set_permissions(permissions);
-    //    save_options.set_user_password(args.user_password.as_deref().map(|s| s.as_bytes().to_vec()));
-    //    save_options.set_owner_password(args.owner_password.as_deref().map(|s| s.as_bytes().to_vec()));
-    //}
     dest_doc.compress();
-    dest_doc.save(args.output)?;//.save_with_options(&args.output, &save_options)?;
+    if args.broad_compatibility {
+        dest_doc.save(&args.output)?;
+    } else {
+        let mut file = std::fs::File::create(&args.output)?;
+        dest_doc.save_modern(&mut file)?;
+    }
     
     println!("✅ Operation successful!");
     Ok(())

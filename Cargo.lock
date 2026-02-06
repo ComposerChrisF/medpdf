@@ -721,9 +721,9 @@ checksum = "13dc2df351e3202783a1fe0d44375f7295ffb4049267b0f3018346dc122a1d94"
 
 [[package]]
 name = "lopdf"
-version = "0.36.0"
+version = "0.39.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "59fa2559e99ba0f26a12458aabc754432c805bbb8cba516c427825a997af1fb7"
+checksum = "f560f57dfb9142a02d673e137622fd515d4231e51feb8b4af28d92647d83f35b"
 dependencies = [
  "aes",
  "bitflags 2.9.1",
@@ -732,6 +732,7 @@ dependencies = [
  "ecb",
  "encoding_rs",
  "flate2",
+ "getrandom 0.3.3",
  "indexmap",
  "itoa",
  "jiff",
@@ -746,6 +747,7 @@ dependencies = [
  "stringprep",
  "thiserror",
  "time",
+ "ttf-parser",
  "weezl",
 ]
 
