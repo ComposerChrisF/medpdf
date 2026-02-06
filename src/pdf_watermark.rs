@@ -1,8 +1,60 @@
 use lopdf::content::{Content, Operation};
-use lopdf::{dictionary, Document, Object, ObjectId, Stream, Dictionary};
+use lopdf::{dictionary, Document, Object, ObjectId, Stream, Dictionary, StringFormat};
 use crate::error::{Result, PdfMergeError};
 use crate::font_helpers;
 use crate::pdf_helpers::{KEY_CONTENTS, KEY_FONT, KEY_FONT_DESTCRIPTOR, KEY_RESOURCES};
+
+/// Converts a UTF-8 string to WinAnsiEncoding (Windows Code Page 1252) bytes.
+/// Characters that cannot be represented in WinAnsiEncoding are replaced with '?'.
+pub fn utf8_to_winansi(text: &str) -> Vec<u8> {
+    text.chars().map(unicode_to_winansi).collect()
+}
+
+/// Maps a Unicode codepoint to its WinAnsiEncoding byte value.
+/// Returns b'?' for characters not representable in WinAnsiEncoding.
+pub fn unicode_to_winansi(c: char) -> u8 {
+    let cp = c as u32;
+    match cp {
+        // ASCII range (0x00-0x7F) - direct mapping
+        0x0000..=0x007F => cp as u8,
+
+        // Latin-1 Supplement (0xA0-0xFF) - direct mapping
+        0x00A0..=0x00FF => cp as u8,
+
+        // Special WinAnsi characters in 0x80-0x9F range
+        // These differ from Latin-1 and need explicit mapping
+        0x20AC => 0x80, // €
+        0x201A => 0x82, // ‚
+        0x0192 => 0x83, // ƒ
+        0x201E => 0x84, // „
+        0x2026 => 0x85, // …
+        0x2020 => 0x86, // †
+        0x2021 => 0x87, // ‡
+        0x02C6 => 0x88, // ˆ
+        0x2030 => 0x89, // ‰
+        0x0160 => 0x8A, // Š
+        0x2039 => 0x8B, // ‹
+        0x0152 => 0x8C, // Œ
+        0x017D => 0x8E, // Ž
+        0x2018 => 0x91, // '
+        0x2019 => 0x92, // '
+        0x201C => 0x93, // "
+        0x201D => 0x94, // "
+        0x2022 => 0x95, // •
+        0x2013 => 0x96, // –
+        0x2014 => 0x97, // —
+        0x02DC => 0x98, // ˜
+        0x2122 => 0x99, // ™
+        0x0161 => 0x9A, // š
+        0x203A => 0x9B, // ›
+        0x0153 => 0x9C, // œ
+        0x017E => 0x9E, // ž
+        0x0178 => 0x9F, // Ÿ
+
+        // Character not in WinAnsiEncoding
+        _ => b'?',
+    }
+}
 
 
 /// Adds text to a page at a specific position.
@@ -18,6 +70,9 @@ pub fn add_text(
 ) -> Result<()> {
     let font_key = add_font_objects(dest_doc, page_id, font_data, font_name)?;
 
+    // Convert UTF-8 text to WinAnsiEncoding for PDF string
+    let encoded_text = utf8_to_winansi(text);
+
     let content = Content {
         operations: vec![
             Operation::new("q", vec![]),
@@ -29,7 +84,7 @@ pub fn add_text(
                 font_size.into(),
             ]),
             Operation::new("Td", vec![x.into(), y.into()]),
-            Operation::new("Tj", vec![Object::string_literal(text)]),
+            Operation::new("Tj", vec![Object::String(encoded_text, StringFormat::Literal)]),
             Operation::new("ET", vec![]),
             Operation::new("Q", vec![]),
         ],
@@ -188,11 +243,15 @@ fn add_embedded_font(dest_doc: &mut Document, page_id: ObjectId, font_data: &[u8
         "Type" => "Font",
         "Subtype" =>  font_info.subtype,
         "BaseFont" => font_info.base_font,
-        "Encoding" => font_info.encoding,
         "FirstChar" => font_info.first_char,
         "LastChar" => font_info.last_char,
         "Widths" => widths_as_object_array(&font_info.widths[..]),
     };
+
+    // Only add Encoding if present (symbol fonts omit it)
+    if let Some(ref encoding) = font_info.encoding {
+        font_dict.set("Encoding", Object::Name(encoding.as_bytes().to_vec()));
+    }
     let mut descriptor_dict = dictionary! {
         "Type" => "FontDescriptor",
         "FontName" => font_descriptor.font_name,

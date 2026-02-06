@@ -40,7 +40,7 @@ pub fn get_name_id_map() -> HashMap<u16, &'static str> {
 pub struct FontPdfInfo {
     pub base_font: String,
     pub subtype: String,
-    pub encoding: String,
+    pub encoding: Option<String>,  // None for symbol fonts
     pub first_char: u16,
     pub last_char: u16,
     pub widths: Vec<u16>,
@@ -80,12 +80,68 @@ pub fn get_font_widths(face: &Face, first_char: u8, last_char: u8) -> Vec<u16> {
     widths
 }
 
+/// Detects whether a font is symbolic (e.g., Symbol, Dingbats, Wingdings).
+/// Symbol fonts don't use standard character encodings.
+fn detect_is_symbolic(face: &Face) -> bool {
+    // Name-based detection for known symbol fonts
+    let ps_name = get_name(face, name_id::POST_SCRIPT_NAME).to_lowercase();
+    let symbol_indicators = ["symbol", "dingbat", "wingding", "zapf", "icon", "ornament"];
+    if symbol_indicators.iter().any(|s| ps_name.contains(s)) {
+        return true;
+    }
+
+    // Character coverage heuristic: check for Latin letters
+    let basic_latin_count = (b'A'..=b'Z')
+        .chain(b'a'..=b'z')
+        .filter(|&ch| face.glyph_index(ch as char).is_some())
+        .count();
+
+    // If fewer than 20 of 52 Latin letters, likely symbolic
+    if basic_latin_count < 20 {
+        let has_some_glyphs = (32u8..=127).any(|ch| face.glyph_index(ch as char).is_some());
+        if has_some_glyphs {
+            return true;
+        }
+    }
+
+    false
+}
+
+/// Determines the PDF encoding for a font.
+/// Symbol fonts use their own encoding and return None.
+fn determine_pdf_encoding(is_symbolic: bool) -> Option<String> {
+    if is_symbolic {
+        None  // Symbol fonts use their own encoding
+    } else {
+        Some("WinAnsiEncoding".to_string())  // Cross-platform compatible
+    }
+}
+
+/// Computes the character range for a font.
+/// Symbol fonts scan for actual glyph coverage; regular fonts use 32-255.
+fn compute_char_range(face: &Face, is_symbolic: bool) -> (u8, u8) {
+    if is_symbolic {
+        // Scan full range for symbol fonts
+        let first = (0u8..=255).find(|&ch| face.glyph_index(ch as char).is_some()).unwrap_or(32);
+        let last = (0u8..=255).rev().find(|&ch| face.glyph_index(ch as char).is_some()).unwrap_or(255);
+        (first, last)
+    } else {
+        // Standard range for regular fonts
+        (32, 255)
+    }
+}
+
+#[allow(dead_code)]
 pub fn compute_pdf_font_flags(face: &Face) -> u16 {
-    let is_symbolic = false;
+    let is_symbolic = detect_is_symbolic(face);
+    compute_pdf_font_flags_internal(face, is_symbolic)
+}
+
+fn compute_pdf_font_flags_internal(face: &Face, is_symbolic: bool) -> u16 {
     let is_italic_flag = face.is_italic() || face.is_oblique();
     (if face.is_monospaced() { 0x0001 } else { 0x0000 }) |      // Bit 1 = FixedPitch
         (if is_symbolic      { 0x0004 } else { 0x0000 }) |      // Bit 3 = Symbolic
-        (if !is_symbolic     { 0x0020 } else { 0x0000 }) |      // Bit 6 = Nonsymbolic (we're assuming...)
+        (if !is_symbolic     { 0x0020 } else { 0x0000 }) |      // Bit 6 = Nonsymbolic
         (if is_italic_flag   { 0x0040 } else { 0x0000 })        // Bit 7 = Italic (slanted strokes)
 }
 
@@ -134,20 +190,22 @@ pub fn get_pdf_font_info_of_data(font_data: &[u8]) -> Result<(FontPdfInfo, FontD
 }
 
 pub fn get_pdf_info_of_face(face: &Face) -> (FontPdfInfo, FontDescriptorPdfInfo) {
-    const FIRST_CHAR: u8 = 32;
-    const LAST_CHAR: u8 = 255;
+    let is_symbolic = detect_is_symbolic(face);
+    let (first_char, last_char) = compute_char_range(face, is_symbolic);
+    let encoding = determine_pdf_encoding(is_symbolic);
+
     (
         FontPdfInfo {
             base_font: get_name(face, name_id::POST_SCRIPT_NAME).into(),
-            encoding: "MacRomanEncoding".to_string(),
-            first_char: FIRST_CHAR.into(),
-            last_char: LAST_CHAR.into(),
-            widths: get_font_widths(face, FIRST_CHAR, LAST_CHAR),
+            encoding,
+            first_char: first_char.into(),
+            last_char: last_char.into(),
+            widths: get_font_widths(face, first_char, last_char),
             subtype: get_pdf_font_subtype(face),
         },
         FontDescriptorPdfInfo {
             font_name: get_name(face, name_id::POST_SCRIPT_NAME).into(),
-            flags: compute_pdf_font_flags(face),
+            flags: compute_pdf_font_flags_internal(face, is_symbolic),
             font_bbox: get_pdf_font_bbox(face),
             italic_angle: face.italic_angle().round() as i16,
             ascent: face.ascender(),
@@ -157,7 +215,6 @@ pub fn get_pdf_info_of_face(face: &Face) -> (FontPdfInfo, FontDescriptorPdfInfo)
             stem_v: guess_pdf_stem_v_for_font(face),
             cap_height: face.capital_height().unwrap_or(0),
             font_file_key: get_pdf_font_file_key(face),
-            //embedded_font_subtype: get_pdf_font_subtype(face),
         }
     )
 }

@@ -226,25 +226,17 @@ fn test_font_cache_caches_path() {
     // Skipping as it's platform-dependent
 }
 
-// --- font_helpers documentation tests ---
+// --- font_helpers symbol font detection tests ---
 //
-// The font_helpers module has several hardcoded limitations that should be documented:
+// The font_helpers module now properly handles symbol fonts:
 //
-// 1. is_symbolic is always false (compute_pdf_font_flags)
-//    - All fonts are treated as non-symbolic
-//
-// 2. MacRomanEncoding is hardcoded (get_pdf_info_of_face)
-//    - All fonts use MacRomanEncoding regardless of actual encoding
-//
-// 3. first_char=32, last_char=255 hardcoded (get_pdf_info_of_face)
-//    - Character range is always 32-255 regardless of font content
-//
-// These are design decisions that work for common Latin fonts but may
-// cause issues with symbol fonts or non-Latin character sets.
+// 1. detect_is_symbolic() identifies symbol fonts by name or character coverage
+// 2. Symbol fonts get encoding=None (omitted from PDF), regular fonts get WinAnsiEncoding
+// 3. Symbol fonts scan for actual glyph coverage; regular fonts use 32-255
 
 #[test]
-fn test_font_helpers_limitations_documented() {
-    // This is a documentation test - it passes as long as the limitations
-    // are documented above. When the font_helpers module is updated to
-    // handle these cases properly, these comments should be updated.
+fn test_font_helpers_symbol_detection_documented() {
+    // Symbol font detection is now implemented using:
+    // - Name-based detection for known symbol fonts (Symbol, Dingbats, Wingdings, etc.)
+    // - Character coverage heuristic (fonts with <20 Latin letters are considered symbolic)
 }

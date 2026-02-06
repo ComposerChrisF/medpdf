@@ -3,7 +3,7 @@
 
 mod fixtures;
 
-use pdf_merger::pdf_watermark::add_text;
+use pdf_merger::pdf_watermark::{add_text, utf8_to_winansi, unicode_to_winansi};
 use pdf_merger::pdf_copy_page::copy_page;
 
 // --- Basic Watermark Tests ---
@@ -255,4 +255,77 @@ fn test_watermark_font_hack_mode() {
     // This uses an existing font reference - may or may not work depending on document
     let result = add_text(&mut dest_doc, page_id, "Reuse", font_data, font_name, 12.0, 100, 100);
     assert!(result.is_ok());
+}
+
+// --- WinAnsiEncoding Conversion Tests ---
+
+#[test]
+fn test_winansi_ascii_passthrough() {
+    // ASCII characters should pass through unchanged
+    assert_eq!(utf8_to_winansi("Hello"), b"Hello".to_vec());
+    assert_eq!(utf8_to_winansi("ABC123"), b"ABC123".to_vec());
+    assert_eq!(utf8_to_winansi("!@#$%"), b"!@#$%".to_vec());
+}
+
+#[test]
+fn test_winansi_latin1_supplement() {
+    // Latin-1 Supplement (U+00A0-U+00FF) maps directly
+    assert_eq!(unicode_to_winansi('é'), 0xE9);  // U+00E9
+    assert_eq!(unicode_to_winansi('ñ'), 0xF1);  // U+00F1
+    assert_eq!(unicode_to_winansi('ü'), 0xFC);  // U+00FC
+    assert_eq!(unicode_to_winansi('©'), 0xA9);  // U+00A9
+    assert_eq!(unicode_to_winansi('®'), 0xAE);  // U+00AE
+    assert_eq!(unicode_to_winansi('°'), 0xB0);  // U+00B0
+}
+
+#[test]
+fn test_winansi_special_chars() {
+    // Special WinAnsi characters in 0x80-0x9F range
+    assert_eq!(unicode_to_winansi('€'), 0x80);  // U+20AC
+    assert_eq!(unicode_to_winansi('™'), 0x99);  // U+2122
+    assert_eq!(unicode_to_winansi('•'), 0x95);  // U+2022
+    assert_eq!(unicode_to_winansi('–'), 0x96);  // U+2013 en-dash
+    assert_eq!(unicode_to_winansi('—'), 0x97);  // U+2014 em-dash
+    assert_eq!(unicode_to_winansi('\u{201C}'), 0x93);  // U+201C left double quote
+    assert_eq!(unicode_to_winansi('\u{201D}'), 0x94);  // U+201D right double quote
+    assert_eq!(unicode_to_winansi('\u{2018}'), 0x91);  // U+2018 left single quote
+    assert_eq!(unicode_to_winansi('\u{2019}'), 0x92);  // U+2019 right single quote
+    assert_eq!(unicode_to_winansi('…'), 0x85);  // U+2026 ellipsis
+}
+
+#[test]
+fn test_winansi_unmappable_fallback() {
+    // Characters outside WinAnsiEncoding should become '?'
+    assert_eq!(unicode_to_winansi('中'), b'?');  // Chinese
+    assert_eq!(unicode_to_winansi('日'), b'?');  // Japanese
+    assert_eq!(unicode_to_winansi('α'), b'?');   // Greek alpha
+    assert_eq!(unicode_to_winansi('→'), b'?');   // Arrow
+    assert_eq!(unicode_to_winansi('😀'), b'?');  // Emoji
+}
+
+#[test]
+fn test_winansi_cafe_example() {
+    // The classic "Café" example
+    let encoded = utf8_to_winansi("Café");
+    assert_eq!(encoded, vec![b'C', b'a', b'f', 0xE9]);
+}
+
+#[test]
+fn test_winansi_mixed_text() {
+    // Mix of ASCII and extended characters
+    let encoded = utf8_to_winansi("Price: €50");
+    assert_eq!(encoded, vec![b'P', b'r', b'i', b'c', b'e', b':', b' ', 0x80, b'5', b'0']);
+}
+
+#[test]
+fn test_winansi_empty_string() {
+    assert_eq!(utf8_to_winansi(""), Vec::<u8>::new());
+}
+
+#[test]
+fn test_winansi_copyright_notice() {
+    let encoded = utf8_to_winansi("© 2024 Company™");
+    // © = 0xA9, ™ = 0x99
+    assert_eq!(encoded[0], 0xA9);
+    assert_eq!(encoded[encoded.len() - 1], 0x99);
 }
