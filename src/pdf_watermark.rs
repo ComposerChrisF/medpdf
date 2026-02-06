@@ -218,6 +218,7 @@ fn add_known_named_font(dest_doc: &mut Document, page_id: ObjectId, font_name: &
         "Type" => "Font",
         "Subtype" => "Type1",
         "BaseFont" => font_name.to_string(),
+        "Encoding" => "WinAnsiEncoding",
     };
     let font_id = dest_doc.add_object(font_dict);
     register_font_in_page_resources(dest_doc, page_id, font_id)
