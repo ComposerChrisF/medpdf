@@ -5,7 +5,7 @@ mod fixtures;
 
 use lopdf::{dictionary, Object, Stream};
 use std::collections::BTreeMap;
-use pdf_merger::pdf_helpers::{deep_copy_object, deep_copy_object_by_id, get_page_object_id_from_doc};
+use medpdf::pdf_helpers::{deep_copy_object, deep_copy_object_by_id, get_page_object_id_from_doc};
 
 // --- get_page_object_id_from_doc Tests ---
 

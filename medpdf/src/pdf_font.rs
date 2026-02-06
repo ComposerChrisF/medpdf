@@ -51,6 +51,11 @@ impl FontCache {
     }
 }
 
+impl Default for FontCache {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 
 fn parse_font_path_as_number(font_path: &Path) -> Option<u8> {
@@ -69,9 +74,9 @@ pub fn find_font(font_path: &Path) -> Result<FontPath> {
         // without embedding the font.
         //
         // NOTE: This mechanism is primarily designed to reference the "standard" PDF fonts (e.g.
-        // "Helvetica", "Courier", etc.) for debugging.  But it might be usable to reference fonts 
+        // "Helvetica", "Courier", etc.) for debugging.  But it might be usable to reference fonts
         // already installed on a user's system.
-        // 
+        //
         // Built in fonts (through PDF 1.7): Times-Roman, Helvetica, Courier, Symbol, Times-Bold,
         // Helvetica-Bold, Courier-Bold, ZapfDingbats, Times-Italic, Helvetica-Oblique,
         // Courier-Oblique, Times-BoldItalic, Helvetica-BoldOblique, Courier-BoldOblique

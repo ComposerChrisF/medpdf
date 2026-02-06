@@ -5,19 +5,47 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Build Commands
 
 ```bash
-cargo build --release    # Build optimized binary
-cargo build              # Build debug binary
-cargo run -- [args]      # Run with arguments
-cargo check              # Fast type checking without building
+cargo build --release            # Build optimized binaries
+cargo build --release -p pdf_merger  # Build CLI only
+cargo check --workspace          # Fast type checking
+cargo test --workspace           # Run all tests
 ```
 
 Never commit changes to git without permission from the user.
 
+## Workspace Structure
+
+This is a Cargo workspace with two crates:
+
+```
+pdf_merger/                    # Repository root (workspace)
+├── Cargo.toml                 # Workspace manifest
+├── medpdf/                    # Library crate (medium-level PDF API)
+│   ├── Cargo.toml
+│   └── src/
+│       ├── lib.rs             # Public API and re-exports
+│       ├── error.rs           # PdfMergeError with Display trait
+│       ├── parsing.rs         # Page spec parsing with nom
+│       ├── pdf_helpers.rs     # Deep copy, PDF key constants, Unit enum
+│       ├── pdf_font.rs        # Font discovery and caching
+│       ├── font_helpers.rs    # TTF parsing, font metrics
+│       ├── pdf_copy_page.rs   # Page copying between documents
+│       ├── pdf_blank_page.rs  # Blank page creation
+│       ├── pdf_overlay.rs     # Page overlay with resource renaming
+│       └── pdf_watermark.rs   # Text watermark rendering
+└── pdf_merger/                # CLI crate
+    ├── Cargo.toml
+    └── src/
+        ├── main.rs            # CLI args (clap), orchestrates pipeline
+        └── spec_types.rs      # CLI spec types with FromStr (WatermarkSpec, etc.)
+```
+
 ## Architecture Overview
 
-pdf_merger is a CLI tool for merging, overlaying, and watermarking PDF files using the `lopdf` library.
+**medpdf** is a reusable library providing medium-level PDF operations over lopdf.
+**pdf_merger** is a CLI tool that uses medpdf for merging, overlaying, and watermarking PDFs.
 
-### 5-Phase Processing Pipeline (main.rs)
+### 5-Phase Processing Pipeline (pdf_merger/src/main.rs)
 
 1. **Merge Pages** - Parse input file/page specs, load documents, copy selected pages
 2. **Apply Overlays** - Overlay content from other PDFs with resource renaming
@@ -27,16 +55,19 @@ pdf_merger is a CLI tool for merging, overlaying, and watermarking PDF files usi
 
 ### Module Responsibilities
 
-| Module | Purpose |
-|--------|---------|
-| `main.rs` | CLI args (clap), orchestrates pipeline |
-| `pdf_overlay.rs` | Page overlay with content stream merging, resource conflict resolution |
-| `pdf_watermark.rs` | Text watermark rendering with font embedding |
-| `pdf_helpers.rs` | Deep object copying, PDF key constants |
-| `font_helpers.rs` | TTF parsing, font metrics extraction, PDF FontDescriptor generation |
-| `pdf_font.rs` | Font discovery (system/file) and caching |
-| `parsing.rs` | Page spec parsing with nom (`"1-3,5,7-"`, `"all"`) |
-| `error.rs` | Custom `PdfMergeError` enum with conversions |
+| Crate/Module | Purpose |
+|--------------|---------|
+| `medpdf::error` | Custom `PdfMergeError` enum with Display/Error traits |
+| `medpdf::parsing` | Page spec parsing with nom (`"1-3,5,7-"`, `"all"`) |
+| `medpdf::pdf_helpers` | Deep object copying, PDF key constants, Unit enum |
+| `medpdf::pdf_font` | Font discovery (system/file) and caching |
+| `medpdf::font_helpers` | TTF parsing, font metrics, PDF FontDescriptor generation |
+| `medpdf::pdf_copy_page` | `copy_page()` - copy pages between documents |
+| `medpdf::pdf_blank_page` | `create_blank_page()` - add empty pages |
+| `medpdf::pdf_overlay` | `overlay_page()` - merge content with resource renaming |
+| `medpdf::pdf_watermark` | `add_text()` - text watermark rendering |
+| `pdf_merger::main` | CLI args (clap), orchestrates pipeline |
+| `pdf_merger::spec_types` | CLI spec types with FromStr for clap integration |
 
 ### Key Patterns
 
@@ -59,4 +90,4 @@ pdf_merger -o out.pdf in1.pdf "1-3" in2.pdf "all" \
 
 ### PDF Key Constants
 
-`pdf_helpers.rs` defines byte-string constants for PDF dictionary keys (KEY_PAGES, KEY_RESOURCES, KEY_FONT, etc.) to prevent typos and enable type-safe key usage.
+`medpdf::pdf_helpers` defines byte-string constants for PDF dictionary keys (KEY_PAGES, KEY_RESOURCES, KEY_FONT, etc.) to prevent typos and enable type-safe key usage.

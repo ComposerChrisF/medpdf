@@ -6,23 +6,12 @@ use lopdf::{Document, Object, Stream, StringFormat};
 use std::path::PathBuf;
 use uuid::Uuid;
 
-mod error;
-mod parsing;
-mod pdf_font;
-mod pdf_helpers;
-mod pdf_copy_page;
-mod pdf_blank_page;
-mod pdf_watermark;
-mod pdf_overlay;
-mod font_helpers;
 mod spec_types;
 
-use parsing::parse_page_spec;
+use medpdf::{parse_page_spec, PdfMergeError};
+use medpdf::pdf_font::{find_font, FontCache};
+use medpdf::pdf_helpers::KEY_MEDIA_BOX;
 use spec_types::{WatermarkSpec, OverlaySpec, PadToSpec, PadFileSpec};
-
-use crate::error::PdfMergeError;
-use crate::pdf_font::{find_font, FontCache};
-use crate::pdf_helpers::KEY_MEDIA_BOX;
 
 
 /// A command-line tool for advanced manipulation of PDF documents.
@@ -105,7 +94,7 @@ fn main() -> Result<(), PdfMergeError> {
     });
     dest_doc.trailer.set("Root", catalog_id);
     dest_doc.trailer.set("ID", Object::Array(vec![
-        Object::String(doc_uuid.clone().into_bytes(), StringFormat::Literal), 
+        Object::String(doc_uuid.clone().into_bytes(), StringFormat::Literal),
         Object::String(doc_uuid.into_bytes(), StringFormat::Literal)
     ]));
     let mut dest_page_ids: Vec<lopdf::ObjectId> = vec![];
@@ -120,10 +109,10 @@ fn main() -> Result<(), PdfMergeError> {
         let source_page_count = source_doc.page_iter().count();
         let page_numbers_to_import = parse_page_spec(page_spec, source_page_count as u32)?;
         println!("page_numbers_to_import: {page_numbers_to_import:?}; source_page_count: {source_page_count}");
-        
+
         for page_num in page_numbers_to_import {
             println!("Copying page: {page_num} from {source_path}");
-            let new_page_id = pdf_copy_page::copy_page(&mut dest_doc, &source_doc, page_num)?;
+            let new_page_id = medpdf::copy_page(&mut dest_doc, &source_doc, page_num)?;
             dest_page_ids.push(new_page_id);
         }
     }
@@ -136,7 +125,7 @@ fn main() -> Result<(), PdfMergeError> {
         let target_page_indices = parse_page_spec(&spec.target_pages, dest_page_ids.len() as u32)?;
         for page_index in target_page_indices {
             let dest_page_id = dest_page_ids[(page_index - 1) as usize];
-            pdf_overlay::overlay_page(&mut dest_doc, dest_page_id, &overlay_doc, spec.src_page.into())?;
+            medpdf::overlay_page(&mut dest_doc, dest_page_id, &overlay_doc, spec.src_page.into())?;
         }
     }
 
@@ -158,7 +147,7 @@ fn main() -> Result<(), PdfMergeError> {
             println!("Applying watermark ({layer_name}) '{}' to pages '{target_page_indices:?}'", spec.text);
             for page_index in target_page_indices {
                 let page_id = dest_page_ids[(page_index - 1) as usize];
-                pdf_watermark::add_text(dest_doc, page_id, &spec.text, &font_data, &font_name, spec.size, x_points as i32, y_points as i32, layer_over)?;
+                medpdf::add_text(dest_doc, page_id, &spec.text, &font_data, &font_name, spec.size, x_points as i32, y_points as i32, layer_over)?;
             }
         }
         Ok(())
@@ -168,7 +157,7 @@ fn main() -> Result<(), PdfMergeError> {
     apply_watermarks(&args.watermark_under, false, &mut font_cache, &mut dest_doc, &dest_page_ids)?;
     // Apply over-watermarks (on top of content)
     apply_watermarks(&args.watermark, true, &mut font_cache, &mut dest_doc, &dest_page_ids)?;
-    
+
     // --- Phase 4: Padding ---
     println!("\n--- Checking for Padding ---");
     let current_page_count = dest_doc.get_pages().len();
@@ -187,13 +176,13 @@ fn main() -> Result<(), PdfMergeError> {
                 let height = media_box[3].as_f32()?;
 
                 for _ in 0..(pages_to_add - 1) {
-                    pdf_blank_page::create_blank_page(&mut dest_doc, width, height)?;
+                    medpdf::create_blank_page(&mut dest_doc, width, height)?;
                 }
                 if let Some(spec) = &args.pad_last_page_file {
                     let pad_doc = Document::load(&spec.file)?;
-                    pdf_copy_page::copy_page(&mut dest_doc, &pad_doc, spec.page.into())?;
+                    medpdf::copy_page(&mut dest_doc, &pad_doc, spec.page.into())?;
                 } else {
-                    pdf_blank_page::create_blank_page(&mut dest_doc, width, height)?;
+                    medpdf::create_blank_page(&mut dest_doc, width, height)?;
                 }
             }
         }
@@ -209,7 +198,7 @@ fn main() -> Result<(), PdfMergeError> {
         let mut file = std::fs::File::create(&args.output)?;
         dest_doc.save_modern(&mut file)?;
     }
-    
-    println!("✅ Operation successful!");
+
+    println!("Operation successful!");
     Ok(())
 }

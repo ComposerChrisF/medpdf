@@ -5,7 +5,7 @@
 // Font embedding tests are limited without actual font files.
 
 use std::path::PathBuf;
-use pdf_merger::pdf_font::{find_font, FontPath, FontCache};
+use medpdf::pdf_font::{find_font, FontPath, FontCache};
 
 // --- find_font Tests ---
 

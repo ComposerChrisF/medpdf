@@ -80,33 +80,33 @@ pub fn unicode_to_winansi(c: char) -> u8 {
 
         // Special WinAnsi characters in 0x80-0x9F range
         // These differ from Latin-1 and need explicit mapping
-        0x20AC => 0x80, // €
-        0x201A => 0x82, // ‚
-        0x0192 => 0x83, // ƒ
-        0x201E => 0x84, // „
-        0x2026 => 0x85, // …
-        0x2020 => 0x86, // †
-        0x2021 => 0x87, // ‡
-        0x02C6 => 0x88, // ˆ
-        0x2030 => 0x89, // ‰
-        0x0160 => 0x8A, // Š
-        0x2039 => 0x8B, // ‹
-        0x0152 => 0x8C, // Œ
-        0x017D => 0x8E, // Ž
-        0x2018 => 0x91, // '
-        0x2019 => 0x92, // '
-        0x201C => 0x93, // "
-        0x201D => 0x94, // "
-        0x2022 => 0x95, // •
-        0x2013 => 0x96, // –
-        0x2014 => 0x97, // —
-        0x02DC => 0x98, // ˜
-        0x2122 => 0x99, // ™
-        0x0161 => 0x9A, // š
-        0x203A => 0x9B, // ›
-        0x0153 => 0x9C, // œ
-        0x017E => 0x9E, // ž
-        0x0178 => 0x9F, // Ÿ
+        0x20AC => 0x80, // Euro
+        0x201A => 0x82, // single low-9 quotation mark
+        0x0192 => 0x83, // latin small letter f with hook
+        0x201E => 0x84, // double low-9 quotation mark
+        0x2026 => 0x85, // horizontal ellipsis
+        0x2020 => 0x86, // dagger
+        0x2021 => 0x87, // double dagger
+        0x02C6 => 0x88, // modifier letter circumflex accent
+        0x2030 => 0x89, // per mille sign
+        0x0160 => 0x8A, // latin capital letter s with caron
+        0x2039 => 0x8B, // single left-pointing angle quotation mark
+        0x0152 => 0x8C, // latin capital ligature oe
+        0x017D => 0x8E, // latin capital letter z with caron
+        0x2018 => 0x91, // left single quotation mark
+        0x2019 => 0x92, // right single quotation mark
+        0x201C => 0x93, // left double quotation mark
+        0x201D => 0x94, // right double quotation mark
+        0x2022 => 0x95, // bullet
+        0x2013 => 0x96, // en dash
+        0x2014 => 0x97, // em dash
+        0x02DC => 0x98, // small tilde
+        0x2122 => 0x99, // trade mark sign
+        0x0161 => 0x9A, // latin small letter s with caron
+        0x203A => 0x9B, // single right-pointing angle quotation mark
+        0x0153 => 0x9C, // latin small ligature oe
+        0x017E => 0x9E, // latin small letter z with caron
+        0x0178 => 0x9F, // latin capital letter y with diaeresis
 
         // Character not in WinAnsiEncoding
         _ => b'?',
@@ -273,9 +273,9 @@ fn register_font_in_page_resources(
             (fonts_id, None)
         }
     };
-    
+
     // Only one of these two is ever set, but both can be None
-    // Was: assert!(fonts_id.is_none() || resources_dict_id.is_none());  
+    // Was: assert!(fonts_id.is_none() || resources_dict_id.is_none());
     if fonts_id.is_some() && resources_dict_id.is_some() {
         return Err(PdfMergeError::new("Internal error: both Fonts and Resources are set!"));
     }

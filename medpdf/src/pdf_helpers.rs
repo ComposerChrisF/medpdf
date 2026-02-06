@@ -1,4 +1,3 @@
-use clap::ValueEnum;
 use lopdf::{Document, Object, ObjectId, Stream, Dictionary};
 use std::collections::BTreeMap;
 use crate::error::{Result, PdfMergeError};
@@ -18,7 +17,7 @@ pub const KEY_MEDIA_BOX: &[u8] = b"MediaBox";
 
 
 
-#[derive(Debug, Clone, Copy, ValueEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Unit { In, Mm }    // TODO: Add Pt, Cm, Percent (of page)
 
 impl Unit {

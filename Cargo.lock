@@ -762,6 +762,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "medpdf"
+version = "0.1.0"
+dependencies = [
+ "font-kit",
+ "lopdf",
+ "nom 7.1.3",
+ "tempfile",
+ "ttf-parser",
+]
+
+[[package]]
 name = "memchr"
 version = "2.7.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -870,11 +881,9 @@ version = "0.1.1"
 dependencies = [
  "chrono",
  "clap",
- "font-kit",
  "lopdf",
- "nom 7.1.3",
+ "medpdf",
  "tempfile",
- "ttf-parser",
  "uuid",
 ]
 

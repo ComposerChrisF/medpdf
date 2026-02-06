@@ -62,7 +62,7 @@ pub struct FontDescriptorPdfInfo {
     //pub embedded_font_subtype: String, // "Type1" or "Type1C" or "TrueType" or "CIDFontType0" or "CIDFontType2"
 }
 
- 
+
 pub fn get_name<'a>(face: &Face<'a>, name_id: u16) -> Cow<'a, str> {
     face.names().into_iter().find(|name| name.name_id == name_id)
         .map(|name| String::from_utf8_lossy(name.name))

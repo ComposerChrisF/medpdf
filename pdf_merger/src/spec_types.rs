@@ -4,7 +4,23 @@
 use clap::ValueEnum;
 use std::path::PathBuf;
 use std::str::FromStr;
-use crate::pdf_helpers::Unit;
+use medpdf::Unit;
+
+/// CLI wrapper for Unit that implements ValueEnum for clap
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum CliUnit {
+    In,
+    Mm,
+}
+
+impl From<CliUnit> for Unit {
+    fn from(u: CliUnit) -> Unit {
+        match u {
+            CliUnit::In => Unit::In,
+            CliUnit::Mm => Unit::Mm,
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct WatermarkSpec {
@@ -38,7 +54,7 @@ impl FromStr for WatermarkSpec {
                 "size" => size = Some(value.parse::<f32>().map_err(|_| format!("Invalid size value: '{}'", value))?),
                 "x" => x = Some(value.parse::<f32>().map_err(|_| format!("Invalid x value: '{}'", value))?),
                 "y" => y = Some(value.parse::<f32>().map_err(|_| format!("Invalid y value: '{}'", value))?),
-                "units" => units = Some(Unit::from_str(value, true).map_err(|e| e.to_string())?),
+                "units" => units = Some(CliUnit::from_str(value, true).map_err(|e| e.to_string())?),
                 "pages" => pages = Some(value.to_string()),
                 _ => return Err(format!("Unknown watermark key: '{}'", key)),
             }
@@ -49,7 +65,7 @@ impl FromStr for WatermarkSpec {
             size: size.unwrap_or(48.0),
             x: x.ok_or("Watermark 'x' coordinate is required")?,
             y: y.ok_or("Watermark 'y' coordinate is required")?,
-            units: units.unwrap_or(Unit::In),
+            units: units.map(Unit::from).unwrap_or(Unit::In),
             pages: pages.unwrap_or_else(|| "all".to_string()),
         })
     }

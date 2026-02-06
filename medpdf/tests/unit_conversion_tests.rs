@@ -1,7 +1,7 @@
 // tests/unit_conversion_tests.rs
 // Tests for Unit::to_points conversion
 
-use pdf_merger::pdf_helpers::Unit;
+use medpdf::pdf_helpers::Unit;
 
 const EPSILON: f32 = 0.0001;
 

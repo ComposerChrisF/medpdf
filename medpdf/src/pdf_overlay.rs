@@ -7,7 +7,7 @@ use crate::pdf_helpers::{self, KEY_CONTENTS, KEY_PAGE, KEY_PAGES, KEY_RESOURCES,
 
 
 fn add_resource_keys(
-    keys: &mut HashSet<Vec<u8>>, 
+    keys: &mut HashSet<Vec<u8>>,
     dict_resources: &Dictionary,
 ) -> Result<()> {
     for (_, value) in dict_resources.iter() {
@@ -21,8 +21,8 @@ fn add_resource_keys(
 }
 
 fn accumulate_dictionary_keys(
-    keys: &mut HashSet<Vec<u8>>, 
-    doc: &Document, 
+    keys: &mut HashSet<Vec<u8>>,
+    doc: &Document,
     start: ObjectId
 ) -> Result<()> {
     let o = doc.get_object(start)?;
@@ -89,7 +89,7 @@ fn rename_resources_in_dict(
                 if let Some(v) = dict.remove(&key) {
                     dict.set(key_new, v);
                 }
-                
+
                 // NO!: keys_used.insert(key);  (See note above of about preserving overlapping keys from source document.)
             }
         }
@@ -197,9 +197,9 @@ pub fn overlay_page(
     let overlay_page = overlay_doc.get_dictionary(overlay_page_id)?;
     let mut copied_objects = BTreeMap::new();
 
-    // Get overlay's Page/Contents, normalizing the structs to be an array of references to 
+    // Get overlay's Page/Contents, normalizing the structs to be an array of references to
     // Object::Stream(), deep copying the streams from overlay to dest doc.
-    // FUTURE: We should just normalize *all* Documents up-front (i.e. all source/input/overlay 
+    // FUTURE: We should just normalize *all* Documents up-front (i.e. all source/input/overlay
     //         documents as well as the destination document).  That would simplify a lot of logic
     //         throughout the code!  (I.e. we could always assume /Resources is a reference and
     //         is nevery anything else, such as an embedded dictionary.  Similar for /Contents.
@@ -257,7 +257,7 @@ pub fn overlay_page(
         _ => return Err(PdfMergeError::Message(format!("Page {overlay_page_id:?} /Contents must be stream or array or reference to stream or array"))),
     };
 
-    // Generate deep copy of overlay's page's /Resources dictionary, normalizing it to be a 
+    // Generate deep copy of overlay's page's /Resources dictionary, normalizing it to be a
     // reference (rather than an embedded resource).  FUTURE: Also need to copy/merge any parent /Resources...
     println!("Generating deep copy of overlay's /Resources");
     let overlay_page_resources = overlay_page.get(KEY_RESOURCES)?;
@@ -274,7 +274,7 @@ pub fn overlay_page(
     // NOTE: As a side-effect of the deep copy of the overlay's /Resources, we've added an unnecessary
     // Object::Dicitonary() to the dest_doc... we'll remove this later to tidy up.
 
-    // Starting at the root of the *destination* document, build a list (HashSet) of all keys in 
+    // Starting at the root of the *destination* document, build a list (HashSet) of all keys in
     // all /Resource dictionaries, so we can later make sure no names we add to /Resources conflict!
     println!("Accumulating dictionary keys in destination document");
     let mut keys_used = HashSet::<Vec<u8>>::new();
@@ -312,7 +312,7 @@ pub fn overlay_page(
     // Now add each element of the Contents array to the destination pages's /Contents (normalizing
     // the destination /Contents to be an array).
     println!("Merging overlay's /Contents into the destination page's /Contents array");
-    // a. We start by getting a copy of dest page's Contents, converting it to an array of 
+    // a. We start by getting a copy of dest page's Contents, converting it to an array of
     //    references, if necessary.
     let dest_contents = dest_doc.get_object(dest_page_id)?.as_dict()?.get(KEY_CONTENTS)?;
     let mut dest_contents_arr_new = match dest_contents {
@@ -335,11 +335,11 @@ pub fn overlay_page(
         _ => return Err(PdfMergeError::Message(format!("Page {overlay_page_id:?} /Contents must be stream or array or reference to one: {dest_contents:?}"))),
     };
     // b. For the original Content, we need to make sure everything is both q/Q balanced, *and*
-    //     add a starting q and ending Q to all Content streams!  Otherwise our overlay might be 
+    //     add a starting q and ending Q to all Content streams!  Otherwise our overlay might be
     //     affected by stray scaling and rotations!
     println!("Modifying existing Content streams");
     modify_content_stream(dest_doc, &dest_contents_arr_new, None)?;
-    // c. We then copy the references from the overlay_contents_arr_new to the end of 
+    // c. We then copy the references from the overlay_contents_arr_new to the end of
     //    dest_content_arr_new.
     for item in overlay_contents_arr_new.iter() {
         let reference = item.as_reference()?;
@@ -375,9 +375,9 @@ pub fn overlay_page(
     dest_page_dict.set(KEY_RESOURCES, Object::Reference(dict_ref));
     // b. Now, we can modify the object pointed to by dict_ref to contain the needed newly renamed
     //    entries from the overlay page's Resources.
-    //    i. As a side-effect of deep copying the overlay's Resources, we have added 
+    //    i. As a side-effect of deep copying the overlay's Resources, we have added
     //       overlay_resources_dict_id_new, which we won't need in the final document.
-    //       We also need to get this "outside" the dest_doc to avoid borrow checker 
+    //       We also need to get this "outside" the dest_doc to avoid borrow checker
     //       issues, so we remove this object now, keeping a copy of the underlying
     //       Dictionary, though.
     let source_resources_dict = dest_doc.get_object(overlay_resources_dict_id_new)?.as_dict()?.clone();

@@ -4,8 +4,8 @@
 mod fixtures;
 
 use lopdf::Object;
-use pdf_merger::pdf_copy_page::copy_page;
-use pdf_merger::pdf_blank_page::create_blank_page;
+use medpdf::pdf_copy_page::copy_page;
+use medpdf::pdf_blank_page::create_blank_page;
 
 // --- create_blank_page Tests ---
 

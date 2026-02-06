@@ -1,7 +1,7 @@
 // tests/parsing_tests.rs
 // Tests for page specification parsing
 
-use pdf_merger::parsing::parse_page_spec;
+use medpdf::parsing::parse_page_spec;
 
 // --- Success Cases ---
 

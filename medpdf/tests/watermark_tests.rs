@@ -3,8 +3,8 @@
 
 mod fixtures;
 
-use pdf_merger::pdf_watermark::{add_text, utf8_to_winansi, unicode_to_winansi};
-use pdf_merger::pdf_copy_page::copy_page;
+use medpdf::pdf_watermark::{add_text, utf8_to_winansi, unicode_to_winansi};
+use medpdf::pdf_copy_page::copy_page;
 
 // --- Basic Watermark Tests ---
 
@@ -270,50 +270,50 @@ fn test_winansi_ascii_passthrough() {
 #[test]
 fn test_winansi_latin1_supplement() {
     // Latin-1 Supplement (U+00A0-U+00FF) maps directly
-    assert_eq!(unicode_to_winansi('é'), 0xE9);  // U+00E9
-    assert_eq!(unicode_to_winansi('ñ'), 0xF1);  // U+00F1
-    assert_eq!(unicode_to_winansi('ü'), 0xFC);  // U+00FC
-    assert_eq!(unicode_to_winansi('©'), 0xA9);  // U+00A9
-    assert_eq!(unicode_to_winansi('®'), 0xAE);  // U+00AE
-    assert_eq!(unicode_to_winansi('°'), 0xB0);  // U+00B0
+    assert_eq!(unicode_to_winansi('\u{00E9}'), 0xE9);  // e with acute
+    assert_eq!(unicode_to_winansi('\u{00F1}'), 0xF1);  // n with tilde
+    assert_eq!(unicode_to_winansi('\u{00FC}'), 0xFC);  // u with diaeresis
+    assert_eq!(unicode_to_winansi('\u{00A9}'), 0xA9);  // U+00A9 copyright
+    assert_eq!(unicode_to_winansi('\u{00AE}'), 0xAE);  // U+00AE registered
+    assert_eq!(unicode_to_winansi('\u{00B0}'), 0xB0);  // U+00B0 degree
 }
 
 #[test]
 fn test_winansi_special_chars() {
     // Special WinAnsi characters in 0x80-0x9F range
-    assert_eq!(unicode_to_winansi('€'), 0x80);  // U+20AC
-    assert_eq!(unicode_to_winansi('™'), 0x99);  // U+2122
-    assert_eq!(unicode_to_winansi('•'), 0x95);  // U+2022
-    assert_eq!(unicode_to_winansi('–'), 0x96);  // U+2013 en-dash
-    assert_eq!(unicode_to_winansi('—'), 0x97);  // U+2014 em-dash
+    assert_eq!(unicode_to_winansi('\u{20AC}'), 0x80);  // U+20AC euro
+    assert_eq!(unicode_to_winansi('\u{2122}'), 0x99);  // U+2122 trademark
+    assert_eq!(unicode_to_winansi('\u{2022}'), 0x95);  // U+2022 bullet
+    assert_eq!(unicode_to_winansi('\u{2013}'), 0x96);  // U+2013 en-dash
+    assert_eq!(unicode_to_winansi('\u{2014}'), 0x97);  // U+2014 em-dash
     assert_eq!(unicode_to_winansi('\u{201C}'), 0x93);  // U+201C left double quote
     assert_eq!(unicode_to_winansi('\u{201D}'), 0x94);  // U+201D right double quote
     assert_eq!(unicode_to_winansi('\u{2018}'), 0x91);  // U+2018 left single quote
     assert_eq!(unicode_to_winansi('\u{2019}'), 0x92);  // U+2019 right single quote
-    assert_eq!(unicode_to_winansi('…'), 0x85);  // U+2026 ellipsis
+    assert_eq!(unicode_to_winansi('\u{2026}'), 0x85);  // U+2026 ellipsis
 }
 
 #[test]
 fn test_winansi_unmappable_fallback() {
     // Characters outside WinAnsiEncoding should become '?'
-    assert_eq!(unicode_to_winansi('中'), b'?');  // Chinese
-    assert_eq!(unicode_to_winansi('日'), b'?');  // Japanese
-    assert_eq!(unicode_to_winansi('α'), b'?');   // Greek alpha
-    assert_eq!(unicode_to_winansi('→'), b'?');   // Arrow
-    assert_eq!(unicode_to_winansi('😀'), b'?');  // Emoji
+    assert_eq!(unicode_to_winansi('\u{4E2D}'), b'?');  // Chinese
+    assert_eq!(unicode_to_winansi('\u{65E5}'), b'?');  // Japanese
+    assert_eq!(unicode_to_winansi('\u{03B1}'), b'?');   // Greek alpha
+    assert_eq!(unicode_to_winansi('\u{2192}'), b'?');   // Arrow
+    assert_eq!(unicode_to_winansi('\u{1F600}'), b'?');  // Emoji
 }
 
 #[test]
 fn test_winansi_cafe_example() {
-    // The classic "Café" example
-    let encoded = utf8_to_winansi("Café");
+    // The classic "Cafe" example with accent
+    let encoded = utf8_to_winansi("Caf\u{00E9}");
     assert_eq!(encoded, vec![b'C', b'a', b'f', 0xE9]);
 }
 
 #[test]
 fn test_winansi_mixed_text() {
     // Mix of ASCII and extended characters
-    let encoded = utf8_to_winansi("Price: €50");
+    let encoded = utf8_to_winansi("Price: \u{20AC}50");
     assert_eq!(encoded, vec![b'P', b'r', b'i', b'c', b'e', b':', b' ', 0x80, b'5', b'0']);
 }
 
@@ -324,8 +324,8 @@ fn test_winansi_empty_string() {
 
 #[test]
 fn test_winansi_copyright_notice() {
-    let encoded = utf8_to_winansi("© 2024 Company™");
-    // © = 0xA9, ™ = 0x99
+    let encoded = utf8_to_winansi("\u{00A9} 2024 Company\u{2122}");
+    // copyright = 0xA9, trademark = 0x99
     assert_eq!(encoded[0], 0xA9);
     assert_eq!(encoded[encoded.len() - 1], 0x99);
 }

@@ -3,8 +3,8 @@
 
 mod fixtures;
 
-use pdf_merger::pdf_overlay::overlay_page;
-use pdf_merger::pdf_copy_page::copy_page;
+use medpdf::pdf_overlay::overlay_page;
+use medpdf::pdf_copy_page::copy_page;
 
 // --- Basic Overlay Tests ---
 

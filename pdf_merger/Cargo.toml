@@ -1,0 +1,18 @@
+[package]
+name = "pdf_merger"
+version = "0.1.1"
+edition = "2021"
+
+[[bin]]
+name = "pdf_merger"
+path = "src/main.rs"
+
+[dependencies]
+medpdf = { path = "../medpdf" }
+lopdf = "0.39.0"
+clap = { version = "4.5.44", features = ["derive", "string"] }
+chrono = "0.4"
+uuid = { version = "1.18.0", features = ["v4", "fast-rng"] }
+
+[dev-dependencies]
+tempfile = "3"
