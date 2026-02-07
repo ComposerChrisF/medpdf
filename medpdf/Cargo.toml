@@ -3,6 +3,7 @@ name = "medpdf"
 version = "0.1.0"
 edition = "2021"
 description = "Medium-level PDF API over lopdf"
+license = "MIT OR Apache-2.0"
 
 [dependencies]
 lopdf = "0.39.0"
