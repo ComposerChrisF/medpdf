@@ -189,6 +189,29 @@ pub fn get_pdf_font_info_of_data(font_data: &[u8]) -> Result<(FontPdfInfo, FontD
     Ok(get_pdf_info_of_face(&face))
 }
 
+/// Measure the width of a text string in points for the given font data and size.
+/// Sums glyph horizontal advances scaled by font_size / units_per_em.
+pub fn measure_text_width(font_data: &[u8], font_size: f32, text: &str) -> Result<f32, PdfMergeError> {
+    // Skip hack/builtin font data (single byte markers)
+    if font_data.len() <= 1 {
+        // Rough estimate: 0.6 * font_size per character for monospace-ish fonts
+        return Ok(text.len() as f32 * font_size * 0.6);
+    }
+    let face = Face::parse(font_data, 0)?;
+    let units_per_em = face.units_per_em() as f32;
+    if units_per_em == 0.0 {
+        return Ok(0.0);
+    }
+    let scale = font_size / units_per_em;
+    let mut width: f32 = 0.0;
+    for ch in text.chars() {
+        if let Some(glyph_id) = face.glyph_index(ch) {
+            width += face.glyph_hor_advance(glyph_id).unwrap_or(0) as f32;
+        }
+    }
+    Ok(width * scale)
+}
+
 pub fn get_pdf_info_of_face(face: &Face) -> (FontPdfInfo, FontDescriptorPdfInfo) {
     let is_symbolic = detect_is_symbolic(face);
     let (first_char, last_char) = compute_char_range(face, is_symbolic);

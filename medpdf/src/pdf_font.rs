@@ -62,6 +62,52 @@ fn parse_font_path_as_number(font_path: &Path) -> Option<u8> {
     font_path.to_string_lossy().parse::<u8>().ok()
 }
 
+/// Find a font with specific weight and style hints.
+/// Falls back to `find_font` if the styled variant is not found.
+pub fn find_font_with_style(
+    font_path: &Path,
+    weight: crate::types::FontWeight,
+    style: crate::types::FontStyle,
+) -> Result<FontPath> {
+    // Hack and BuiltIn paths don't support style selection
+    if let Some(n) = parse_font_path_as_number(font_path) {
+        return Ok(FontPath::Hack(n));
+    }
+    if font_path.to_string_lossy().starts_with("@") {
+        return Ok(FontPath::BuiltIn(font_path.to_string_lossy()[1..].into()));
+    }
+    if font_path.exists() {
+        return Ok(FontPath::Path(font_path.into()));
+    }
+
+    // Search system fonts with weight/style properties
+    let source = SystemSource::new();
+    let family_name = font_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .ok_or_else(|| PdfMergeError::new(format!("Invalid font path: {:?}", font_path)))?;
+
+    let mut properties = font_kit::properties::Properties::new();
+    properties.weight = font_kit::properties::Weight(weight.0 as f32);
+    properties.style = match style {
+        crate::types::FontStyle::Normal => font_kit::properties::Style::Normal,
+        crate::types::FontStyle::Italic => font_kit::properties::Style::Italic,
+        crate::types::FontStyle::Oblique(_) => font_kit::properties::Style::Oblique,
+    };
+
+    match source.select_best_match(
+        &[font_kit::family_name::FamilyName::Title(family_name.to_string())],
+        &properties,
+    ) {
+        Ok(font_kit::handle::Handle::Path { path, .. }) => Ok(FontPath::Path(path)),
+        Ok(_) => Err(format!("Font {font_path:?} not found as path handle").into()),
+        Err(_) => {
+            // Fall back to default properties
+            find_font(font_path)
+        }
+    }
+}
+
 pub fn find_font(font_path: &Path) -> Result<FontPath> {
     if let Some(n) = parse_font_path_as_number(font_path) {
         // This is a short-hand to use a font already in this document, although not necessarily stable!

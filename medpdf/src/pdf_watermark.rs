@@ -344,6 +344,167 @@ fn bbox_as_object_array(bbox: &[i16]) -> Object {
     ])
 }
 
+/// Adds text to a page using rich parameters (color, f32 coords, rotation, alignment).
+pub fn add_text_params(
+    dest_doc: &mut Document,
+    page_id: ObjectId,
+    params: &crate::types::AddTextParams,
+) -> Result<()> {
+    let font_key = add_font_objects(dest_doc, page_id, &params.font_data, &params.font_name)?;
+
+    // Measure text width for alignment
+    let text_width = if params.h_align != crate::types::HAlign::Left
+        || params.v_align != crate::types::VAlign::Baseline
+    {
+        crate::font_helpers::measure_text_width(&params.font_data, params.font_size, &params.text)
+            .unwrap_or(0.0)
+    } else {
+        0.0
+    };
+
+    // Compute alignment offsets
+    let dx = match params.h_align {
+        crate::types::HAlign::Left => 0.0,
+        crate::types::HAlign::Center => -text_width / 2.0,
+        crate::types::HAlign::Right => -text_width,
+    };
+    let dy = match params.v_align {
+        crate::types::VAlign::Baseline => 0.0,
+        crate::types::VAlign::Bottom => 0.0, // baseline ~= bottom for simple cases
+        crate::types::VAlign::Center => params.font_size * 0.35, // approximate half x-height
+        crate::types::VAlign::Top => params.font_size * 0.7, // approximate ascent fraction
+    };
+
+    let encoded_text = utf8_to_winansi(&params.text);
+
+    let mut ops = vec![Operation::new("q", vec![])];
+
+    // Set color
+    ops.push(Operation::new(
+        "rg",
+        vec![
+            params.color.r.into(),
+            params.color.g.into(),
+            params.color.b.into(),
+        ],
+    ));
+
+    // Apply rotation + translation via cm (concat matrix)
+    if params.rotation.abs() > 0.001 {
+        let angle = params.rotation.to_radians();
+        let cos = angle.cos();
+        let sin = angle.sin();
+        ops.push(Operation::new(
+            "cm",
+            vec![
+                cos.into(),
+                sin.into(),
+                (-sin).into(),
+                cos.into(),
+                params.x.into(),
+                params.y.into(),
+            ],
+        ));
+        // After cm, text position is relative to the transformed origin
+        ops.push(Operation::new("BT", vec![]));
+        ops.push(Operation::new("Tr", vec![0.into()]));
+        ops.push(Operation::new(
+            "Tf",
+            vec![
+                Object::Name(font_key.as_bytes().to_vec()),
+                params.font_size.into(),
+            ],
+        ));
+        ops.push(Operation::new("Td", vec![dx.into(), dy.into()]));
+    } else {
+        ops.push(Operation::new("BT", vec![]));
+        ops.push(Operation::new("Tr", vec![0.into()]));
+        ops.push(Operation::new(
+            "Tf",
+            vec![
+                Object::Name(font_key.as_bytes().to_vec()),
+                params.font_size.into(),
+            ],
+        ));
+        let final_x = params.x + dx;
+        let final_y = params.y + dy;
+        ops.push(Operation::new("Td", vec![final_x.into(), final_y.into()]));
+    }
+
+    ops.push(Operation::new(
+        "Tj",
+        vec![Object::String(encoded_text, StringFormat::Literal)],
+    ));
+    ops.push(Operation::new("ET", vec![]));
+    ops.push(Operation::new("Q", vec![]));
+
+    let content = Content { operations: ops };
+    let content_stream = Stream::new(dictionary! {}, content.encode()?);
+    let content_id = dest_doc.add_object(content_stream);
+
+    let (q_id, closing_q_id) = if params.layer_over {
+        let existing_content_ids = get_content_stream_ids(dest_doc, page_id)?;
+        let q_balance = count_q_balance(dest_doc, &existing_content_ids)?;
+
+        let q_stream = Stream::new(dictionary! {}, b"q\n".to_vec());
+        let q_id = dest_doc.add_object(q_stream);
+
+        let num_closing_qs = 1 + q_balance.max(0) as usize;
+        let closing_content = "Q\n".repeat(num_closing_qs);
+        let closing_stream = Stream::new(dictionary! {}, closing_content.into_bytes());
+        let closing_q_id = dest_doc.add_object(closing_stream);
+
+        (Some(q_id), Some(closing_q_id))
+    } else {
+        (None, None)
+    };
+
+    {
+        let page_dict = dest_doc
+            .get_object_mut(page_id)?
+            .as_dict_mut()
+            .map_err(|_| PdfMergeError::new("Page object is not a dictionary"))?;
+
+        if let Ok(contents) = page_dict.get_mut(KEY_CONTENTS) {
+            match contents {
+                Object::Array(ref mut arr) => {
+                    if params.layer_over {
+                        arr.insert(0, Object::Reference(q_id.unwrap()));
+                        arr.push(Object::Reference(closing_q_id.unwrap()));
+                        arr.push(Object::Reference(content_id));
+                    } else {
+                        arr.insert(0, Object::Reference(content_id));
+                    }
+                }
+                Object::Reference(id) => {
+                    let old_id = *id;
+                    *contents = if params.layer_over {
+                        Object::Array(vec![
+                            Object::Reference(q_id.unwrap()),
+                            Object::Reference(old_id),
+                            Object::Reference(closing_q_id.unwrap()),
+                            Object::Reference(content_id),
+                        ])
+                    } else {
+                        Object::Array(vec![
+                            Object::Reference(content_id),
+                            Object::Reference(old_id),
+                        ])
+                    };
+                }
+                _ => return Err(PdfMergeError::new("Unexpected page Contents type")),
+            }
+        } else {
+            page_dict.set(
+                KEY_CONTENTS,
+                Object::Array(vec![Object::Reference(content_id)]),
+            );
+        }
+    }
+
+    Ok(())
+}
+
 fn add_embedded_font(dest_doc: &mut Document, page_id: ObjectId, font_data: &[u8]) -> Result<String> {
     let (font_info, font_descriptor) = font_helpers::get_pdf_font_info_of_data(font_data)?;
     let mut font_dict = dictionary! {
