@@ -81,6 +81,29 @@ fn parse_color(s: &str) -> Result<PdfColor, String> {
     }
 }
 
+/// Splits a string by commas, treating `\,` as an escaped literal comma.
+fn split_escaped_commas(s: &str) -> Vec<String> {
+    let mut parts = Vec::new();
+    let mut current = String::new();
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            if let Some(&',') = chars.peek() {
+                current.push(',');
+                chars.next();
+                continue;
+            }
+            current.push(c);
+        } else if c == ',' {
+            parts.push(std::mem::take(&mut current));
+        } else {
+            current.push(c);
+        }
+    }
+    parts.push(current);
+    parts
+}
+
 impl FromStr for WatermarkSpec {
     type Err = String;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -98,7 +121,7 @@ impl FromStr for WatermarkSpec {
         let mut v_align = None;
         let mut strikeout = None;
         let mut underline = None;
-        for part in s.split(',') {
+        for part in split_escaped_commas(s) {
             let (key, value) = part.split_once('=')
                 .ok_or_else(|| format!("Invalid key-value pair: '{}'. Expected 'key=value'.", part))?;
             let key = key.trim();
@@ -170,7 +193,7 @@ impl FromStr for OverlaySpec {
         let mut file = None;
         let mut from_page = None;
         let mut pages = None;
-        for part in s.split(',') {
+        for part in split_escaped_commas(s) {
             let (key, value) = part.split_once('=')
                 .ok_or_else(|| format!("Invalid key-value pair: '{}'. Expected 'key=value'.", part))?;
             let key = key.trim();
@@ -214,7 +237,7 @@ impl FromStr for PadFileSpec {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut file = None;
         let mut page = None;
-        for part in s.split(',') {
+        for part in split_escaped_commas(s) {
             let (key, value) = part.split_once('=')
                 .ok_or_else(|| format!("Invalid key-value pair: '{part}'."))?;
             let key = key.trim();
@@ -383,5 +406,13 @@ mod tests {
     #[test]
     fn test_pad_file_spec_invalid_kv() {
         assert!(PadFileSpec::from_str("noequalssign").is_err());
+    }
+
+    // --- Escaped comma ---
+
+    #[test]
+    fn test_watermark_spec_escaped_comma() {
+        let spec = WatermarkSpec::from_str(r"text=Hello\, World,font=@Helvetica,x=1,y=1").unwrap();
+        assert_eq!(spec.text, "Hello, World");
     }
 }

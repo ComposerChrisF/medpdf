@@ -49,20 +49,14 @@ fn find_unique_name(
     key_old: &[u8],
     suffix: &[u8],
 ) -> Result<Vec<u8>> {
-    let mut buffer = Vec::<u8>::with_capacity(16);
-    for b in key_old.iter() {
-        buffer.push(*b);
-    }
-    for b in suffix.iter() {
-        buffer.push(*b);
-    }
+    let mut buffer = Vec::<u8>::with_capacity(key_old.len() + suffix.len() + 5);
+    buffer.extend_from_slice(key_old);
+    buffer.extend_from_slice(suffix);
     let start_len = buffer.len();
     for i in 0..10_000 {
         if i > 0 {
             buffer.truncate(start_len);
-            for b in format!("{i}").as_bytes().iter() {
-                buffer.push(*b)
-            }
+            buffer.extend_from_slice(format!("{i}").as_bytes());
         }
         if !keys_used.contains(&buffer) {
             return Ok(buffer);
@@ -145,6 +139,9 @@ fn modify_content_stream(
         content.operations.insert(0, Operation::new("q", vec![]));
         content.operations.push(Operation::new("Q", vec![]));
         // We count q/Q pairs to make sure they are balanced, so that we can add extra "Q" if necessary.
+        if count_q < 0 {
+            warn!("Content stream has {} more Q than q operators (negative balance)", -count_q);
+        }
         trace!("count_q = {count_q}");
         for _ in 0..count_q {
             warn!("Unbalanced q/Q pairs, adding 'Q'");
@@ -277,7 +274,7 @@ pub fn overlay_page(
     let mut keys_used = HashSet::<Vec<u8>>::new();
     accumulate_dictionary_keys(
         &mut keys_used,
-        &*dest_doc,
+        dest_doc,
         dest_doc.catalog()?.get(KEY_PAGES)?.as_reference()?,
     )?;
 

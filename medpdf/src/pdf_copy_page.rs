@@ -49,7 +49,6 @@ pub fn copy_page_with_cache(
     let page = dest_doc.get_object_mut(new_page_id)?.as_dict_mut()?;
     page.set(KEY_PARENT, Object::Reference(dest_pages_id));
 
-    let dest_pages_id = dest_doc.catalog()?.get(KEY_PAGES)?.as_reference()?;
     let dest_pages = dest_doc.get_object_mut(dest_pages_id)?.as_dict_mut()?;
 
     let new_page_count = {

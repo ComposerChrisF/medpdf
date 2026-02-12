@@ -7,7 +7,6 @@ mod spec_types;
 
 use medpdf::{parse_page_spec, AddTextParams, PdfMergeError};
 use medpdf::pdf_font::{find_font, FontCache};
-use medpdf::pdf_helpers::KEY_MEDIA_BOX;
 use spec_types::{WatermarkSpec, OverlaySpec, PadToSpec, PadFileSpec};
 
 
@@ -40,7 +39,7 @@ struct Args {
 fn format_xmp_metadata(doc_uuid: &str) -> String {
     let now = chrono::Local::now();
     let version = env!("CARGO_PKG_VERSION");
-    let metadata = format!("<?xpacket begin=\"?\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>
+    format!("<?xpacket begin=\"?\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>
 <x:xmpmeta xmlns:x=\"adobe:ns:meta/\" xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\" xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\" xmlns:xmpMM=\"http://ns.adobe.com/xap/1.0/mm/\" xmlns:pdf=\"http://ns.adobe.com/pdf/1.3/\" xmlns:pdfaid=\"http://www.aiim.org/pdfa/ns/id/\" xmlns:pdfxid=\"http://www.npes.org/pdfx/ns/id/\">
     <rdf:RDF>
         <rdf:Description rdf:about=\"\">
@@ -55,8 +54,7 @@ fn format_xmp_metadata(doc_uuid: &str) -> String {
         <rdf:Description rdf:about=\"\" xmpMM:DocumentID=\"uuid:{doc_uuid}\" xmpMM:VersionID=\"1\" xmpMM:RenditionClass=\"default\"/>
     </rdf:RDF>
 </x:xmpmeta>
-<?xpacket end=\"w\"?>");
-    metadata
+<?xpacket end=\"w\"?>")
 }
 
 fn main() -> Result<(), PdfMergeError> {
@@ -109,9 +107,10 @@ fn main() -> Result<(), PdfMergeError> {
         let page_numbers_to_import = parse_page_spec(page_spec, source_page_count as u32)?;
         println!("page_numbers_to_import: {page_numbers_to_import:?}; source_page_count: {source_page_count}");
 
+        let mut copy_cache = std::collections::BTreeMap::new();
         for page_num in page_numbers_to_import {
             println!("Copying page: {page_num} from {source_path}");
-            let new_page_id = medpdf::copy_page(&mut dest_doc, &source_doc, page_num)?;
+            let new_page_id = medpdf::copy_page_with_cache(&mut dest_doc, &source_doc, page_num, &mut copy_cache)?;
             dest_page_ids.push(new_page_id);
         }
     }
@@ -182,14 +181,10 @@ fn main() -> Result<(), PdfMergeError> {
                 println!("   -> Padding with {pages_to_add} page(s) to reach a multiple of {pages}.");
                 let last_page_id = *dest_page_ids.last()
                     .ok_or_else(|| PdfMergeError::new("No pages in document to pad"))?;
-                let last_page = dest_doc.get_object(last_page_id)?.as_dict()?;
-                let media_box = last_page.get(KEY_MEDIA_BOX)?.as_array()?;
-                let width = media_box.get(2)
-                    .ok_or_else(|| PdfMergeError::new("Invalid MediaBox: expected 4 elements"))?
-                    .as_f32()?;
-                let height = media_box.get(3)
-                    .ok_or_else(|| PdfMergeError::new("Invalid MediaBox: expected 4 elements"))?
-                    .as_f32()?;
+                let media_box = medpdf::get_page_media_box(&dest_doc, last_page_id)
+                    .ok_or_else(|| PdfMergeError::new("Could not determine MediaBox for last page"))?;
+                let width = media_box[2];
+                let height = media_box[3];
 
                 for _ in 0..(pages_to_add - 1) {
                     medpdf::create_blank_page(&mut dest_doc, width, height)?;

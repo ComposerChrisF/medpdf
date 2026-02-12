@@ -1,5 +1,6 @@
 use std::fmt::Debug;
 
+#[non_exhaustive]
 pub enum PdfMergeError {
     Io(std::io::Error),
     LoPdf(lopdf::Error),
@@ -67,7 +68,17 @@ impl std::fmt::Display for PdfMergeError {
     }
 }
 
-impl std::error::Error for PdfMergeError {}
+impl std::error::Error for PdfMergeError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Io(e) => Some(e),
+            Self::LoPdf(e) => Some(e),
+            Self::FontKit(e) => Some(e),
+            Self::Face(e) => Some(e),
+            Self::Message(_) => None,
+        }
+    }
+}
 
 pub type Error = PdfMergeError;
 pub type Result<T> = std::result::Result<T, Error>;

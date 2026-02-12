@@ -43,7 +43,10 @@ pub fn get_font_widths(face: &Face, first_char: u8, last_char: u8) -> Vec<u16> {
     for ch in first_char..=last_char {
         let glyph_index = face.glyph_index(ch as char);
         if let Some(glyph_index) = glyph_index {
-            widths[(ch - first_char) as usize] = face.glyph_hor_advance(glyph_index).unwrap_or(0);
+            widths[(ch - first_char) as usize] = face.glyph_hor_advance(glyph_index).unwrap_or_else(|| {
+                log::trace!("Missing glyph advance for glyph {:?} (char {})", glyph_index, ch);
+                0
+            });
         }
     }
     widths
@@ -181,7 +184,10 @@ pub fn measure_text_width(
     let mut width: f32 = 0.0;
     for ch in text.chars() {
         if let Some(glyph_id) = face.glyph_index(ch) {
-            width += face.glyph_hor_advance(glyph_id).unwrap_or(0) as f32;
+            width += face.glyph_hor_advance(glyph_id).unwrap_or_else(|| {
+                log::trace!("Missing glyph advance for glyph {:?} (char '{}')", glyph_id, ch);
+                0
+            }) as f32;
         }
     }
     Ok(width * scale)

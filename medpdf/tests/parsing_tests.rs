@@ -141,14 +141,14 @@ fn test_sorted_output() {
 fn test_error_page_zero() {
     let result = parse_page_spec("0", 5);
     assert!(result.is_err());
-    assert!(result.unwrap_err().contains("1 or greater"));
+    assert!(result.unwrap_err().to_string().contains("1 or greater"));
 }
 
 #[test]
 fn test_error_range_start_zero() {
     let result = parse_page_spec("0-3", 5);
     assert!(result.is_err());
-    assert!(result.unwrap_err().contains("1 or greater"));
+    assert!(result.unwrap_err().to_string().contains("1 or greater"));
 }
 
 #[test]
@@ -156,7 +156,7 @@ fn test_error_range_end_zero() {
     let result = parse_page_spec("1-0", 5);
     assert!(result.is_err());
     // This might trigger either "1 or greater" or "inverted range" error
-    let err = result.unwrap_err();
+    let err = result.unwrap_err().to_string();
     assert!(err.contains("1 or greater") || err.contains("greater than"));
 }
 
@@ -164,21 +164,21 @@ fn test_error_range_end_zero() {
 fn test_error_exceeds_max() {
     let result = parse_page_spec("6", 5);
     assert!(result.is_err());
-    assert!(result.unwrap_err().contains("out of bounds"));
+    assert!(result.unwrap_err().to_string().contains("out of bounds"));
 }
 
 #[test]
 fn test_error_range_exceeds_max() {
     let result = parse_page_spec("3-10", 5);
     assert!(result.is_err());
-    assert!(result.unwrap_err().contains("out of bounds"));
+    assert!(result.unwrap_err().to_string().contains("out of bounds"));
 }
 
 #[test]
 fn test_error_inverted_range() {
     let result = parse_page_spec("5-3", 5);
     assert!(result.is_err());
-    assert!(result.unwrap_err().contains("greater than"));
+    assert!(result.unwrap_err().to_string().contains("greater than"));
 }
 
 #[test]
@@ -186,7 +186,7 @@ fn test_error_open_range_zero_pages() {
     // Can't use open ranges on a document with no pages
     let result = parse_page_spec("-3", 0);
     assert!(result.is_err());
-    let err = result.unwrap_err();
+    let err = result.unwrap_err().to_string();
     assert!(err.contains("no pages") || err.contains("out of bounds"));
 }
 
@@ -206,7 +206,7 @@ fn test_error_fully_open_zero_pages() {
 fn test_error_empty_string() {
     let result = parse_page_spec("", 5);
     assert!(result.is_err());
-    assert!(result.unwrap_err().contains("parse"));
+    assert!(result.unwrap_err().to_string().contains("parse"));
 }
 
 #[test]

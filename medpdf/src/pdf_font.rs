@@ -65,6 +65,26 @@ fn parse_font_path_as_number(font_path: &Path) -> Option<u8> {
     font_path.to_string_lossy().parse::<u8>().ok()
 }
 
+/// Resolves a font path to a non-system font (numeric hack, `@`-prefixed built-in, or file path).
+///
+/// `@`-prefixed fonts reference standard PDF fonts (e.g. `@Helvetica`, `@Courier`) without
+/// embedding. Built-in fonts through PDF 1.7 include: Times-Roman, Helvetica, Courier, Symbol,
+/// Times-Bold, Helvetica-Bold, Courier-Bold, ZapfDingbats, Times-Italic, Helvetica-Oblique,
+/// Courier-Oblique, Times-BoldItalic, Helvetica-BoldOblique, Courier-BoldOblique.
+/// Note: PDF 2.0 has *no* built-in fonts; all fonts must be embedded.
+fn resolve_non_system_font(font_path: &Path) -> Option<FontPath> {
+    if let Some(n) = parse_font_path_as_number(font_path) {
+        return Some(FontPath::Hack(n));
+    }
+    if font_path.to_string_lossy().starts_with("@") {
+        return Some(FontPath::BuiltIn(font_path.to_string_lossy()[1..].into()));
+    }
+    if font_path.exists() {
+        return Some(FontPath::Path(font_path.into()));
+    }
+    None
+}
+
 /// Find a font with specific weight and style hints.
 /// Falls back to `find_font` if the styled variant is not found.
 pub fn find_font_with_style(
@@ -72,15 +92,8 @@ pub fn find_font_with_style(
     weight: crate::types::FontWeight,
     style: crate::types::FontStyle,
 ) -> Result<FontPath> {
-    // Hack and BuiltIn paths don't support style selection
-    if let Some(n) = parse_font_path_as_number(font_path) {
-        return Ok(FontPath::Hack(n));
-    }
-    if font_path.to_string_lossy().starts_with("@") {
-        return Ok(FontPath::BuiltIn(font_path.to_string_lossy()[1..].into()));
-    }
-    if font_path.exists() {
-        return Ok(FontPath::Path(font_path.into()));
+    if let Some(resolved) = resolve_non_system_font(font_path) {
+        return Ok(resolved);
     }
 
     // Search system fonts with weight/style properties
@@ -114,31 +127,8 @@ pub fn find_font_with_style(
 }
 
 pub fn find_font(font_path: &Path) -> Result<FontPath> {
-    if let Some(n) = parse_font_path_as_number(font_path) {
-        // This is a short-hand to use a font already in this document, although not necessarily stable!
-        return Ok(FontPath::Hack(n));
-    }
-    if font_path.to_string_lossy().starts_with("@") {
-        // This is a "named" font--we special case text starting with '@' to be a valid font name
-        // we can reference without embedding the font itself.  We will see the '@' in later code
-        // and remove it, and reference this font by this given name (without the ampersand), and
-        // without embedding the font.
-        //
-        // NOTE: This mechanism is primarily designed to reference the "standard" PDF fonts (e.g.
-        // "Helvetica", "Courier", etc.) for debugging.  But it might be usable to reference fonts
-        // already installed on a user's system.
-        //
-        // Built in fonts (through PDF 1.7): Times-Roman, Helvetica, Courier, Symbol, Times-Bold,
-        // Helvetica-Bold, Courier-Bold, ZapfDingbats, Times-Italic, Helvetica-Oblique,
-        // Courier-Oblique, Times-BoldItalic, Helvetica-BoldOblique, Courier-BoldOblique
-        //
-        // NOTE that for PDF 2.0 format, ther are *NO* built-in fonts (like "Helvetica", "Courier",
-        // etc.), so all fonts are supposed to be embedded.
-        return Ok(FontPath::BuiltIn(font_path.to_string_lossy()[1..].into()));
-    }
-    if font_path.exists() {
-        // Full path to font, no need to search
-        return Ok(FontPath::Path(font_path.into()));
+    if let Some(resolved) = resolve_non_system_font(font_path) {
+        return Ok(resolved);
     }
     // Search system fonts
     let source = SystemSource::new();

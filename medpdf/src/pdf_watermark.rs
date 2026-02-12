@@ -40,28 +40,15 @@ fn get_content_stream_ids(dest_doc: &Document, page_id: ObjectId) -> Result<Vec<
     let page_dict = dest_doc.get_object(page_id)?.as_dict()?;
 
     match page_dict.get(KEY_CONTENTS) {
-        Ok(Object::Array(arr)) => arr
+        Ok(Object::Array(arr)) => Ok(arr
             .iter()
             .filter_map(|obj| obj.as_reference().ok())
-            .collect::<Vec<_>>()
-            .pipe(Ok),
+            .collect()),
         Ok(Object::Reference(id)) => Ok(vec![*id]),
         Ok(_) => Err(PdfMergeError::new("Unexpected Contents type")),
         Err(_) => Ok(vec![]), // No contents yet
     }
 }
-
-/// Helper trait for pipe syntax
-trait Pipe: Sized {
-    fn pipe<F, R>(self, f: F) -> R
-    where
-        F: FnOnce(Self) -> R,
-    {
-        f(self)
-    }
-}
-
-impl<T> Pipe for Vec<T> {}
 
 /// Converts a UTF-8 string to WinAnsiEncoding (Windows Code Page 1252) bytes.
 /// Characters that cannot be represented in WinAnsiEncoding are replaced with '?'.
@@ -121,6 +108,9 @@ fn add_font_objects(
     font_data: &[u8],
     font_name: &str,
 ) -> Result<String> {
+    if font_data.is_empty() {
+        return Err(PdfMergeError::new("Font data is empty"));
+    }
     if font_data.len() == 1 && font_data[0] != b'@' {
         return Ok(format!("F{}", font_data[0])); // No need to add font objects since we're just reusing existing ones...
     }
