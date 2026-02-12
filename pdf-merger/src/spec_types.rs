@@ -183,7 +183,7 @@ impl FromStr for WatermarkSpec {
 #[derive(Debug, Clone)]
 pub struct OverlaySpec {
     pub file: PathBuf,
-    pub src_page: u16,
+    pub src_page: u32,
     pub target_pages: String,
 }
 
@@ -200,7 +200,7 @@ impl FromStr for OverlaySpec {
             let value = value.trim();
             match key {
                 "file" => file = Some(PathBuf::from(value)),
-                "src_page" => from_page = Some(value.parse::<u16>().map_err(|_| format!("Invalid src_page value: '{}'", value))?),
+                "src_page" => from_page = Some(value.parse::<u32>().map_err(|_| format!("Invalid src_page value: '{}'", value))?),
                 "target_pages" => pages = Some(value.to_string()),
                 _ => return Err(format!("Unknown overlay key: '{}'", key)),
             }
@@ -215,13 +215,16 @@ impl FromStr for OverlaySpec {
 
 #[derive(Debug, Clone)]
 pub struct PadToSpec {
-    pub pages: u16,
+    pub pages: u32,
 }
 
 impl FromStr for PadToSpec {
     type Err = String;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let pages = s.parse::<u16>().map_err(|e| e.to_string())?;
+        let pages = s.parse::<u32>().map_err(|e| e.to_string())?;
+        if pages == 0 {
+            return Err("pad-to value must be greater than 0".to_string());
+        }
         Ok(PadToSpec { pages })
     }
 }
@@ -229,7 +232,7 @@ impl FromStr for PadToSpec {
 #[derive(Debug, Clone)]
 pub struct PadFileSpec {
     pub file: PathBuf,
-    pub page: u16,
+    pub page: u32,
 }
 
 impl FromStr for PadFileSpec {
@@ -244,7 +247,7 @@ impl FromStr for PadFileSpec {
             let value = value.trim();
             match key {
                 "file" => file = Some(PathBuf::from(value)),
-                "page" => page = Some(value.parse::<u16>().map_err(|e| e.to_string())?),
+                "page" => page = Some(value.parse::<u32>().map_err(|e| e.to_string())?),
                 _ => return Err(format!("Unknown pad-file key: '{key}'")),
             }
         }
@@ -381,6 +384,11 @@ mod tests {
     fn test_pad_to_spec_invalid() {
         assert!(PadToSpec::from_str("abc").is_err());
         assert!(PadToSpec::from_str("-1").is_err());
+    }
+
+    #[test]
+    fn test_pad_to_spec_zero() {
+        assert!(PadToSpec::from_str("0").is_err());
     }
 
     // --- PadFileSpec ---

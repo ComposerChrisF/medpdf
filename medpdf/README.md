@@ -132,6 +132,8 @@ overlay_page(
 )?;
 ```
 
+**Known limitation:** Resource key deduplication only scans the root `/Pages` node of the destination document when generating unique names for overlay resources. Per-page resource dictionaries are not inspected, which could theoretically cause name collisions in documents with page-level resources.
+
 #### `add_text_params`
 
 Adds a text watermark to a page with full control over color, alignment, rotation, and more.

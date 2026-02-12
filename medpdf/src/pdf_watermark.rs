@@ -416,7 +416,6 @@ pub fn add_text_params(
         ));
         // After cm, text position is relative to the transformed origin
         ops.push(Operation::new("BT", vec![]));
-        ops.push(Operation::new("Tr", vec![0.into()]));
         ops.push(Operation::new(
             "Tf",
             vec![
@@ -427,7 +426,6 @@ pub fn add_text_params(
         ops.push(Operation::new("Td", vec![dx.into(), dy.into()]));
     } else {
         ops.push(Operation::new("BT", vec![]));
-        ops.push(Operation::new("Tr", vec![0.into()]));
         ops.push(Operation::new(
             "Tf",
             vec![

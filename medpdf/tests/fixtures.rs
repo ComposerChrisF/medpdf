@@ -304,6 +304,41 @@ pub fn create_pdf_without_media_box() -> Document {
     doc
 }
 
+/// Creates a PDF with a non-zero origin MediaBox (e.g. [50, 100, 662, 892]).
+/// The visible page dimensions are (x1-x0) x (y1-y0).
+pub fn create_pdf_with_nonzero_origin_media_box(
+    x0: f32, y0: f32, x1: f32, y1: f32,
+) -> Document {
+    let mut doc = create_empty_pdf();
+    let pages_id = doc
+        .catalog()
+        .unwrap()
+        .get(b"Pages")
+        .unwrap()
+        .as_reference()
+        .unwrap();
+
+    let media_box = vec![x0.into(), y0.into(), x1.into(), y1.into()];
+    let resources_id = doc.add_object(dictionary! {});
+    let content_id = doc.add_object(Stream::new(dictionary! {}, vec![]));
+
+    let page = dictionary! {
+        "Type" => "Page",
+        "Parent" => pages_id,
+        "MediaBox" => media_box,
+        "Contents" => Object::Reference(content_id),
+        "Resources" => Object::Reference(resources_id),
+    };
+    let page_id = doc.add_object(page);
+
+    let pages = doc.get_object_mut(pages_id).unwrap().as_dict_mut().unwrap();
+    let kids = pages.get_mut(b"Kids").unwrap().as_array_mut().unwrap();
+    kids.push(page_id.into());
+    pages.set("Count", Object::Integer(1));
+
+    doc
+}
+
 /// Creates a PDF with multiple pages that share a common font resource.
 /// This is useful for testing resource deduplication during page copying.
 pub fn create_pdf_with_shared_font(page_count: usize) -> Document {

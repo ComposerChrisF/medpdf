@@ -16,6 +16,15 @@ fn add_resource_keys(keys: &mut HashSet<Vec<u8>>, dict_resources: &Dictionary) -
     Ok(())
 }
 
+/// Collects resource key names from a document node's `/Resources` dictionary.
+///
+/// # Known limitation
+///
+/// This function only inspects the single node at `start` (typically the root `/Pages` node).
+/// It does **not** recurse into child `/Pages` or individual `/Page` nodes. If pages define
+/// their own `/Resources` (rather than inheriting from the root), those keys will not be
+/// collected, which could lead to resource-name collisions during overlay. In practice this
+/// is rare because most PDF generators place shared resources on the root `/Pages` node.
 fn accumulate_dictionary_keys(
     keys: &mut HashSet<Vec<u8>>,
     doc: &Document,
@@ -266,10 +275,13 @@ pub fn overlay_page(
         }
     };
     // NOTE: As a side-effect of the deep copy of the overlay's /Resources, we've added an unnecessary
-    // Object::Dicitonary() to the dest_doc... we'll remove this later to tidy up.
+    // Object::Dictionary() to the dest_doc... we'll remove this later to tidy up.
 
     // Starting at the root of the *destination* document, build a list (HashSet) of all keys in
     // all /Resource dictionaries, so we can later make sure no names we add to /Resources conflict!
+    // KNOWN LIMITATION: accumulate_dictionary_keys only scans the root /Pages node, not individual
+    // page nodes or intermediate page tree levels. Resource keys defined on per-page /Resources
+    // dictionaries are not collected, so overlay resource renaming may miss conflicts in those cases.
     debug!("Accumulating dictionary keys in destination document");
     let mut keys_used = HashSet::<Vec<u8>>::new();
     accumulate_dictionary_keys(
@@ -352,10 +364,10 @@ pub fn overlay_page(
                     vec![Object::Reference(dest_stream_id)]
                 }
                 Object::Array(a) => a.clone(),
-                _ => return Err(PdfMergeError::Message(format!("Page {overlay_page_id:?} /Contents reference must point to stream or array: {dest_contents:?}"))),
+                _ => return Err(PdfMergeError::Message(format!("Page {dest_page_id:?} /Contents reference must point to stream or array: {dest_contents:?}"))),
             }
         }
-        _ => return Err(PdfMergeError::Message(format!("Page {overlay_page_id:?} /Contents must be stream or array or reference to one: {dest_contents:?}"))),
+        _ => return Err(PdfMergeError::Message(format!("Page {dest_page_id:?} /Contents must be stream or array or reference to one: {dest_contents:?}"))),
     };
     // b. For the original Content, we need to make sure everything is both q/Q balanced, *and*
     //     add a starting q and ending Q to all Content streams!  Otherwise our overlay might be

@@ -147,6 +147,42 @@ fn test_blank_page_different_sizes() {
     assert_eq!(doc.get_pages().len(), 3);
 }
 
+/// Verifies that when a page has a non-zero origin MediaBox (e.g. [50, 100, 662, 892]),
+/// the blank page created for padding uses the correct width (x1-x0) and height (y1-y0),
+/// not the raw x1/y1 values.
+#[test]
+fn test_blank_page_matches_nonzero_origin_media_box() {
+    let source_doc = fixtures::create_pdf_with_nonzero_origin_media_box(50.0, 100.0, 662.0, 892.0);
+    let mut dest_doc = fixtures::create_empty_pdf();
+    let page_id = copy_page(&mut dest_doc, &source_doc, 1).unwrap();
+
+    // Get the MediaBox from the copied page to extract dimensions
+    let media_box = medpdf::get_page_media_box(&dest_doc, page_id)
+        .expect("Copied page should have a MediaBox");
+    let width = media_box[2] - media_box[0];
+    let height = media_box[3] - media_box[1];
+
+    // Create a blank page using the computed dimensions
+    let blank_id = create_blank_page(&mut dest_doc, width, height).unwrap();
+
+    // Verify the blank page has the correct dimensions (612 x 792), not raw values (662 x 892)
+    let blank_page = dest_doc.get_dictionary(blank_id).unwrap();
+    let blank_mb = blank_page.get(b"MediaBox").unwrap().as_array().unwrap();
+    let blank_width = blank_mb[2].as_f32().unwrap() - blank_mb[0].as_f32().unwrap();
+    let blank_height = blank_mb[3].as_f32().unwrap() - blank_mb[1].as_f32().unwrap();
+
+    assert!(
+        (blank_width - 612.0).abs() < 0.01,
+        "Blank page width should be 612 (662-50), got {}",
+        blank_width
+    );
+    assert!(
+        (blank_height - 792.0).abs() < 0.01,
+        "Blank page height should be 792 (892-100), got {}",
+        blank_height
+    );
+}
+
 // --- copy_page Tests ---
 
 #[test]

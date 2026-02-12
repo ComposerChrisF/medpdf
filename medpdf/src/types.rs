@@ -118,7 +118,7 @@ pub enum FontStyle {
 #[derive(Debug, Clone)]
 pub struct AddTextParams {
     pub text: String,
-    pub font_data: Vec<u8>,
+    pub font_data: std::sync::Arc<Vec<u8>>,
     pub font_name: String,
     pub font_size: f32,
     pub x: f32,
@@ -133,10 +133,10 @@ pub struct AddTextParams {
 }
 
 impl AddTextParams {
-    pub fn new(text: impl Into<String>, font_data: Vec<u8>, font_name: impl Into<String>) -> Self {
+    pub fn new(text: impl Into<String>, font_data: impl Into<std::sync::Arc<Vec<u8>>>, font_name: impl Into<String>) -> Self {
         Self {
             text: text.into(),
-            font_data,
+            font_data: font_data.into(),
             font_name: font_name.into(),
             font_size: 12.0,
             x: 0.0,

@@ -76,8 +76,9 @@ fn resolve_non_system_font(font_path: &Path) -> Option<FontPath> {
     if let Some(n) = parse_font_path_as_number(font_path) {
         return Some(FontPath::Hack(n));
     }
-    if font_path.to_string_lossy().starts_with("@") {
-        return Some(FontPath::BuiltIn(font_path.to_string_lossy()[1..].into()));
+    let s = font_path.to_string_lossy();
+    if let Some(name) = s.strip_prefix('@') {
+        return Some(FontPath::BuiltIn(name.into()));
     }
     if font_path.exists() {
         return Some(FontPath::Path(font_path.into()));
@@ -143,7 +144,6 @@ pub fn find_font(font_path: &Path) -> Result<FontPath> {
         )],
         &properties,
     )?;
-    //.ok_or_else(|| format!("Font '{}' not found in CWD or system", family_name))?;
 
     if let font_kit::handle::Handle::Path { path, .. } = handle {
         Ok(FontPath::Path(path))

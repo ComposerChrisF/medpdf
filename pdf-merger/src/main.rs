@@ -1,6 +1,7 @@
 use clap::Parser;
 use lopdf::{dictionary, Document, Object, Stream, StringFormat};
 use std::path::PathBuf;
+use std::sync::Arc;
 use uuid::Uuid;
 
 mod spec_types;
@@ -124,7 +125,7 @@ fn main() -> Result<(), PdfMergeError> {
         for page_index in target_page_indices {
             let dest_page_id = *dest_page_ids.get((page_index - 1) as usize)
                 .ok_or_else(|| PdfMergeError::new(format!("Overlay target page index {} out of range", page_index)))?;
-            medpdf::overlay_page(&mut dest_doc, dest_page_id, &overlay_doc, spec.src_page.into())?;
+            medpdf::overlay_page(&mut dest_doc, dest_page_id, &overlay_doc, spec.src_page)?;
         }
     }
 
@@ -143,7 +144,7 @@ fn main() -> Result<(), PdfMergeError> {
             let x_points = spec.units.to_points(spec.x);
             let y_points = spec.units.to_points(spec.y);
 
-            let params = AddTextParams::new(&spec.text, font_data.to_vec(), font_name)
+            let params = AddTextParams::new(&spec.text, Arc::clone(&font_data), font_name)
                 .font_size(spec.size)
                 .position(x_points, y_points)
                 .color(spec.color)
@@ -183,15 +184,15 @@ fn main() -> Result<(), PdfMergeError> {
                     .ok_or_else(|| PdfMergeError::new("No pages in document to pad"))?;
                 let media_box = medpdf::get_page_media_box(&dest_doc, last_page_id)
                     .ok_or_else(|| PdfMergeError::new("Could not determine MediaBox for last page"))?;
-                let width = media_box[2];
-                let height = media_box[3];
+                let width = media_box[2] - media_box[0];
+                let height = media_box[3] - media_box[1];
 
                 for _ in 0..(pages_to_add - 1) {
                     medpdf::create_blank_page(&mut dest_doc, width, height)?;
                 }
                 if let Some(spec) = &args.pad_last_page_file {
                     let pad_doc = Document::load(&spec.file)?;
-                    medpdf::copy_page(&mut dest_doc, &pad_doc, spec.page.into())?;
+                    medpdf::copy_page(&mut dest_doc, &pad_doc, spec.page)?;
                 } else {
                     medpdf::create_blank_page(&mut dest_doc, width, height)?;
                 }
