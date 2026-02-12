@@ -10,9 +10,24 @@ pub struct PdfColor {
 }
 
 impl PdfColor {
-    pub const BLACK: PdfColor = PdfColor { r: 0.0, g: 0.0, b: 0.0, a: 1.0 };
-    pub const WHITE: PdfColor = PdfColor { r: 1.0, g: 1.0, b: 1.0, a: 1.0 };
-    pub const RED: PdfColor = PdfColor { r: 1.0, g: 0.0, b: 0.0, a: 1.0 };
+    pub const BLACK: PdfColor = PdfColor {
+        r: 0.0,
+        g: 0.0,
+        b: 0.0,
+        a: 1.0,
+    };
+    pub const WHITE: PdfColor = PdfColor {
+        r: 1.0,
+        g: 1.0,
+        b: 1.0,
+        a: 1.0,
+    };
+    pub const RED: PdfColor = PdfColor {
+        r: 1.0,
+        g: 0.0,
+        b: 0.0,
+        a: 1.0,
+    };
 
     pub fn rgb(r: f32, g: f32, b: f32) -> Self {
         Self { r, g, b, a: 1.0 }
@@ -110,6 +125,8 @@ pub struct AddTextParams {
     pub h_align: HAlign,
     pub v_align: VAlign,
     pub layer_over: bool,
+    pub strikeout: bool,
+    pub underline: bool,
 }
 
 impl AddTextParams {
@@ -126,6 +143,8 @@ impl AddTextParams {
             h_align: HAlign::Left,
             v_align: VAlign::Baseline,
             layer_over: true,
+            strikeout: false,
+            underline: false,
         }
     }
 
@@ -162,6 +181,16 @@ impl AddTextParams {
 
     pub fn layer_over(mut self, over: bool) -> Self {
         self.layer_over = over;
+        self
+    }
+
+    pub fn strikeout(mut self, strikeout: bool) -> Self {
+        self.strikeout = strikeout;
+        self
+    }
+
+    pub fn underline(mut self, underline: bool) -> Self {
+        self.underline = underline;
         self
     }
 }

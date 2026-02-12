@@ -1,8 +1,8 @@
-use lopdf::content::{Content, Operation};
-use lopdf::{dictionary, Document, Object, ObjectId, Stream, Dictionary, StringFormat};
-use crate::error::{Result, PdfMergeError};
+use crate::error::{PdfMergeError, Result};
 use crate::font_helpers;
 use crate::pdf_helpers::{KEY_CONTENTS, KEY_FONT, KEY_FONT_DESTCRIPTOR, KEY_RESOURCES};
+use lopdf::content::{Content, Operation};
+use lopdf::{dictionary, Dictionary, Document, Object, ObjectId, Stream, StringFormat};
 
 /// Counts the net q/Q balance across content streams.
 /// Returns the number of unclosed 'q' operations (positive means more q's than Q's).
@@ -40,12 +40,11 @@ fn get_content_stream_ids(dest_doc: &Document, page_id: ObjectId) -> Result<Vec<
     let page_dict = dest_doc.get_object(page_id)?.as_dict()?;
 
     match page_dict.get(KEY_CONTENTS) {
-        Ok(Object::Array(arr)) => {
-            arr.iter()
-                .filter_map(|obj| obj.as_reference().ok())
-                .collect::<Vec<_>>()
-                .pipe(Ok)
-        }
+        Ok(Object::Array(arr)) => arr
+            .iter()
+            .filter_map(|obj| obj.as_reference().ok())
+            .collect::<Vec<_>>()
+            .pipe(Ok),
         Ok(Object::Reference(id)) => Ok(vec![*id]),
         Ok(_) => Err(PdfMergeError::new("Unexpected Contents type")),
         Err(_) => Ok(vec![]), // No contents yet
@@ -54,7 +53,10 @@ fn get_content_stream_ids(dest_doc: &Document, page_id: ObjectId) -> Result<Vec<
 
 /// Helper trait for pipe syntax
 trait Pipe: Sized {
-    fn pipe<F, R>(self, f: F) -> R where F: FnOnce(Self) -> R {
+    fn pipe<F, R>(self, f: F) -> R
+    where
+        F: FnOnce(Self) -> R,
+    {
         f(self)
     }
 }
@@ -113,7 +115,6 @@ pub fn unicode_to_winansi(c: char) -> u8 {
     }
 }
 
-
 /// Adds text to a page at a specific position.
 /// If `layer_over` is true, the text renders on top of existing content.
 /// If `layer_over` is false, the text renders behind existing content.
@@ -139,12 +140,15 @@ pub fn add_text(
             Operation::new("rg", vec![0.into(), 0.0.into(), 0.51.into()]),
             Operation::new("BT", vec![]),
             Operation::new("Tr", vec![0.into()]),
-            Operation::new("Tf", vec![
-                Object::Name(font_key.as_bytes().to_vec()),
-                font_size.into(),
-            ]),
+            Operation::new(
+                "Tf",
+                vec![Object::Name(font_key.as_bytes().to_vec()), font_size.into()],
+            ),
             Operation::new("Td", vec![x.into(), y.into()]),
-            Operation::new("Tj", vec![Object::String(encoded_text, StringFormat::Literal)]),
+            Operation::new(
+                "Tj",
+                vec![Object::String(encoded_text, StringFormat::Literal)],
+            ),
             Operation::new("ET", vec![]),
             Operation::new("Q", vec![]),
         ],
@@ -173,7 +177,10 @@ pub fn add_text(
         let closing_q_id = dest_doc.add_object(closing_stream);
 
         if q_balance > 0 {
-            eprintln!("WARNING: Page content has {} unclosed q operator(s), adding balancing Q's", q_balance);
+            eprintln!(
+                "WARNING: Page content has {} unclosed q operator(s), adding balancing Q's",
+                q_balance
+            );
         }
 
         (Some(q_id), Some(closing_q_id))
@@ -198,7 +205,7 @@ pub fn add_text(
                     } else {
                         arr.insert(0, Object::Reference(content_id));
                     }
-                },
+                }
                 Object::Reference(id) => {
                     let old_id = *id;
                     *contents = if layer_over {
@@ -209,24 +216,33 @@ pub fn add_text(
                             Object::Reference(content_id),
                         ])
                     } else {
-                        Object::Array(vec![Object::Reference(content_id), Object::Reference(old_id)])
+                        Object::Array(vec![
+                            Object::Reference(content_id),
+                            Object::Reference(old_id),
+                        ])
                     };
                 }
-                _ => {
-                    return Err(PdfMergeError::new("Unexpected page Contents type"))
-                }
+                _ => return Err(PdfMergeError::new("Unexpected page Contents type")),
             }
         } else {
-            page_dict.set(KEY_CONTENTS, Object::Array(vec![Object::Reference(content_id)]));
+            page_dict.set(
+                KEY_CONTENTS,
+                Object::Array(vec![Object::Reference(content_id)]),
+            );
         }
     }
 
     Ok(())
 }
 
-fn add_font_objects(dest_doc: &mut Document, page_id: (u32, u16), font_data: &[u8], font_name: &str) -> Result<String> {
+fn add_font_objects(
+    dest_doc: &mut Document,
+    page_id: (u32, u16),
+    font_data: &[u8],
+    font_name: &str,
+) -> Result<String> {
     if font_data.len() == 1 && font_data[0] != b'@' {
-        return Ok(format!("F{}", font_data[0]));        // No need to add font objects since we're just reusing existing ones...
+        return Ok(format!("F{}", font_data[0])); // No need to add font objects since we're just reusing existing ones...
     }
 
     if font_data[0] == b'@' {
@@ -264,11 +280,16 @@ fn register_font_in_page_resources(
             let fonts_id = handle_fonts_in_resources(dict_resources, &font_key_bytes, font_id)?;
             (fonts_id, None)
         }
-        Ok(_) => return Err(PdfMergeError::new("/Resource key of page not a Reference nor a Dictionary!")),
+        Ok(_) => {
+            return Err(PdfMergeError::new(
+                "/Resource key of page not a Reference nor a Dictionary!",
+            ))
+        }
         Err(_) => {
             // No resources yet - create inline
-            let mut dict_resources = dictionary! { };
-            let fonts_id = handle_fonts_in_resources(&mut dict_resources, &font_key_bytes, font_id)?;
+            let mut dict_resources = dictionary! {};
+            let fonts_id =
+                handle_fonts_in_resources(&mut dict_resources, &font_key_bytes, font_id)?;
             page_dict.set(KEY_RESOURCES, Object::Dictionary(dict_resources));
             (fonts_id, None)
         }
@@ -277,7 +298,9 @@ fn register_font_in_page_resources(
     // Only one of these two is ever set, but both can be None
     // Was: assert!(fonts_id.is_none() || resources_dict_id.is_none());
     if fonts_id.is_some() && resources_dict_id.is_some() {
-        return Err(PdfMergeError::new("Internal error: both Fonts and Resources are set!"));
+        return Err(PdfMergeError::new(
+            "Internal error: both Fonts and Resources are set!",
+        ));
     }
 
     // Second pass: if Resources was a reference, handle it now
@@ -308,10 +331,12 @@ fn handle_fonts_in_resources(
             dict_fonts.set(font_key.to_vec(), Object::Reference(font_id));
             Ok(None)
         }
-        Ok(_) => Err(PdfMergeError::new("/Font key of Resource not a Reference nor a Dictionary!")),
+        Ok(_) => Err(PdfMergeError::new(
+            "/Font key of Resource not a Reference nor a Dictionary!",
+        )),
         Err(_) => {
             // No Font dict yet - create inline
-            let mut dict_fonts = dictionary! { };
+            let mut dict_fonts = dictionary! {};
             dict_fonts.set(font_key.to_vec(), Object::Reference(font_id));
             resources_dict.set(KEY_FONT, Object::Dictionary(dict_fonts));
             Ok(None)
@@ -319,7 +344,11 @@ fn handle_fonts_in_resources(
     }
 }
 
-fn add_known_named_font(dest_doc: &mut Document, page_id: ObjectId, font_name: &str) -> Result<String> {
+fn add_known_named_font(
+    dest_doc: &mut Document,
+    page_id: ObjectId,
+    font_name: &str,
+) -> Result<String> {
     let font_dict = dictionary! {
         "Type" => "Font",
         "Subtype" => "Type1",
@@ -352,10 +381,12 @@ pub fn add_text_params(
 ) -> Result<()> {
     let font_key = add_font_objects(dest_doc, page_id, &params.font_data, &params.font_name)?;
 
-    // Measure text width for alignment
-    let text_width = if params.h_align != crate::types::HAlign::Left
+    // Measure text width for alignment and/or strikeout/underline
+    let needs_width = params.h_align != crate::types::HAlign::Left
         || params.v_align != crate::types::VAlign::Baseline
-    {
+        || params.strikeout
+        || params.underline;
+    let text_width = if needs_width {
         crate::font_helpers::measure_text_width(&params.font_data, params.font_size, &params.text)
             .unwrap_or(0.0)
     } else {
@@ -436,6 +467,43 @@ pub fn add_text_params(
         vec![Object::String(encoded_text, StringFormat::Literal)],
     ));
     ops.push(Operation::new("ET", vec![]));
+
+    // Draw underline/strikeout rectangles
+    // In rotated mode, cm is active so we use (dx, dy) offsets.
+    // In non-rotated mode, we use absolute (params.x + dx, params.y + dy) coords.
+    if params.underline || params.strikeout {
+        let has_rotation = params.rotation.abs() > 0.001;
+        let rect_x = if has_rotation { dx } else { params.x + dx };
+        let rect_base_y = if has_rotation { dy } else { params.y + dy };
+        let line_height = params.font_size * 0.05;
+        if params.underline {
+            let line_y = rect_base_y - params.font_size * 0.15;
+            ops.push(Operation::new(
+                "re",
+                vec![
+                    rect_x.into(),
+                    line_y.into(),
+                    text_width.into(),
+                    line_height.into(),
+                ],
+            ));
+            ops.push(Operation::new("f", vec![]));
+        }
+        if params.strikeout {
+            let line_y = rect_base_y + params.font_size * 0.3;
+            ops.push(Operation::new(
+                "re",
+                vec![
+                    rect_x.into(),
+                    line_y.into(),
+                    text_width.into(),
+                    line_height.into(),
+                ],
+            ));
+            ops.push(Operation::new("f", vec![]));
+        }
+    }
+
     ops.push(Operation::new("Q", vec![]));
 
     let content = Content { operations: ops };
@@ -505,7 +573,11 @@ pub fn add_text_params(
     Ok(())
 }
 
-fn add_embedded_font(dest_doc: &mut Document, page_id: ObjectId, font_data: &[u8]) -> Result<String> {
+fn add_embedded_font(
+    dest_doc: &mut Document,
+    page_id: ObjectId,
+    font_data: &[u8],
+) -> Result<String> {
     let (font_info, font_descriptor) = font_helpers::get_pdf_font_info_of_data(font_data)?;
     let mut font_dict = dictionary! {
         "Type" => "Font",
