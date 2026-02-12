@@ -13,7 +13,7 @@
 ///   - Top:      the top of ascenders touches the red line
 use std::sync::Arc;
 
-use lopdf::{dictionary, Document, Object, Stream};
+use lopdf::{dictionary, Document, Object};
 
 fn create_test_doc() -> Document {
     let mut doc = Document::with_version("1.7");
@@ -71,19 +71,11 @@ fn generate_valign_test_pdf() {
     medpdf::add_text_params(&mut doc, page_id, &title_params).unwrap();
 
     for (valign, label, y) in &alignments {
-        // Draw a red horizontal reference line via a thin filled rectangle
-        let line_content = format!(
-            "q 1 0 0 rg {} {} 550 0.5 re f Q\n",
-            30.0, y
-        );
-        let line_stream = Stream::new(dictionary! {}, line_content.into_bytes());
-        let line_id = doc.add_object(line_stream);
-
-        // Insert the line stream into the page's Contents
-        let page_dict = doc.get_object_mut(page_id).unwrap().as_dict_mut().unwrap();
-        if let Ok(Object::Array(ref mut arr)) = page_dict.get_mut(b"Contents") {
-            arr.insert(0, Object::Reference(line_id));
-        }
+        // Draw a red horizontal reference line via add_rect()
+        let rect_params = medpdf::DrawRectParams::new(30.0, *y, 550.0, 0.5)
+            .color(PdfColor::RED)
+            .layer_over(false);
+        medpdf::add_rect(&mut doc, page_id, &rect_params).unwrap();
 
         // Draw the label on the left (small, gray)
         let label_params = AddTextParams::new(

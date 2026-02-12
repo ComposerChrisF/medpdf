@@ -214,6 +214,81 @@ impl AddTextParams {
     }
 }
 
+/// Parameters for drawing a filled rectangle on a PDF page.
+#[derive(Debug, Clone)]
+pub struct DrawRectParams {
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+    pub color: PdfColor,
+    pub layer_over: bool,
+}
+
+impl DrawRectParams {
+    pub fn new(x: f32, y: f32, width: f32, height: f32) -> Self {
+        Self {
+            x,
+            y,
+            width,
+            height,
+            color: PdfColor::BLACK,
+            layer_over: true,
+        }
+    }
+
+    pub fn color(mut self, color: PdfColor) -> Self {
+        self.color = color;
+        self
+    }
+
+    pub fn layer_over(mut self, over: bool) -> Self {
+        self.layer_over = over;
+        self
+    }
+}
+
+/// Parameters for drawing a stroked line on a PDF page.
+#[derive(Debug, Clone)]
+pub struct DrawLineParams {
+    pub x1: f32,
+    pub y1: f32,
+    pub x2: f32,
+    pub y2: f32,
+    pub line_width: f32,
+    pub color: PdfColor,
+    pub layer_over: bool,
+}
+
+impl DrawLineParams {
+    pub fn new(x1: f32, y1: f32, x2: f32, y2: f32) -> Self {
+        Self {
+            x1,
+            y1,
+            x2,
+            y2,
+            line_width: 1.0,
+            color: PdfColor::BLACK,
+            layer_over: true,
+        }
+    }
+
+    pub fn line_width(mut self, width: f32) -> Self {
+        self.line_width = width;
+        self
+    }
+
+    pub fn color(mut self, color: PdfColor) -> Self {
+        self.color = color;
+        self
+    }
+
+    pub fn layer_over(mut self, over: bool) -> Self {
+        self.layer_over = over;
+        self
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -276,5 +351,48 @@ mod tests {
         assert!(FontWeight::THIN < FontWeight::NORMAL);
         assert!(FontWeight::NORMAL < FontWeight::BOLD);
         assert!(FontWeight::BOLD < FontWeight::BLACK);
+    }
+
+    #[test]
+    fn test_draw_rect_params_builder() {
+        let params = DrawRectParams::new(10.0, 20.0, 100.0, 50.0)
+            .color(PdfColor::RED)
+            .layer_over(false);
+        assert!((params.x - 10.0).abs() < f32::EPSILON);
+        assert!((params.y - 20.0).abs() < f32::EPSILON);
+        assert!((params.width - 100.0).abs() < f32::EPSILON);
+        assert!((params.height - 50.0).abs() < f32::EPSILON);
+        assert_eq!(params.color, PdfColor::RED);
+        assert!(!params.layer_over);
+    }
+
+    #[test]
+    fn test_draw_rect_params_defaults() {
+        let params = DrawRectParams::new(0.0, 0.0, 10.0, 10.0);
+        assert_eq!(params.color, PdfColor::BLACK);
+        assert!(params.layer_over);
+    }
+
+    #[test]
+    fn test_draw_line_params_builder() {
+        let params = DrawLineParams::new(0.0, 0.0, 100.0, 200.0)
+            .line_width(2.5)
+            .color(PdfColor::RED)
+            .layer_over(false);
+        assert!((params.x1 - 0.0).abs() < f32::EPSILON);
+        assert!((params.y1 - 0.0).abs() < f32::EPSILON);
+        assert!((params.x2 - 100.0).abs() < f32::EPSILON);
+        assert!((params.y2 - 200.0).abs() < f32::EPSILON);
+        assert!((params.line_width - 2.5).abs() < f32::EPSILON);
+        assert_eq!(params.color, PdfColor::RED);
+        assert!(!params.layer_over);
+    }
+
+    #[test]
+    fn test_draw_line_params_defaults() {
+        let params = DrawLineParams::new(0.0, 0.0, 10.0, 10.0);
+        assert!((params.line_width - 1.0).abs() < f32::EPSILON);
+        assert_eq!(params.color, PdfColor::BLACK);
+        assert!(params.layer_over);
     }
 }

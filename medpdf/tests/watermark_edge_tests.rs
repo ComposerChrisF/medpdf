@@ -5,8 +5,8 @@ mod fixtures;
 
 use lopdf::{dictionary, Object, Stream};
 use medpdf::pdf_copy_page::copy_page;
-use medpdf::pdf_watermark::add_text_params;
-use medpdf::types::{AddTextParams, HAlign, PdfColor, VAlign};
+use medpdf::pdf_watermark::{add_line, add_rect, add_text_params};
+use medpdf::types::{AddTextParams, DrawLineParams, DrawRectParams, HAlign, PdfColor, VAlign};
 
 
 // --- Helper ---
@@ -454,5 +454,145 @@ fn test_multiple_different_builtin_fonts() {
 
     // All should have separate font objects registered in resources
     let page = dest_doc.get_dictionary(page_id).unwrap();
+    assert!(page.get(b"Resources").is_ok());
+}
+
+// --- add_rect integration tests ---
+
+#[test]
+fn test_add_rect_layer_over() {
+    let (mut dest_doc, page_id) = setup_dest_doc();
+    let params = DrawRectParams::new(10.0, 20.0, 100.0, 50.0)
+        .color(PdfColor::RED);
+    let result = add_rect(&mut dest_doc, page_id, &params);
+    assert!(result.is_ok(), "add_rect layer_over should succeed: {:?}", result.err());
+
+    let page = dest_doc.get_dictionary(page_id).unwrap();
+    let contents = page.get(b"Contents").unwrap();
+    match contents {
+        Object::Array(arr) => {
+            // layer_over: q_stream, original, closing_q, rect_content
+            assert!(arr.len() >= 4, "Layer over rect should have at least 4 content refs, got {}", arr.len());
+        }
+        _ => panic!("Contents should be an array after add_rect"),
+    }
+}
+
+#[test]
+fn test_add_rect_layer_under() {
+    let (mut dest_doc, page_id) = setup_dest_doc();
+    let params = DrawRectParams::new(10.0, 20.0, 100.0, 50.0)
+        .layer_over(false);
+    let result = add_rect(&mut dest_doc, page_id, &params);
+    assert!(result.is_ok(), "add_rect layer_under should succeed: {:?}", result.err());
+
+    let page = dest_doc.get_dictionary(page_id).unwrap();
+    let contents = page.get(b"Contents").unwrap();
+    match contents {
+        Object::Array(arr) => {
+            assert!(arr.len() >= 2, "Layer under should have at least 2 content streams");
+        }
+        _ => panic!("Contents should be an array"),
+    }
+}
+
+#[test]
+fn test_add_rect_with_alpha() {
+    let (mut dest_doc, page_id) = setup_dest_doc();
+    let params = DrawRectParams::new(0.0, 0.0, 50.0, 50.0)
+        .color(PdfColor::rgba(1.0, 0.0, 0.0, 0.5));
+    let result = add_rect(&mut dest_doc, page_id, &params);
+    assert!(result.is_ok(), "add_rect with alpha should succeed: {:?}", result.err());
+
+    let content = fixtures::get_page_content_bytes(&dest_doc, page_id);
+    let content_str = String::from_utf8_lossy(&content);
+    assert!(content_str.contains("gs"), "Should contain 'gs' for alpha");
+    assert!(content_str.contains("re"), "Should contain 're'");
+    assert!(content_str.contains("f\n") || content_str.contains("f\r"), "Should contain 'f' (fill) operator");
+}
+
+#[test]
+fn test_add_rect_opaque_no_extgstate() {
+    let (mut dest_doc, page_id) = setup_dest_doc();
+    let params = DrawRectParams::new(0.0, 0.0, 50.0, 50.0)
+        .color(PdfColor::RED);
+    add_rect(&mut dest_doc, page_id, &params).unwrap();
+
+    let content = fixtures::get_page_content_bytes(&dest_doc, page_id);
+    let content_str = String::from_utf8_lossy(&content);
+    assert!(!content_str.contains("gs"), "Alpha 1.0 should not produce gs operator");
+}
+
+// --- add_line integration tests ---
+
+#[test]
+fn test_add_line_layer_over() {
+    let (mut dest_doc, page_id) = setup_dest_doc();
+    let params = DrawLineParams::new(0.0, 0.0, 100.0, 200.0)
+        .line_width(2.0)
+        .color(PdfColor::rgb(0.0, 0.0, 1.0));
+    let result = add_line(&mut dest_doc, page_id, &params);
+    assert!(result.is_ok(), "add_line layer_over should succeed: {:?}", result.err());
+
+    let page = dest_doc.get_dictionary(page_id).unwrap();
+    let contents = page.get(b"Contents").unwrap();
+    match contents {
+        Object::Array(arr) => {
+            assert!(arr.len() >= 4, "Layer over line should have at least 4 content refs, got {}", arr.len());
+        }
+        _ => panic!("Contents should be an array"),
+    }
+}
+
+#[test]
+fn test_add_line_layer_under() {
+    let (mut dest_doc, page_id) = setup_dest_doc();
+    let params = DrawLineParams::new(0.0, 0.0, 100.0, 100.0)
+        .layer_over(false);
+    let result = add_line(&mut dest_doc, page_id, &params);
+    assert!(result.is_ok(), "add_line layer_under should succeed: {:?}", result.err());
+}
+
+#[test]
+fn test_add_line_with_alpha() {
+    let (mut dest_doc, page_id) = setup_dest_doc();
+    let params = DrawLineParams::new(0.0, 0.0, 100.0, 100.0)
+        .color(PdfColor::rgba(0.0, 1.0, 0.0, 0.3));
+    let result = add_line(&mut dest_doc, page_id, &params);
+    assert!(result.is_ok(), "add_line with alpha should succeed: {:?}", result.err());
+
+    let content = fixtures::get_page_content_bytes(&dest_doc, page_id);
+    let content_str = String::from_utf8_lossy(&content);
+    assert!(content_str.contains("gs"), "Should contain 'gs' for alpha");
+    assert!(content_str.contains("RG"), "Should contain 'RG' (stroke color)");
+}
+
+// --- Combined rect + line + watermark ---
+
+#[test]
+fn test_rect_line_watermark_combined() {
+    let (mut dest_doc, page_id) = setup_dest_doc();
+
+    // Add rect under
+    let rect_params = DrawRectParams::new(0.0, 0.0, 612.0, 792.0)
+        .color(PdfColor::rgba(1.0, 1.0, 0.0, 0.2))
+        .layer_over(false);
+    add_rect(&mut dest_doc, page_id, &rect_params).unwrap();
+
+    // Add line over
+    let line_params = DrawLineParams::new(0.0, 0.0, 612.0, 792.0)
+        .line_width(1.5)
+        .color(PdfColor::RED);
+    add_line(&mut dest_doc, page_id, &line_params).unwrap();
+
+    // Add watermark over
+    let text_params = AddTextParams::new("DRAFT", vec![b'@'], "Helvetica")
+        .font_size(48.0)
+        .position(100.0, 400.0);
+    add_text_params(&mut dest_doc, page_id, &text_params).unwrap();
+
+    // Verify page structure is still valid
+    let page = dest_doc.get_dictionary(page_id).unwrap();
+    assert!(page.get(b"Contents").is_ok());
     assert!(page.get(b"Resources").is_ok());
 }

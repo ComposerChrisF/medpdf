@@ -6,9 +6,9 @@ use uuid::Uuid;
 
 mod spec_types;
 
-use medpdf::{parse_page_spec, AddTextParams, PdfMergeError};
+use medpdf::{parse_page_spec, AddTextParams, DrawRectParams, DrawLineParams, PdfMergeError};
 use medpdf::pdf_font::{find_font, FontCache};
-use spec_types::{WatermarkSpec, OverlaySpec, PadToSpec, PadFileSpec};
+use spec_types::{WatermarkSpec, OverlaySpec, PadToSpec, PadFileSpec, DrawRectSpec, DrawLineSpec, BlankPageSpec};
 
 
 /// A command-line tool for advanced manipulation of PDF documents.
@@ -17,12 +17,16 @@ use spec_types::{WatermarkSpec, OverlaySpec, PadToSpec, PadFileSpec};
 struct Args {
     #[arg(short, long)]
     output: PathBuf,
-    #[arg(required = true, num_args = 2.., value_name = "FILE \"PAGES\"")]
+    #[arg(num_args = 2.., value_name = "FILE \"PAGES\"")]
     inputs: Vec<String>,
+    #[arg(long, action = clap::ArgAction::Append)]
+    blank_page: Vec<BlankPageSpec>,
     #[arg(long, action = clap::ArgAction::Append)]
     watermark: Vec<WatermarkSpec>,
     #[arg(long, action = clap::ArgAction::Append)]
-    watermark_under: Vec<WatermarkSpec>,
+    draw_rect: Vec<DrawRectSpec>,
+    #[arg(long, action = clap::ArgAction::Append)]
+    draw_line: Vec<DrawLineSpec>,
     #[arg(long, action = clap::ArgAction::Append)]
     overlay: Vec<OverlaySpec>,
     #[arg(long)]
@@ -61,7 +65,7 @@ fn format_xmp_metadata(doc_uuid: &str) -> String {
 fn main() -> Result<(), PdfMergeError> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
     let args = Args::parse();
-    if args.inputs.len() % 2 != 0 {
+    if !args.inputs.is_empty() && args.inputs.len() % 2 != 0 {
         return Err("Input arguments must be in pairs of file paths and page specifications.".into());
     }
 
@@ -116,6 +120,19 @@ fn main() -> Result<(), PdfMergeError> {
         }
     }
 
+    // Process blank pages
+    for spec in &args.blank_page {
+        println!("Adding {} blank page(s) ({}×{} pt)", spec.count, spec.width, spec.height);
+        for _ in 0..spec.count {
+            let page_id = medpdf::create_blank_page(&mut dest_doc, spec.width, spec.height)?;
+            dest_page_ids.push(page_id);
+        }
+    }
+
+    if dest_page_ids.is_empty() {
+        return Err("No pages to output. Provide input files or use --blank-page.".into());
+    }
+
     // --- Phase 2: Apply Overlays ---
     println!("\n--- Applying Overlays ---");
     for spec in args.overlay.iter() {
@@ -129,14 +146,46 @@ fn main() -> Result<(), PdfMergeError> {
         }
     }
 
-    // --- Phase 3: Apply Watermarks ---
-    println!("\n--- Applying Watermarks ---");
+    // --- Phase 3: Apply Drawing Commands ---
+    println!("\n--- Applying Drawing Commands ---");
     let mut font_cache = FontCache::new();
 
-    // Helper to apply watermarks with specified layer
-    let apply_watermarks = |specs: &[WatermarkSpec], layer_over: bool, font_cache: &mut FontCache, dest_doc: &mut Document, dest_page_ids: &[_]| -> Result<(), PdfMergeError> {
+    // Process each layer: under first, then over.
+    // Within each layer: rects, then lines, then watermarks.
+    for layer_over in [false, true] {
         let layer_name = if layer_over { "over" } else { "under" };
-        for spec in specs.iter() {
+
+        // Rects
+        for spec in args.draw_rect.iter().filter(|s| s.layer_over == layer_over) {
+            let target_page_indices = parse_page_spec(&spec.pages, dest_page_ids.len() as u32)?;
+            let params = DrawRectParams::new(spec.x, spec.y, spec.w, spec.h)
+                .color(spec.color)
+                .layer_over(layer_over);
+            println!("Drawing rect ({layer_name}) to pages '{target_page_indices:?}'");
+            for page_index in target_page_indices {
+                let page_id = *dest_page_ids.get((page_index - 1) as usize)
+                    .ok_or_else(|| PdfMergeError::new(format!("draw-rect target page index {} out of range", page_index)))?;
+                medpdf::add_rect(&mut dest_doc, page_id, &params)?;
+            }
+        }
+
+        // Lines
+        for spec in args.draw_line.iter().filter(|s| s.layer_over == layer_over) {
+            let target_page_indices = parse_page_spec(&spec.pages, dest_page_ids.len() as u32)?;
+            let params = DrawLineParams::new(spec.x1, spec.y1, spec.x2, spec.y2)
+                .line_width(spec.width)
+                .color(spec.color)
+                .layer_over(layer_over);
+            println!("Drawing line ({layer_name}) to pages '{target_page_indices:?}'");
+            for page_index in target_page_indices {
+                let page_id = *dest_page_ids.get((page_index - 1) as usize)
+                    .ok_or_else(|| PdfMergeError::new(format!("draw-line target page index {} out of range", page_index)))?;
+                medpdf::add_line(&mut dest_doc, page_id, &params)?;
+            }
+        }
+
+        // Watermarks
+        for spec in args.watermark.iter().filter(|s| s.layer_over == layer_over) {
             let font_path = find_font(&spec.font)?;
             let font_data = font_cache.get_data(&font_path)?;
             let font_name = font_path.get_name();
@@ -159,16 +208,10 @@ fn main() -> Result<(), PdfMergeError> {
             for page_index in target_page_indices {
                 let page_id = *dest_page_ids.get((page_index - 1) as usize)
                     .ok_or_else(|| PdfMergeError::new(format!("Watermark target page index {} out of range", page_index)))?;
-                medpdf::add_text_params(dest_doc, page_id, &params)?;
+                medpdf::add_text_params(&mut dest_doc, page_id, &params)?;
             }
         }
-        Ok(())
-    };
-
-    // Apply under-watermarks first (so they render behind everything)
-    apply_watermarks(&args.watermark_under, false, &mut font_cache, &mut dest_doc, &dest_page_ids)?;
-    // Apply over-watermarks (on top of content)
-    apply_watermarks(&args.watermark, true, &mut font_cache, &mut dest_doc, &dest_page_ids)?;
+    }
 
     // --- Phase 4: Padding ---
     println!("\n--- Checking for Padding ---");

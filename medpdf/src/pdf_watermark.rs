@@ -509,7 +509,20 @@ pub fn add_text_params(
     let content_stream = Stream::new(dictionary! {}, content.encode()?);
     let content_id = dest_doc.add_object(content_stream);
 
-    let (q_id, closing_q_id) = if params.layer_over {
+    insert_content_stream(dest_doc, page_id, content_id, params.layer_over)
+}
+
+/// Inserts a content stream into a page, either over or under existing content.
+///
+/// When `layer_over` is true, existing content is wrapped in q/Q and new content appended.
+/// When `layer_over` is false, new content is prepended before existing content.
+fn insert_content_stream(
+    dest_doc: &mut Document,
+    page_id: ObjectId,
+    content_id: ObjectId,
+    layer_over: bool,
+) -> Result<()> {
+    let (q_id, closing_q_id) = if layer_over {
         let existing_content_ids = get_content_stream_ids(dest_doc, page_id)?;
         let q_balance = count_q_balance(dest_doc, &existing_content_ids)?;
 
@@ -526,54 +539,156 @@ pub fn add_text_params(
         (None, None)
     };
 
-    {
-        let page_dict = dest_doc
-            .get_object_mut(page_id)?
-            .as_dict_mut()
-            .map_err(|_| PdfMergeError::new("Page object is not a dictionary"))?;
+    let page_dict = dest_doc
+        .get_object_mut(page_id)?
+        .as_dict_mut()
+        .map_err(|_| PdfMergeError::new("Page object is not a dictionary"))?;
 
-        if let Ok(contents) = page_dict.get_mut(KEY_CONTENTS) {
-            match contents {
-                Object::Array(ref mut arr) => {
-                    if params.layer_over {
-                        let q = q_id.ok_or_else(|| PdfMergeError::new("Internal error: missing q stream ID"))?;
-                        let closing_q = closing_q_id.ok_or_else(|| PdfMergeError::new("Internal error: missing closing q stream ID"))?;
-                        arr.insert(0, Object::Reference(q));
-                        arr.push(Object::Reference(closing_q));
-                        arr.push(Object::Reference(content_id));
-                    } else {
-                        arr.insert(0, Object::Reference(content_id));
-                    }
+    if let Ok(contents) = page_dict.get_mut(KEY_CONTENTS) {
+        match contents {
+            Object::Array(ref mut arr) => {
+                if layer_over {
+                    let q = q_id.ok_or_else(|| PdfMergeError::new("Internal error: missing q stream ID"))?;
+                    let closing_q = closing_q_id.ok_or_else(|| PdfMergeError::new("Internal error: missing closing q stream ID"))?;
+                    arr.insert(0, Object::Reference(q));
+                    arr.push(Object::Reference(closing_q));
+                    arr.push(Object::Reference(content_id));
+                } else {
+                    arr.insert(0, Object::Reference(content_id));
                 }
-                Object::Reference(id) => {
-                    let old_id = *id;
-                    *contents = if params.layer_over {
-                        let q = q_id.ok_or_else(|| PdfMergeError::new("Internal error: missing q stream ID"))?;
-                        let closing_q = closing_q_id.ok_or_else(|| PdfMergeError::new("Internal error: missing closing q stream ID"))?;
-                        Object::Array(vec![
-                            Object::Reference(q),
-                            Object::Reference(old_id),
-                            Object::Reference(closing_q),
-                            Object::Reference(content_id),
-                        ])
-                    } else {
-                        Object::Array(vec![
-                            Object::Reference(content_id),
-                            Object::Reference(old_id),
-                        ])
-                    };
-                }
-                _ => return Err(PdfMergeError::new("Unexpected page Contents type")),
             }
-        } else {
-            page_dict.set(
-                KEY_CONTENTS,
-                Object::Array(vec![Object::Reference(content_id)]),
-            );
+            Object::Reference(id) => {
+                let old_id = *id;
+                *contents = if layer_over {
+                    let q = q_id.ok_or_else(|| PdfMergeError::new("Internal error: missing q stream ID"))?;
+                    let closing_q = closing_q_id.ok_or_else(|| PdfMergeError::new("Internal error: missing closing q stream ID"))?;
+                    Object::Array(vec![
+                        Object::Reference(q),
+                        Object::Reference(old_id),
+                        Object::Reference(closing_q),
+                        Object::Reference(content_id),
+                    ])
+                } else {
+                    Object::Array(vec![
+                        Object::Reference(content_id),
+                        Object::Reference(old_id),
+                    ])
+                };
+            }
+            _ => return Err(PdfMergeError::new("Unexpected page Contents type")),
         }
+    } else {
+        page_dict.set(
+            KEY_CONTENTS,
+            Object::Array(vec![Object::Reference(content_id)]),
+        );
     }
 
     Ok(())
+}
+
+/// Draws a filled rectangle on a page.
+pub fn add_rect(
+    dest_doc: &mut Document,
+    page_id: ObjectId,
+    params: &crate::types::DrawRectParams,
+) -> Result<()> {
+    let color = params.color.clamped();
+    let mut ops = vec![Operation::new("q", vec![])];
+
+    // Apply alpha via ExtGState when not fully opaque
+    let alpha = color.a;
+    if (alpha - 1.0).abs() > f32::EPSILON {
+        let gs_dict = dictionary! {
+            "Type" => "ExtGState",
+            "ca" => alpha,
+            "CA" => alpha,
+        };
+        let gs_id = dest_doc.add_object(gs_dict);
+        let gs_key = register_extgstate_in_page_resources(dest_doc, page_id, gs_id)?;
+        ops.push(Operation::new(
+            "gs",
+            vec![Object::Name(gs_key.as_bytes().to_vec())],
+        ));
+    }
+
+    // Set fill color
+    ops.push(Operation::new(
+        "rg",
+        vec![color.r.into(), color.g.into(), color.b.into()],
+    ));
+
+    // Draw rectangle and fill
+    ops.push(Operation::new(
+        "re",
+        vec![
+            params.x.into(),
+            params.y.into(),
+            params.width.into(),
+            params.height.into(),
+        ],
+    ));
+    ops.push(Operation::new("f", vec![]));
+    ops.push(Operation::new("Q", vec![]));
+
+    let content = Content { operations: ops };
+    let content_stream = Stream::new(dictionary! {}, content.encode()?);
+    let content_id = dest_doc.add_object(content_stream);
+
+    insert_content_stream(dest_doc, page_id, content_id, params.layer_over)
+}
+
+/// Draws a stroked line on a page.
+pub fn add_line(
+    dest_doc: &mut Document,
+    page_id: ObjectId,
+    params: &crate::types::DrawLineParams,
+) -> Result<()> {
+    let color = params.color.clamped();
+    let mut ops = vec![Operation::new("q", vec![])];
+
+    // Apply alpha via ExtGState when not fully opaque
+    let alpha = color.a;
+    if (alpha - 1.0).abs() > f32::EPSILON {
+        let gs_dict = dictionary! {
+            "Type" => "ExtGState",
+            "ca" => alpha,
+            "CA" => alpha,
+        };
+        let gs_id = dest_doc.add_object(gs_dict);
+        let gs_key = register_extgstate_in_page_resources(dest_doc, page_id, gs_id)?;
+        ops.push(Operation::new(
+            "gs",
+            vec![Object::Name(gs_key.as_bytes().to_vec())],
+        ));
+    }
+
+    // Set stroke color
+    ops.push(Operation::new(
+        "RG",
+        vec![color.r.into(), color.g.into(), color.b.into()],
+    ));
+
+    // Set line width
+    ops.push(Operation::new("w", vec![params.line_width.into()]));
+
+    // Move to start, line to end, stroke
+    ops.push(Operation::new(
+        "m",
+        vec![params.x1.into(), params.y1.into()],
+    ));
+    ops.push(Operation::new(
+        "l",
+        vec![params.x2.into(), params.y2.into()],
+    ));
+    ops.push(Operation::new("S", vec![]));
+    ops.push(Operation::new("Q", vec![]));
+
+    let content = Content { operations: ops };
+    let content_stream = Stream::new(dictionary! {}, content.encode()?);
+    let content_id = dest_doc.add_object(content_stream);
+
+    insert_content_stream(dest_doc, page_id, content_id, params.layer_over)
 }
 
 fn add_embedded_font(
@@ -628,6 +743,160 @@ mod tests {
     use super::*;
 
     // --- utf8_to_winansi / unicode_to_winansi tests (from watermark_tests.rs) ---
+
+    // --- add_rect / add_line unit tests ---
+
+    fn create_test_page(doc: &mut Document) -> ObjectId {
+        let pages_id = doc
+            .catalog()
+            .unwrap()
+            .get(b"Pages")
+            .unwrap()
+            .as_reference()
+            .unwrap();
+        let resources_id = doc.add_object(dictionary! {});
+        let content_id = doc.add_object(Stream::new(dictionary! {}, vec![]));
+        let media_box = vec![
+            Object::Real(0.0),
+            Object::Real(0.0),
+            Object::Real(612.0),
+            Object::Real(792.0),
+        ];
+        let page = dictionary! {
+            "Type" => "Page",
+            "Parent" => pages_id,
+            "MediaBox" => media_box,
+            "Contents" => Object::Reference(content_id),
+            "Resources" => Object::Reference(resources_id),
+        };
+        let page_id = doc.add_object(page);
+        let pages = doc.get_object_mut(pages_id).unwrap().as_dict_mut().unwrap();
+        let kids = pages.get_mut(b"Kids").unwrap().as_array_mut().unwrap();
+        kids.push(Object::Reference(page_id));
+        pages.set("Count", Object::Integer(1));
+        page_id
+    }
+
+    fn create_test_doc_and_page() -> (Document, ObjectId) {
+        let mut doc = Document::with_version("1.7");
+        let pages_id = doc.new_object_id();
+        let pages = dictionary! {
+            "Type" => "Pages",
+            "Kids" => vec![],
+            "Count" => 0,
+        };
+        doc.objects
+            .insert(pages_id, Object::Dictionary(pages));
+        let catalog_id = doc.add_object(dictionary! {
+            "Type" => "Catalog",
+            "Pages" => pages_id,
+        });
+        doc.trailer.set("Root", catalog_id);
+        let page_id = create_test_page(&mut doc);
+        (doc, page_id)
+    }
+
+    fn get_all_content_bytes(doc: &Document, page_id: ObjectId) -> Vec<u8> {
+        let page = doc.get_dictionary(page_id).unwrap();
+        let contents = page.get(b"Contents").unwrap();
+        match contents {
+            Object::Array(arr) => {
+                let mut result = Vec::new();
+                for item in arr {
+                    if let Object::Reference(id) = item {
+                        let stream = doc.get_object(*id).unwrap().as_stream().unwrap();
+                        result.extend_from_slice(&stream.content);
+                    }
+                }
+                result
+            }
+            Object::Reference(id) => {
+                doc.get_object(*id).unwrap().as_stream().unwrap().content.clone()
+            }
+            _ => panic!("Unexpected Contents type"),
+        }
+    }
+
+    #[test]
+    fn test_add_rect_basic() {
+        let (mut doc, page_id) = create_test_doc_and_page();
+        let params = crate::types::DrawRectParams::new(10.0, 20.0, 100.0, 50.0);
+        add_rect(&mut doc, page_id, &params).unwrap();
+        let content = get_all_content_bytes(&doc, page_id);
+        let content_str = String::from_utf8_lossy(&content);
+        assert!(content_str.contains("re"), "Should contain 're' operator");
+        assert!(content_str.contains("f"), "Should contain 'f' operator");
+    }
+
+    #[test]
+    fn test_add_rect_with_alpha() {
+        let (mut doc, page_id) = create_test_doc_and_page();
+        let params = crate::types::DrawRectParams::new(0.0, 0.0, 50.0, 50.0)
+            .color(crate::types::PdfColor::rgba(1.0, 0.0, 0.0, 0.5));
+        add_rect(&mut doc, page_id, &params).unwrap();
+        let content = get_all_content_bytes(&doc, page_id);
+        let content_str = String::from_utf8_lossy(&content);
+        assert!(content_str.contains("gs"), "Should contain 'gs' operator for alpha");
+    }
+
+    #[test]
+    fn test_add_rect_layer_under() {
+        let (mut doc, page_id) = create_test_doc_and_page();
+        let params = crate::types::DrawRectParams::new(0.0, 0.0, 50.0, 50.0)
+            .layer_over(false);
+        add_rect(&mut doc, page_id, &params).unwrap();
+        // In layer_under mode, rect content is prepended
+        let page = doc.get_dictionary(page_id).unwrap();
+        let contents = page.get(b"Contents").unwrap().as_array().unwrap();
+        assert!(contents.len() >= 2, "Should have at least 2 content streams");
+    }
+
+    #[test]
+    fn test_add_line_basic() {
+        let (mut doc, page_id) = create_test_doc_and_page();
+        let params = crate::types::DrawLineParams::new(0.0, 0.0, 100.0, 200.0);
+        add_line(&mut doc, page_id, &params).unwrap();
+        let content = get_all_content_bytes(&doc, page_id);
+        let content_str = String::from_utf8_lossy(&content);
+        assert!(content_str.contains("m"), "Should contain 'm' (moveto)");
+        assert!(content_str.contains("l"), "Should contain 'l' (lineto)");
+        assert!(content_str.contains("S"), "Should contain 'S' (stroke)");
+    }
+
+    #[test]
+    fn test_add_line_with_alpha() {
+        let (mut doc, page_id) = create_test_doc_and_page();
+        let params = crate::types::DrawLineParams::new(0.0, 0.0, 100.0, 100.0)
+            .color(crate::types::PdfColor::rgba(0.0, 0.0, 1.0, 0.3));
+        add_line(&mut doc, page_id, &params).unwrap();
+        let content = get_all_content_bytes(&doc, page_id);
+        let content_str = String::from_utf8_lossy(&content);
+        assert!(content_str.contains("gs"), "Should contain 'gs' operator for alpha");
+    }
+
+    #[test]
+    fn test_add_line_custom_width() {
+        let (mut doc, page_id) = create_test_doc_and_page();
+        let params = crate::types::DrawLineParams::new(0.0, 0.0, 100.0, 100.0)
+            .line_width(3.0);
+        add_line(&mut doc, page_id, &params).unwrap();
+        let content = get_all_content_bytes(&doc, page_id);
+        let content_str = String::from_utf8_lossy(&content);
+        assert!(content_str.contains("w"), "Should contain 'w' (line width)");
+    }
+
+    #[test]
+    fn test_add_line_layer_under() {
+        let (mut doc, page_id) = create_test_doc_and_page();
+        let params = crate::types::DrawLineParams::new(0.0, 0.0, 100.0, 100.0)
+            .layer_over(false);
+        add_line(&mut doc, page_id, &params).unwrap();
+        let page = doc.get_dictionary(page_id).unwrap();
+        let contents = page.get(b"Contents").unwrap().as_array().unwrap();
+        assert!(contents.len() >= 2, "Should have at least 2 content streams");
+    }
+
+    // --- utf8_to_winansi / unicode_to_winansi tests ---
 
     #[test]
     fn test_winansi_ascii_passthrough() {

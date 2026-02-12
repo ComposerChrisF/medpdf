@@ -22,5 +22,5 @@ pub use pdf_delete_page::delete_page;
 pub use pdf_font::{find_font, find_font_with_style, FontCache, FontPath};
 pub use pdf_helpers::{get_page_media_box, get_page_rotation, set_page_rotation, Unit};
 pub use pdf_overlay::overlay_page;
-pub use pdf_watermark::add_text_params;
-pub use types::{AddTextParams, FontStyle, FontWeight, HAlign, PdfColor, VAlign};
+pub use pdf_watermark::{add_line, add_rect, add_text_params};
+pub use types::{AddTextParams, DrawLineParams, DrawRectParams, FontStyle, FontWeight, HAlign, PdfColor, VAlign};
