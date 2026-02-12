@@ -132,24 +132,22 @@ overlay_page(
 )?;
 ```
 
-#### `add_text`
+#### `add_text_params`
 
-Adds a text watermark to a page.
+Adds a text watermark to a page with full control over color, alignment, rotation, and more.
 
 ```rust
-use medpdf::pdf_watermark::add_text;
+use medpdf::{add_text_params, AddTextParams, PdfColor, HAlign};
 
-add_text(
-    &mut dest_doc,
-    page_id,
-    "DRAFT",           // Text content
-    &font_data,        // Font bytes (or special marker)
-    "Helvetica",       // Font name
-    24.0,              // Font size (points)
-    100,               // X position (points)
-    100,               // Y position (points)
-    true,              // layer_over: true = on top, false = behind
-)?;
+let params = AddTextParams::new("DRAFT", font_data, "Helvetica")
+    .font_size(24.0)
+    .position(100.0, 100.0)
+    .color(PdfColor::rgba(1.0, 0.0, 0.0, 0.5))  // Semi-transparent red
+    .rotation(45.0)
+    .h_align(HAlign::Center)
+    .layer_over(true);
+
+add_text_params(&mut dest_doc, page_id, &params)?;
 ```
 
 ### Parsing

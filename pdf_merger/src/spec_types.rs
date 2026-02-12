@@ -4,7 +4,7 @@
 use clap::ValueEnum;
 use std::path::PathBuf;
 use std::str::FromStr;
-use medpdf::Unit;
+use medpdf::{HAlign, PdfColor, Unit, VAlign};
 
 /// CLI wrapper for Unit that implements ValueEnum for clap
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -31,6 +31,54 @@ pub struct WatermarkSpec {
     pub y: f32,
     pub units: Unit,
     pub pages: String,
+    pub color: PdfColor,
+    pub rotation: f32,
+    pub h_align: HAlign,
+    pub v_align: VAlign,
+    pub strikeout: bool,
+    pub underline: bool,
+}
+
+/// Parses a color string into a `PdfColor`.
+///
+/// Supports named colors (`black`, `white`, `red`, `blue`, `green`, `gray`/`grey`)
+/// and hex formats (`#RGB`, `#RRGGBB`, `#RRGGBBAA`) with or without the `#` prefix.
+fn parse_color(s: &str) -> Result<PdfColor, String> {
+    match s.to_lowercase().as_str() {
+        "black" => return Ok(PdfColor::BLACK),
+        "white" => return Ok(PdfColor::WHITE),
+        "red" => return Ok(PdfColor::RED),
+        "blue" => return Ok(PdfColor::rgb(0.0, 0.0, 1.0)),
+        "green" => return Ok(PdfColor::rgb(0.0, 0.5, 0.0)),
+        "gray" | "grey" => return Ok(PdfColor::rgb(0.5, 0.5, 0.5)),
+        _ => {}
+    }
+
+    let hex = s.strip_prefix('#').unwrap_or(s);
+    let parse_hex = |h: &str| u8::from_str_radix(h, 16).map_err(|_| format!("Invalid hex color: '{s}'"));
+
+    match hex.len() {
+        3 => {
+            let r = parse_hex(&hex[0..1])? * 17;
+            let g = parse_hex(&hex[1..2])? * 17;
+            let b = parse_hex(&hex[2..3])? * 17;
+            Ok(PdfColor::from_rgb8(r, g, b))
+        }
+        6 => {
+            let r = parse_hex(&hex[0..2])?;
+            let g = parse_hex(&hex[2..4])?;
+            let b = parse_hex(&hex[4..6])?;
+            Ok(PdfColor::from_rgb8(r, g, b))
+        }
+        8 => {
+            let r = parse_hex(&hex[0..2])?;
+            let g = parse_hex(&hex[2..4])?;
+            let b = parse_hex(&hex[4..6])?;
+            let a = parse_hex(&hex[6..8])?;
+            Ok(PdfColor::rgba(r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0, a as f32 / 255.0))
+        }
+        _ => Err(format!("Invalid color value: '{s}'. Use a named color or hex (#RGB, #RRGGBB, #RRGGBBAA).")),
+    }
 }
 
 impl FromStr for WatermarkSpec {
@@ -43,6 +91,13 @@ impl FromStr for WatermarkSpec {
         let mut y = None;
         let mut units = None;
         let mut pages = None;
+        let mut color = None;
+        let mut alpha = None;
+        let mut rotation = None;
+        let mut h_align = None;
+        let mut v_align = None;
+        let mut strikeout = None;
+        let mut underline = None;
         for part in s.split(',') {
             let kv: Vec<&str> = part.splitn(2, '=').collect();
             if kv.len() != 2 { return Err(format!("Invalid key-value pair: '{}'. Expected 'key=value'.", part)); }
@@ -56,9 +111,34 @@ impl FromStr for WatermarkSpec {
                 "y" => y = Some(value.parse::<f32>().map_err(|_| format!("Invalid y value: '{}'", value))?),
                 "units" => units = Some(CliUnit::from_str(value, true).map_err(|e| e.to_string())?),
                 "pages" => pages = Some(value.to_string()),
+                "color" => color = Some(parse_color(value)?),
+                "alpha" => alpha = Some(value.parse::<f32>().map_err(|_| format!("Invalid alpha value: '{}'", value))?),
+                "rotation" => rotation = Some(value.parse::<f32>().map_err(|_| format!("Invalid rotation value: '{}'", value))?),
+                "h_align" => h_align = Some(match value {
+                    "left" => HAlign::Left,
+                    "center" => HAlign::Center,
+                    "right" => HAlign::Right,
+                    _ => return Err(format!("Invalid h_align value: '{}'. Use left, center, or right.", value)),
+                }),
+                "v_align" => v_align = Some(match value {
+                    "top" => VAlign::Top,
+                    "center" => VAlign::Center,
+                    "baseline" => VAlign::Baseline,
+                    "bottom" => VAlign::Bottom,
+                    _ => return Err(format!("Invalid v_align value: '{}'. Use top, center, baseline, or bottom.", value)),
+                }),
+                "strikeout" => strikeout = Some(value.parse::<bool>().map_err(|_| format!("Invalid strikeout value: '{}'. Use true or false.", value))?),
+                "underline" => underline = Some(value.parse::<bool>().map_err(|_| format!("Invalid underline value: '{}'. Use true or false.", value))?),
                 _ => return Err(format!("Unknown watermark key: '{}'", key)),
             }
         }
+
+        // If both color and alpha are specified, alpha overrides the color's alpha channel
+        let mut final_color = color.unwrap_or(PdfColor::BLACK);
+        if let Some(a) = alpha {
+            final_color.a = a;
+        }
+
         Ok(WatermarkSpec {
             text: text.ok_or("Watermark 'text' is required")?,
             font: font.ok_or("Watermark 'font' is required")?,
@@ -67,6 +147,12 @@ impl FromStr for WatermarkSpec {
             y: y.ok_or("Watermark 'y' coordinate is required")?,
             units: units.map(Unit::from).unwrap_or(Unit::In),
             pages: pages.unwrap_or_else(|| "all".to_string()),
+            color: final_color,
+            rotation: rotation.unwrap_or(0.0),
+            h_align: h_align.unwrap_or(HAlign::Left),
+            v_align: v_align.unwrap_or(VAlign::Baseline),
+            strikeout: strikeout.unwrap_or(false),
+            underline: underline.unwrap_or(false),
         })
     }
 }

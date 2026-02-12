@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 mod spec_types;
 
-use medpdf::{parse_page_spec, PdfMergeError};
+use medpdf::{parse_page_spec, AddTextParams, PdfMergeError};
 use medpdf::pdf_font::{find_font, FontCache};
 use medpdf::pdf_helpers::KEY_MEDIA_BOX;
 use spec_types::{WatermarkSpec, OverlaySpec, PadToSpec, PadFileSpec};
@@ -144,10 +144,21 @@ fn main() -> Result<(), PdfMergeError> {
             let x_points = spec.units.to_points(spec.x);
             let y_points = spec.units.to_points(spec.y);
 
+            let params = AddTextParams::new(&spec.text, font_data.to_vec(), font_name)
+                .font_size(spec.size)
+                .position(x_points, y_points)
+                .color(spec.color)
+                .rotation(spec.rotation)
+                .h_align(spec.h_align)
+                .v_align(spec.v_align)
+                .layer_over(layer_over)
+                .strikeout(spec.strikeout)
+                .underline(spec.underline);
+
             println!("Applying watermark ({layer_name}) '{}' to pages '{target_page_indices:?}'", spec.text);
             for page_index in target_page_indices {
                 let page_id = dest_page_ids[(page_index - 1) as usize];
-                medpdf::add_text(dest_doc, page_id, &spec.text, &font_data, &font_name, spec.size, x_points as i32, y_points as i32, layer_over)?;
+                medpdf::add_text_params(dest_doc, page_id, &params)?;
             }
         }
         Ok(())

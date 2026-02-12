@@ -4,8 +4,17 @@
 mod fixtures;
 
 use medpdf::pdf_copy_page::copy_page;
-use medpdf::pdf_watermark::{add_text, add_text_params, unicode_to_winansi, utf8_to_winansi};
+use medpdf::pdf_watermark::{add_text_params, unicode_to_winansi, utf8_to_winansi};
 use medpdf::types::{AddTextParams, HAlign, PdfColor, VAlign};
+
+// --- Helper ---
+
+/// Creates AddTextParams with built-in Helvetica font at a given position (layer_over=true).
+fn builtin_params(text: &str, font_name: &str, font_size: f32, x: f32, y: f32) -> AddTextParams {
+    AddTextParams::new(text, vec![b'@'], font_name)
+        .font_size(font_size)
+        .position(x, y)
+}
 
 // --- Basic Watermark Tests ---
 
@@ -15,21 +24,8 @@ fn test_watermark_with_builtin_font() {
     let mut dest_doc = fixtures::create_empty_pdf();
     let page_id = copy_page(&mut dest_doc, &source_doc, 1).unwrap();
 
-    // Use built-in font marker (starts with '@')
-    let font_data = b"@";
-    let font_name = "Helvetica";
-
-    let result = add_text(
-        &mut dest_doc,
-        page_id,
-        "DRAFT",
-        font_data,
-        font_name,
-        24.0,
-        72,
-        72,
-        true,
-    );
+    let params = builtin_params("DRAFT", "Helvetica", 24.0, 72.0, 72.0);
+    let result = add_text_params(&mut dest_doc, page_id, &params);
     assert!(
         result.is_ok(),
         "Watermark with built-in font should succeed: {:?}",
@@ -43,9 +39,6 @@ fn test_watermark_adds_content() {
     let mut dest_doc = fixtures::create_empty_pdf();
     let page_id = copy_page(&mut dest_doc, &source_doc, 1).unwrap();
 
-    let font_data = b"@";
-    let font_name = "Helvetica";
-
     // Get contents before
     let page_before = dest_doc.get_dictionary(page_id).unwrap();
     let contents_before = page_before.get(b"Contents").unwrap();
@@ -55,18 +48,8 @@ fn test_watermark_adds_content() {
         _ => 0,
     };
 
-    add_text(
-        &mut dest_doc,
-        page_id,
-        "TEST",
-        font_data,
-        font_name,
-        12.0,
-        100,
-        100,
-        true,
-    )
-    .unwrap();
+    let params = builtin_params("TEST", "Helvetica", 12.0, 100.0, 100.0);
+    add_text_params(&mut dest_doc, page_id, &params).unwrap();
 
     // Get contents after
     let page_after = dest_doc.get_dictionary(page_id).unwrap();
@@ -89,21 +72,8 @@ fn test_watermark_registers_font() {
     let mut dest_doc = fixtures::create_empty_pdf();
     let page_id = copy_page(&mut dest_doc, &source_doc, 1).unwrap();
 
-    let font_data = b"@";
-    let font_name = "Courier";
-
-    add_text(
-        &mut dest_doc,
-        page_id,
-        "TEST",
-        font_data,
-        font_name,
-        12.0,
-        100,
-        100,
-        true,
-    )
-    .unwrap();
+    let params = builtin_params("TEST", "Courier", 12.0, 100.0, 100.0);
+    add_text_params(&mut dest_doc, page_id, &params).unwrap();
 
     // Check that Resources/Font exists
     let page = dest_doc.get_dictionary(page_id).unwrap();
@@ -129,46 +99,10 @@ fn test_watermark_different_positions() {
     let mut dest_doc = fixtures::create_empty_pdf();
     let page_id = copy_page(&mut dest_doc, &source_doc, 1).unwrap();
 
-    let font_data = b"@";
-    let font_name = "Helvetica";
-
     // Test various positions
-    add_text(
-        &mut dest_doc,
-        page_id,
-        "Top-Left",
-        font_data,
-        font_name,
-        12.0,
-        0,
-        700,
-        true,
-    )
-    .unwrap();
-    add_text(
-        &mut dest_doc,
-        page_id,
-        "Bottom-Right",
-        font_data,
-        font_name,
-        12.0,
-        500,
-        50,
-        true,
-    )
-    .unwrap();
-    add_text(
-        &mut dest_doc,
-        page_id,
-        "Center",
-        font_data,
-        font_name,
-        12.0,
-        250,
-        400,
-        true,
-    )
-    .unwrap();
+    add_text_params(&mut dest_doc, page_id, &builtin_params("Top-Left", "Helvetica", 12.0, 0.0, 700.0)).unwrap();
+    add_text_params(&mut dest_doc, page_id, &builtin_params("Bottom-Right", "Helvetica", 12.0, 500.0, 50.0)).unwrap();
+    add_text_params(&mut dest_doc, page_id, &builtin_params("Center", "Helvetica", 12.0, 250.0, 400.0)).unwrap();
 
     // Page should still be valid
     let page = dest_doc.get_dictionary(page_id).unwrap();
@@ -181,21 +115,9 @@ fn test_watermark_negative_position() {
     let mut dest_doc = fixtures::create_empty_pdf();
     let page_id = copy_page(&mut dest_doc, &source_doc, 1).unwrap();
 
-    let font_data = b"@";
-    let font_name = "Helvetica";
-
     // Negative positions are valid (off-page)
-    let result = add_text(
-        &mut dest_doc,
-        page_id,
-        "Off-page",
-        font_data,
-        font_name,
-        12.0,
-        -100,
-        -100,
-        true,
-    );
+    let params = builtin_params("Off-page", "Helvetica", 12.0, -100.0, -100.0);
+    let result = add_text_params(&mut dest_doc, page_id, &params);
     assert!(result.is_ok());
 }
 
@@ -205,21 +127,9 @@ fn test_watermark_large_position() {
     let mut dest_doc = fixtures::create_empty_pdf();
     let page_id = copy_page(&mut dest_doc, &source_doc, 1).unwrap();
 
-    let font_data = b"@";
-    let font_name = "Helvetica";
-
     // Large positions (off-page) are valid
-    let result = add_text(
-        &mut dest_doc,
-        page_id,
-        "Far away",
-        font_data,
-        font_name,
-        12.0,
-        10000,
-        10000,
-        true,
-    );
+    let params = builtin_params("Far away", "Helvetica", 12.0, 10000.0, 10000.0);
+    let result = add_text_params(&mut dest_doc, page_id, &params);
     assert!(result.is_ok());
 }
 
@@ -229,21 +139,9 @@ fn test_watermark_zero_font_size() {
     let mut dest_doc = fixtures::create_empty_pdf();
     let page_id = copy_page(&mut dest_doc, &source_doc, 1).unwrap();
 
-    let font_data = b"@";
-    let font_name = "Helvetica";
-
     // Zero font size - valid but invisible
-    let result = add_text(
-        &mut dest_doc,
-        page_id,
-        "Invisible",
-        font_data,
-        font_name,
-        0.0,
-        100,
-        100,
-        true,
-    );
+    let params = builtin_params("Invisible", "Helvetica", 0.0, 100.0, 100.0);
+    let result = add_text_params(&mut dest_doc, page_id, &params);
     assert!(result.is_ok());
 }
 
@@ -253,21 +151,9 @@ fn test_watermark_large_font_size() {
     let mut dest_doc = fixtures::create_empty_pdf();
     let page_id = copy_page(&mut dest_doc, &source_doc, 1).unwrap();
 
-    let font_data = b"@";
-    let font_name = "Helvetica";
-
     // Large font size
-    let result = add_text(
-        &mut dest_doc,
-        page_id,
-        "BIG",
-        font_data,
-        font_name,
-        500.0,
-        100,
-        100,
-        true,
-    );
+    let params = builtin_params("BIG", "Helvetica", 500.0, 100.0, 100.0);
+    let result = add_text_params(&mut dest_doc, page_id, &params);
     assert!(result.is_ok());
 }
 
@@ -277,21 +163,9 @@ fn test_watermark_empty_text() {
     let mut dest_doc = fixtures::create_empty_pdf();
     let page_id = copy_page(&mut dest_doc, &source_doc, 1).unwrap();
 
-    let font_data = b"@";
-    let font_name = "Helvetica";
-
     // Empty text is valid
-    let result = add_text(
-        &mut dest_doc,
-        page_id,
-        "",
-        font_data,
-        font_name,
-        12.0,
-        100,
-        100,
-        true,
-    );
+    let params = builtin_params("", "Helvetica", 12.0, 100.0, 100.0);
+    let result = add_text_params(&mut dest_doc, page_id, &params);
     assert!(result.is_ok());
 }
 
@@ -301,21 +175,9 @@ fn test_watermark_special_characters() {
     let mut dest_doc = fixtures::create_empty_pdf();
     let page_id = copy_page(&mut dest_doc, &source_doc, 1).unwrap();
 
-    let font_data = b"@";
-    let font_name = "Helvetica";
-
     // Text with special characters
-    let result = add_text(
-        &mut dest_doc,
-        page_id,
-        "Test (with) [brackets] & symbols!",
-        font_data,
-        font_name,
-        12.0,
-        100,
-        100,
-        true,
-    );
+    let params = builtin_params("Test (with) [brackets] & symbols!", "Helvetica", 12.0, 100.0, 100.0);
+    let result = add_text_params(&mut dest_doc, page_id, &params);
     assert!(result.is_ok());
 }
 
@@ -325,22 +187,10 @@ fn test_watermark_unicode_text() {
     let mut dest_doc = fixtures::create_empty_pdf();
     let page_id = copy_page(&mut dest_doc, &source_doc, 1).unwrap();
 
-    let font_data = b"@";
-    let font_name = "Helvetica";
-
     // Note: Built-in fonts may not support all unicode characters properly
     // This test just verifies it doesn't crash
-    let result = add_text(
-        &mut dest_doc,
-        page_id,
-        "Test with accents: cafe",
-        font_data,
-        font_name,
-        12.0,
-        100,
-        100,
-        true,
-    );
+    let params = builtin_params("Test with accents: cafe", "Helvetica", 12.0, 100.0, 100.0);
+    let result = add_text_params(&mut dest_doc, page_id, &params);
     assert!(result.is_ok());
 }
 
@@ -350,46 +200,10 @@ fn test_multiple_watermarks_same_page() {
     let mut dest_doc = fixtures::create_empty_pdf();
     let page_id = copy_page(&mut dest_doc, &source_doc, 1).unwrap();
 
-    let font_data = b"@";
-    let font_name = "Helvetica";
-
     // Add multiple watermarks
-    add_text(
-        &mut dest_doc,
-        page_id,
-        "First",
-        font_data,
-        font_name,
-        12.0,
-        100,
-        100,
-        true,
-    )
-    .unwrap();
-    add_text(
-        &mut dest_doc,
-        page_id,
-        "Second",
-        font_data,
-        font_name,
-        14.0,
-        200,
-        200,
-        true,
-    )
-    .unwrap();
-    add_text(
-        &mut dest_doc,
-        page_id,
-        "Third",
-        font_data,
-        font_name,
-        16.0,
-        300,
-        300,
-        true,
-    )
-    .unwrap();
+    add_text_params(&mut dest_doc, page_id, &builtin_params("First", "Helvetica", 12.0, 100.0, 100.0)).unwrap();
+    add_text_params(&mut dest_doc, page_id, &builtin_params("Second", "Helvetica", 14.0, 200.0, 200.0)).unwrap();
+    add_text_params(&mut dest_doc, page_id, &builtin_params("Third", "Helvetica", 16.0, 300.0, 300.0)).unwrap();
 
     // Page should have multiple content entries
     let page = dest_doc.get_dictionary(page_id).unwrap();
@@ -409,45 +223,10 @@ fn test_watermark_different_builtin_fonts() {
     let mut dest_doc = fixtures::create_empty_pdf();
     let page_id = copy_page(&mut dest_doc, &source_doc, 1).unwrap();
 
-    let font_data = b"@";
-
     // Test various built-in fonts
-    add_text(
-        &mut dest_doc,
-        page_id,
-        "Helvetica",
-        font_data,
-        "Helvetica",
-        12.0,
-        100,
-        700,
-        true,
-    )
-    .unwrap();
-    add_text(
-        &mut dest_doc,
-        page_id,
-        "Courier",
-        font_data,
-        "Courier",
-        12.0,
-        100,
-        600,
-        true,
-    )
-    .unwrap();
-    add_text(
-        &mut dest_doc,
-        page_id,
-        "Times-Roman",
-        font_data,
-        "Times-Roman",
-        12.0,
-        100,
-        500,
-        true,
-    )
-    .unwrap();
+    add_text_params(&mut dest_doc, page_id, &builtin_params("Helvetica", "Helvetica", 12.0, 100.0, 700.0)).unwrap();
+    add_text_params(&mut dest_doc, page_id, &builtin_params("Courier", "Courier", 12.0, 100.0, 600.0)).unwrap();
+    add_text_params(&mut dest_doc, page_id, &builtin_params("Times-Roman", "Times-Roman", 12.0, 100.0, 500.0)).unwrap();
 
     assert_eq!(dest_doc.get_pages().len(), 1);
 }
@@ -463,21 +242,10 @@ fn test_watermark_font_hack_mode() {
     let page_id = copy_page(&mut dest_doc, &source_doc, 1).unwrap();
 
     // Font data as single byte references font F1
-    let font_data: &[u8] = &[1];
-    let font_name = "F1";
-
-    // This uses an existing font reference - may or may not work depending on document
-    let result = add_text(
-        &mut dest_doc,
-        page_id,
-        "Reuse",
-        font_data,
-        font_name,
-        12.0,
-        100,
-        100,
-        true,
-    );
+    let params = AddTextParams::new("Reuse", vec![1], "F1")
+        .font_size(12.0)
+        .position(100.0, 100.0);
+    let result = add_text_params(&mut dest_doc, page_id, &params);
     assert!(result.is_ok());
 }
 

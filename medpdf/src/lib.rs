@@ -20,5 +20,5 @@ pub use pdf_copy_page::{copy_page, copy_page_with_cache};
 pub use pdf_font::find_font_with_style;
 pub use pdf_helpers::{get_page_media_box, Unit};
 pub use pdf_overlay::overlay_page;
-pub use pdf_watermark::{add_text, add_text_params};
+pub use pdf_watermark::add_text_params;
 pub use types::{AddTextParams, FontStyle, FontWeight, HAlign, PdfColor, VAlign};

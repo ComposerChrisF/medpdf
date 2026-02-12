@@ -65,7 +65,7 @@ pdf_merger/                    # Repository root (workspace)
 | `medpdf::pdf_copy_page` | `copy_page()` - copy pages between documents |
 | `medpdf::pdf_blank_page` | `create_blank_page()` - add empty pages |
 | `medpdf::pdf_overlay` | `overlay_page()` - merge content with resource renaming |
-| `medpdf::pdf_watermark` | `add_text()` - text watermark rendering |
+| `medpdf::pdf_watermark` | `add_text_params()` - text watermark rendering with color, alignment, rotation, alpha |
 | `pdf_merger::main` | CLI args (clap), orchestrates pipeline |
 | `pdf_merger::spec_types` | CLI spec types with FromStr for clap integration |
 
@@ -83,7 +83,7 @@ pdf_merger/                    # Repository root (workspace)
 
 ```bash
 pdf_merger -o out.pdf in1.pdf "1-3" in2.pdf "all" \
-  --watermark "text=DRAFT,font=@Helvetica,size=24,x=1,y=1,units=in,pages=all" \
+  --watermark "text=DRAFT,font=@Helvetica,size=24,x=1,y=1,units=in,color=#FF0000,alpha=0.5,rotation=45,h_align=center,pages=all" \
   --overlay "file=overlay.pdf,src_page=1,target_pages=1-5" \
   --pad-to 4
 ```
