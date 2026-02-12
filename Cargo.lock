@@ -795,7 +795,7 @@ dependencies = [
 
 [[package]]
 name = "medpdf"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "font-kit",
  "log",
@@ -910,12 +910,11 @@ dependencies = [
 
 [[package]]
 name = "pdf-merger"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "chrono",
  "clap",
  "env_logger",
- "log",
  "lopdf",
  "medpdf",
  "tempfile",

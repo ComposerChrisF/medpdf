@@ -98,7 +98,8 @@ pub fn get_page_rotation(doc: &Document, page_id: ObjectId) -> u32 {
 /// Sets the rotation angle on a page. Valid values: 0, 90, 180, 270.
 /// Returns an error if the angle is not a multiple of 90.
 pub fn set_page_rotation(doc: &mut Document, page_id: ObjectId, degrees: u32) -> Result<()> {
-    if !degrees.is_multiple_of(90) {
+    #[allow(clippy::manual_is_multiple_of)] // intentional: `% 90` works on all Rust versions
+    if degrees % 90 != 0 {
         return Err(PdfMergeError::new(format!(
             "Rotation must be a multiple of 90, got {degrees}"
         )));
@@ -114,6 +115,8 @@ pub fn set_page_rotation(doc: &mut Document, page_id: ObjectId, degrees: u32) ->
 }
 
 /// Gets the object ID of a page from a document.
+/// Note: This calls `doc.get_pages()` which walks the entire page tree each time.
+/// For bulk operations, callers should cache the result of `doc.get_pages()` externally.
 pub(crate) fn get_page_object_id_from_doc(doc: &Document, page_num: u32) -> Result<ObjectId> {
     doc.get_pages().get(&page_num).copied().ok_or_else(|| {
         PdfMergeError::new(format!("Page {} not found in source document", page_num))

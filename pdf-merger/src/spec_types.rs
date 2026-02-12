@@ -143,7 +143,8 @@ fn unescape_text(s: &str) -> Result<String, String> {
                         None => return Err(format!("Incomplete Unicode escape: \\u{hex} (expected 4 hex digits)")),
                     }
                 }
-                let code = u32::from_str_radix(&hex, 16).unwrap();
+                let code = u32::from_str_radix(&hex, 16)
+                    .map_err(|_| format!("Invalid hex in Unicode escape: \\u{hex}"))?;
                 let ch = char::from_u32(code)
                     .ok_or_else(|| format!("Invalid Unicode code point: \\u{hex}"))?;
                 result.push(ch);
@@ -167,7 +168,8 @@ fn unescape_text(s: &str) -> Result<String, String> {
                 if hex.is_empty() {
                     return Err("Empty Unicode escape: \\U{}".to_string());
                 }
-                let code = u32::from_str_radix(&hex, 16).unwrap();
+                let code = u32::from_str_radix(&hex, 16)
+                    .map_err(|_| format!("Invalid hex in Unicode escape: \\U{{{hex}}}"))?;
                 let ch = char::from_u32(code)
                     .ok_or_else(|| format!("Invalid Unicode code point: \\U{{{hex}}}"))?;
                 result.push(ch);

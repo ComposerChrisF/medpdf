@@ -33,10 +33,6 @@ struct Args {
     pad_to: Option<PadToSpec>,
     #[arg(long)]
     pad_last_page_file: Option<PadFileSpec>,
-    #[arg(long, value_name = "PASSWORD")]
-    user_password: Option<String>,
-    #[arg(long, value_name = "PASSWORD")]
-    owner_password: Option<String>,
     #[arg(long, help = "Use traditional PDF format for maximum compatibility with older tools")]
     broad_compatibility: bool,
 }
@@ -231,13 +227,16 @@ fn main() -> Result<(), PdfMergeError> {
                 let height = media_box[3] - media_box[1];
 
                 for _ in 0..(pages_to_add - 1) {
-                    medpdf::create_blank_page(&mut dest_doc, width, height)?;
+                    let page_id = medpdf::create_blank_page(&mut dest_doc, width, height)?;
+                    dest_page_ids.push(page_id);
                 }
                 if let Some(spec) = &args.pad_last_page_file {
                     let pad_doc = Document::load(&spec.file)?;
-                    medpdf::copy_page(&mut dest_doc, &pad_doc, spec.page)?;
+                    let page_id = medpdf::copy_page(&mut dest_doc, &pad_doc, spec.page)?;
+                    dest_page_ids.push(page_id);
                 } else {
-                    medpdf::create_blank_page(&mut dest_doc, width, height)?;
+                    let page_id = medpdf::create_blank_page(&mut dest_doc, width, height)?;
+                    dest_page_ids.push(page_id);
                 }
             }
         }

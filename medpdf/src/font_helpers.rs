@@ -76,6 +76,7 @@ fn winansi_to_unicode(byte: u8) -> Option<char> {
 }
 
 pub(crate) fn get_font_widths(face: &Face, first_char: u8, last_char: u8) -> Vec<u16> {
+    debug_assert!(last_char >= first_char, "last_char ({last_char}) must be >= first_char ({first_char})");
     let mut widths = vec![0; (last_char - first_char + 1) as usize];
     for ch in first_char..=last_char {
         let unicode_char = match winansi_to_unicode(ch) {
@@ -256,9 +257,9 @@ pub(crate) fn get_pdf_info_of_face(face: &Face) -> (FontPdfInfo, FontDescriptorP
             ascent: face.ascender(),
             descent: face.descender(),
             leading: face.line_gap(),
-            x_height: face.x_height().unwrap_or(0),
+            x_height: face.x_height().unwrap_or((face.units_per_em() as f32 * 0.5) as i16),
             stem_v: guess_pdf_stem_v_for_font(face),
-            cap_height: face.capital_height().unwrap_or(0),
+            cap_height: face.capital_height().unwrap_or(face.ascender()),
             font_file_key: get_pdf_font_file_key(face),
         },
     )

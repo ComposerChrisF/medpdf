@@ -328,14 +328,6 @@ pub fn overlay_page(
     // Unobvious, but changing decoded operations does not modify the Content!!!!  It looks
     // like we need to build a *new* Content, modifying the ops as we copy them.
     debug!("Updating overlay Content streams to use new keys");
-    if !overlay_contents_arr_new
-        .iter()
-        .all(|obj| obj.as_reference().is_ok())
-    {
-        return Err(PdfMergeError::new(
-            "Overlay contents array must contain only references",
-        ));
-    }
     for obj in overlay_contents_arr_new.iter() {
         let o = dest_doc.get_object(obj.as_reference()?)?;
         if o.as_stream().is_err() {

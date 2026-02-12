@@ -102,6 +102,22 @@ pub(crate) fn unicode_to_winansi(c: char) -> u8 {
     }
 }
 
+/// Measures text width using an already-parsed font face, avoiding redundant parsing.
+fn measure_text_width_with_face(face: &ttf_parser::Face, font_size: f32, text: &str) -> f32 {
+    let upem = face.units_per_em() as f32;
+    if upem == 0.0 {
+        return 0.0;
+    }
+    let scale = font_size / upem;
+    let mut width: f32 = 0.0;
+    for ch in text.chars() {
+        if let Some(glyph_id) = face.glyph_index(ch) {
+            width += face.glyph_hor_advance(glyph_id).unwrap_or(0) as f32;
+        }
+    }
+    width * scale
+}
+
 fn add_font_objects(
     dest_doc: &mut Document,
     page_id: (u32, u16),
@@ -347,9 +363,18 @@ pub fn add_text_params(
         || params.v_align != crate::types::VAlign::Baseline
         || params.strikeout
         || params.underline;
+    // Parse the font face once for both width measurement and metrics extraction
+    let face_opt = if params.font_data.len() > 1 {
+        ttf_parser::Face::parse(&params.font_data, 0).ok()
+    } else {
+        None
+    };
+
     let text_width = if needs_width {
-        crate::font_helpers::measure_text_width(&params.font_data, params.font_size, &params.text)
-            .unwrap_or(0.0)
+        match &face_opt {
+            Some(face) => measure_text_width_with_face(face, params.font_size, &params.text),
+            None => params.text.len() as f32 * params.font_size * 0.6,
+        }
     } else {
         0.0
     };
@@ -362,8 +387,9 @@ pub fn add_text_params(
     };
     // Compute vertical metrics from font data (scaled to font_size).
     // For built-in/hack fonts (data len <= 1), use reasonable approximations.
-    let (ascent_scaled, descent_scaled, x_height_scaled, cap_height_scaled, bbox_bottom_scaled) = if params.font_data.len() > 1 {
-        if let Ok(face) = ttf_parser::Face::parse(&params.font_data, 0) {
+    let approx = (params.font_size * 0.7, params.font_size * -0.3, params.font_size * 0.5, params.font_size * 0.7, params.font_size * -0.3);
+    let (ascent_scaled, descent_scaled, x_height_scaled, cap_height_scaled, bbox_bottom_scaled) =
+        if let Some(face) = &face_opt {
             let upem = face.units_per_em() as f32;
             if upem > 0.0 {
                 let scale = params.font_size / upem;
@@ -375,14 +401,11 @@ pub fn add_text_params(
                     face.global_bounding_box().y_min as f32 * scale, // negative value
                 )
             } else {
-                (params.font_size * 0.7, params.font_size * -0.3, params.font_size * 0.5, params.font_size * 0.7, params.font_size * -0.3)
+                approx
             }
         } else {
-            (params.font_size * 0.7, params.font_size * -0.3, params.font_size * 0.5, params.font_size * 0.7, params.font_size * -0.3)
-        }
-    } else {
-        (params.font_size * 0.7, params.font_size * -0.3, params.font_size * 0.5, params.font_size * 0.7, params.font_size * -0.3)
-    };
+            approx
+        };
     let dy = match params.v_align {
         crate::types::VAlign::Baseline => 0.0,
         crate::types::VAlign::DescentBottom => -descent_scaled, // shift up by |descent| (typographic descent line)
