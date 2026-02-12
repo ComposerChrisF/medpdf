@@ -2,18 +2,18 @@ use crate::error::{PdfMergeError, Result};
 use lopdf::{Dictionary, Document, Object, ObjectId, Stream};
 use std::collections::BTreeMap;
 
-pub const KEY_TYPE: &[u8] = b"Type";
-pub const KEY_PARENT: &[u8] = b"Parent";
-pub const KEY_PAGES: &[u8] = b"Pages";
-pub const KEY_PAGE: &[u8] = b"Page";
-pub const KEY_KIDS: &[u8] = b"Kids";
-pub const KEY_COUNT: &[u8] = b"Count";
-pub const KEY_RESOURCES: &[u8] = b"Resources";
-pub const KEY_CONTENTS: &[u8] = b"Contents";
-pub const KEY_FONT: &[u8] = b"Font";
-pub const KEY_FONT_DESCRIPTOR: &[u8] = b"FontDescriptor";
-pub const KEY_MEDIA_BOX: &[u8] = b"MediaBox";
-pub const KEY_EXTGSTATE: &[u8] = b"ExtGState";
+pub(crate) const KEY_TYPE: &[u8] = b"Type";
+pub(crate) const KEY_PARENT: &[u8] = b"Parent";
+pub(crate) const KEY_PAGES: &[u8] = b"Pages";
+pub(crate) const KEY_PAGE: &[u8] = b"Page";
+pub(crate) const KEY_KIDS: &[u8] = b"Kids";
+pub(crate) const KEY_COUNT: &[u8] = b"Count";
+pub(crate) const KEY_RESOURCES: &[u8] = b"Resources";
+pub(crate) const KEY_CONTENTS: &[u8] = b"Contents";
+pub(crate) const KEY_FONT: &[u8] = b"Font";
+pub(crate) const KEY_FONT_DESCRIPTOR: &[u8] = b"FontDescriptor";
+pub(crate) const KEY_MEDIA_BOX: &[u8] = b"MediaBox";
+pub(crate) const KEY_EXTGSTATE: &[u8] = b"ExtGState";
 
 /// Walk the page tree to find the inherited MediaBox for a page.
 /// Returns `[x0, y0, x1, y1]` if found on the page or any ancestor node.
@@ -73,7 +73,7 @@ impl Unit {
     }
 }
 
-pub const KEY_ROTATE: &[u8] = b"Rotate";
+pub(crate) const KEY_ROTATE: &[u8] = b"Rotate";
 
 /// Gets the rotation angle of a page in degrees (0, 90, 180, or 270).
 /// Walks the page tree upward to find inherited `/Rotate` values.
@@ -114,13 +114,13 @@ pub fn set_page_rotation(doc: &mut Document, page_id: ObjectId, degrees: u32) ->
 }
 
 /// Gets the object ID of a page from a document.
-pub fn get_page_object_id_from_doc(doc: &Document, page_num: u32) -> Result<ObjectId> {
+pub(crate) fn get_page_object_id_from_doc(doc: &Document, page_num: u32) -> Result<ObjectId> {
     doc.get_pages().get(&page_num).copied().ok_or_else(|| {
         PdfMergeError::new(format!("Page {} not found in source document", page_num))
     })
 }
 
-pub fn deep_copy_object_by_id(
+pub(crate) fn deep_copy_object_by_id(
     dest_doc: &mut Document,
     source_doc: &Document,
     source_object_id: ObjectId,
@@ -141,7 +141,7 @@ pub fn deep_copy_object_by_id(
     Ok(new_id)
 }
 
-pub fn deep_copy_object(
+pub(crate) fn deep_copy_object(
     dest_doc: &mut Document,
     source_doc: &Document,
     source_object: &Object,
@@ -230,4 +230,454 @@ pub fn deep_copy_object(
     };
 
     Ok(new_obj)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lopdf::{dictionary, Object, Stream};
+
+    /// Creates a minimal valid PDF document with no pages.
+    fn create_empty_pdf() -> Document {
+        let mut doc = Document::with_version("1.7");
+        let pages_id = doc.new_object_id();
+        let pages = dictionary! {
+            "Type" => "Pages",
+            "Kids" => vec![],
+            "Count" => 0,
+        };
+        doc.objects.insert(pages_id, Object::Dictionary(pages));
+        let catalog_id = doc.add_object(dictionary! {
+            "Type" => "Catalog",
+            "Pages" => pages_id,
+        });
+        doc.trailer.set("Root", catalog_id);
+        doc
+    }
+
+    /// Creates a minimal valid PDF with the specified number of pages.
+    fn create_pdf_with_pages(count: usize) -> Document {
+        let mut doc = create_empty_pdf();
+        let pages_id = doc
+            .catalog()
+            .unwrap()
+            .get(b"Pages")
+            .unwrap()
+            .as_reference()
+            .unwrap();
+
+        for _ in 0..count {
+            let media_box = vec![0.0.into(), 0.0.into(), 612.0.into(), 792.0.into()];
+            let resources_id = doc.add_object(dictionary! {});
+            let content_id = doc.add_object(Stream::new(dictionary! {}, vec![]));
+            let page = dictionary! {
+                "Type" => "Page",
+                "Parent" => pages_id,
+                "MediaBox" => media_box,
+                "Contents" => Object::Reference(content_id),
+                "Resources" => Object::Reference(resources_id),
+            };
+            let page_id = doc.add_object(page);
+            let pages = doc.get_object_mut(pages_id).unwrap().as_dict_mut().unwrap();
+            let kids = pages.get_mut(b"Kids").unwrap().as_array_mut().unwrap();
+            kids.push(page_id.into());
+            let new_count = kids.len();
+            pages.set("Count", Object::Integer(new_count as i64));
+        }
+        doc
+    }
+
+    // --- get_page_object_id_from_doc tests ---
+
+    #[test]
+    fn test_get_page_object_id_single_page() {
+        let doc = create_pdf_with_pages(1);
+        let result = get_page_object_id_from_doc(&doc, 1);
+        assert!(result.is_ok());
+        let page_id = result.unwrap();
+        let page = doc.get_dictionary(page_id).unwrap();
+        assert_eq!(page.get(b"Type").unwrap().as_name().unwrap(), b"Page");
+    }
+
+    #[test]
+    fn test_get_page_object_id_multiple_pages() {
+        let doc = create_pdf_with_pages(5);
+        for page_num in 1..=5 {
+            let result = get_page_object_id_from_doc(&doc, page_num);
+            assert!(result.is_ok(), "Failed to get page {}", page_num);
+        }
+    }
+
+    #[test]
+    fn test_get_page_object_id_different_pages_different_ids() {
+        let doc = create_pdf_with_pages(3);
+        let id1 = get_page_object_id_from_doc(&doc, 1).unwrap();
+        let id2 = get_page_object_id_from_doc(&doc, 2).unwrap();
+        let id3 = get_page_object_id_from_doc(&doc, 3).unwrap();
+        assert_ne!(id1, id2);
+        assert_ne!(id2, id3);
+        assert_ne!(id1, id3);
+    }
+
+    #[test]
+    fn test_get_page_object_id_page_not_found() {
+        let doc = create_pdf_with_pages(3);
+        let result = get_page_object_id_from_doc(&doc, 4);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_get_page_object_id_page_zero() {
+        let doc = create_pdf_with_pages(3);
+        let result = get_page_object_id_from_doc(&doc, 0);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_get_page_object_id_empty_doc() {
+        let doc = create_empty_pdf();
+        let result = get_page_object_id_from_doc(&doc, 1);
+        assert!(result.is_err());
+    }
+
+    // --- deep_copy_object tests ---
+
+    #[test]
+    fn test_deep_copy_integer() {
+        let mut dest_doc = create_empty_pdf();
+        let source_doc = create_empty_pdf();
+        let mut copied = BTreeMap::new();
+        let source_obj = Object::Integer(42);
+        let result = deep_copy_object(&mut dest_doc, &source_doc, &source_obj, &mut copied);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), Object::Integer(42));
+    }
+
+    #[test]
+    fn test_deep_copy_real() {
+        let mut dest_doc = create_empty_pdf();
+        let source_doc = create_empty_pdf();
+        let mut copied = BTreeMap::new();
+        let source_obj = Object::Real(3.15);
+        let result = deep_copy_object(&mut dest_doc, &source_doc, &source_obj, &mut copied);
+        assert!(result.is_ok());
+        if let Object::Real(v) = result.unwrap() {
+            assert!((v - 3.15).abs() < 0.001);
+        } else {
+            panic!("Expected Real object");
+        }
+    }
+
+    #[test]
+    fn test_deep_copy_string() {
+        let mut dest_doc = create_empty_pdf();
+        let source_doc = create_empty_pdf();
+        let mut copied = BTreeMap::new();
+        let source_obj = Object::String(b"Hello".to_vec(), lopdf::StringFormat::Literal);
+        let result = deep_copy_object(&mut dest_doc, &source_doc, &source_obj, &mut copied);
+        assert!(result.is_ok());
+        if let Object::String(bytes, _) = result.unwrap() {
+            assert_eq!(bytes, b"Hello".to_vec());
+        } else {
+            panic!("Expected String object");
+        }
+    }
+
+    #[test]
+    fn test_deep_copy_name() {
+        let mut dest_doc = create_empty_pdf();
+        let source_doc = create_empty_pdf();
+        let mut copied = BTreeMap::new();
+        let source_obj = Object::Name(b"TestName".to_vec());
+        let result = deep_copy_object(&mut dest_doc, &source_doc, &source_obj, &mut copied);
+        assert!(result.is_ok());
+        if let Object::Name(bytes) = result.unwrap() {
+            assert_eq!(bytes, b"TestName".to_vec());
+        } else {
+            panic!("Expected Name object");
+        }
+    }
+
+    #[test]
+    fn test_deep_copy_boolean_true() {
+        let mut dest_doc = create_empty_pdf();
+        let source_doc = create_empty_pdf();
+        let mut copied = BTreeMap::new();
+        let result = deep_copy_object(&mut dest_doc, &source_doc, &Object::Boolean(true), &mut copied);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), Object::Boolean(true));
+    }
+
+    #[test]
+    fn test_deep_copy_boolean_false() {
+        let mut dest_doc = create_empty_pdf();
+        let source_doc = create_empty_pdf();
+        let mut copied = BTreeMap::new();
+        let result = deep_copy_object(&mut dest_doc, &source_doc, &Object::Boolean(false), &mut copied);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), Object::Boolean(false));
+    }
+
+    #[test]
+    fn test_deep_copy_null() {
+        let mut dest_doc = create_empty_pdf();
+        let source_doc = create_empty_pdf();
+        let mut copied = BTreeMap::new();
+        let result = deep_copy_object(&mut dest_doc, &source_doc, &Object::Null, &mut copied);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), Object::Null);
+    }
+
+    #[test]
+    fn test_deep_copy_array() {
+        let mut dest_doc = create_empty_pdf();
+        let source_doc = create_empty_pdf();
+        let mut copied = BTreeMap::new();
+        let source_obj = Object::Array(vec![
+            Object::Integer(1),
+            Object::Integer(2),
+            Object::Integer(3),
+        ]);
+        let result = deep_copy_object(&mut dest_doc, &source_doc, &source_obj, &mut copied);
+        assert!(result.is_ok());
+        if let Object::Array(arr) = result.unwrap() {
+            assert_eq!(arr.len(), 3);
+            assert_eq!(arr[0], Object::Integer(1));
+            assert_eq!(arr[1], Object::Integer(2));
+            assert_eq!(arr[2], Object::Integer(3));
+        } else {
+            panic!("Expected Array object");
+        }
+    }
+
+    #[test]
+    fn test_deep_copy_nested_array() {
+        let mut dest_doc = create_empty_pdf();
+        let source_doc = create_empty_pdf();
+        let mut copied = BTreeMap::new();
+        let source_obj = Object::Array(vec![
+            Object::Array(vec![Object::Integer(1), Object::Integer(2)]),
+            Object::Array(vec![Object::Integer(3), Object::Integer(4)]),
+        ]);
+        let result = deep_copy_object(&mut dest_doc, &source_doc, &source_obj, &mut copied);
+        assert!(result.is_ok());
+        if let Object::Array(arr) = result.unwrap() {
+            assert_eq!(arr.len(), 2);
+            if let Object::Array(inner) = &arr[0] {
+                assert_eq!(inner.len(), 2);
+            } else {
+                panic!("Expected nested array");
+            }
+        } else {
+            panic!("Expected Array object");
+        }
+    }
+
+    #[test]
+    fn test_deep_copy_dictionary() {
+        let mut dest_doc = create_empty_pdf();
+        let source_doc = create_empty_pdf();
+        let mut copied = BTreeMap::new();
+        let source_obj = Object::Dictionary(dictionary! {
+            "Key1" => 42,
+            "Key2" => "value",
+        });
+        let result = deep_copy_object(&mut dest_doc, &source_doc, &source_obj, &mut copied);
+        assert!(result.is_ok());
+        if let Object::Dictionary(dict) = result.unwrap() {
+            assert_eq!(dict.get(b"Key1").unwrap(), &Object::Integer(42));
+        } else {
+            panic!("Expected Dictionary object");
+        }
+    }
+
+    #[test]
+    fn test_deep_copy_dictionary_skips_parent() {
+        let mut dest_doc = create_empty_pdf();
+        let source_doc = create_empty_pdf();
+        let mut copied = BTreeMap::new();
+        let source_obj = Object::Dictionary(dictionary! {
+            "Type" => "Page",
+            "Parent" => Object::Reference((1, 0)),
+            "MediaBox" => Object::Array(vec![0.into(), 0.into(), 612.into(), 792.into()]),
+        });
+        let result = deep_copy_object(&mut dest_doc, &source_doc, &source_obj, &mut copied);
+        assert!(result.is_ok());
+        if let Object::Dictionary(dict) = result.unwrap() {
+            assert!(dict.get(b"Parent").is_err(), "Parent key should be skipped during copy");
+            assert!(dict.get(b"Type").is_ok());
+            assert!(dict.get(b"MediaBox").is_ok());
+        } else {
+            panic!("Expected Dictionary object");
+        }
+    }
+
+    #[test]
+    fn test_deep_copy_stream() {
+        let mut dest_doc = create_empty_pdf();
+        let source_doc = create_empty_pdf();
+        let mut copied = BTreeMap::new();
+        let source_obj = Object::Stream(Stream::new(dictionary! {}, b"q 1 0 0 1 0 0 cm Q".to_vec()));
+        let result = deep_copy_object(&mut dest_doc, &source_doc, &source_obj, &mut copied);
+        assert!(result.is_ok());
+        if let Object::Stream(stream) = result.unwrap() {
+            assert_eq!(stream.content, b"q 1 0 0 1 0 0 cm Q".to_vec());
+        } else {
+            panic!("Expected Stream object");
+        }
+    }
+
+    #[test]
+    fn test_deep_copy_reference_error() {
+        let mut dest_doc = create_empty_pdf();
+        let source_doc = create_empty_pdf();
+        let mut copied = BTreeMap::new();
+        let source_obj = Object::Reference((1, 0));
+        let result = deep_copy_object(&mut dest_doc, &source_doc, &source_obj, &mut copied);
+        assert!(result.is_err());
+    }
+
+    // --- deep_copy_object_by_id tests ---
+
+    #[test]
+    fn test_deep_copy_by_id_caches_result() {
+        let mut dest_doc = create_empty_pdf();
+        let mut source_doc = create_empty_pdf();
+        let source_id = source_doc.add_object(Object::Integer(42));
+        let mut copied = BTreeMap::new();
+
+        let dest_id1 = deep_copy_object_by_id(&mut dest_doc, &source_doc, source_id, &mut copied).unwrap();
+        let dest_id2 = deep_copy_object_by_id(&mut dest_doc, &source_doc, source_id, &mut copied).unwrap();
+        assert_eq!(dest_id1, dest_id2, "Same source object should map to same dest ID");
+    }
+
+    #[test]
+    fn test_deep_copy_by_id_different_objects_different_ids() {
+        let mut dest_doc = create_empty_pdf();
+        let mut source_doc = create_empty_pdf();
+        let source_id1 = source_doc.add_object(Object::Integer(1));
+        let source_id2 = source_doc.add_object(Object::Integer(2));
+        let mut copied = BTreeMap::new();
+
+        let dest_id1 = deep_copy_object_by_id(&mut dest_doc, &source_doc, source_id1, &mut copied).unwrap();
+        let dest_id2 = deep_copy_object_by_id(&mut dest_doc, &source_doc, source_id2, &mut copied).unwrap();
+        assert_ne!(dest_id1, dest_id2, "Different source objects should have different dest IDs");
+    }
+
+    #[test]
+    fn test_deep_copy_by_id_missing_source_object() {
+        let mut dest_doc = create_empty_pdf();
+        let source_doc = create_empty_pdf();
+        let mut copied = BTreeMap::new();
+        let bogus_id = (9999, 0);
+        let result = deep_copy_object_by_id(&mut dest_doc, &source_doc, bogus_id, &mut copied);
+        assert!(result.is_err(), "Missing source object should fail");
+    }
+
+    // --- deep_copy with references ---
+
+    #[test]
+    fn test_deep_copy_dictionary_with_reference_values() {
+        let mut dest_doc = create_empty_pdf();
+        let mut source_doc = create_empty_pdf();
+        let child_id = source_doc.add_object(Object::Integer(999));
+        let source_obj = Object::Dictionary(dictionary! {
+            "Type" => "Test",
+            "Child" => Object::Reference(child_id),
+        });
+        let mut copied = BTreeMap::new();
+        let result = deep_copy_object(&mut dest_doc, &source_doc, &source_obj, &mut copied);
+        assert!(result.is_ok());
+        if let Object::Dictionary(dict) = result.unwrap() {
+            let child_ref = dict.get(b"Child").unwrap();
+            if let Object::Reference(new_id) = child_ref {
+                let obj = dest_doc.get_object(*new_id).unwrap();
+                assert_eq!(*obj, Object::Integer(999));
+            } else {
+                panic!("Child should still be a reference");
+            }
+        } else {
+            panic!("Expected Dictionary");
+        }
+    }
+
+    #[test]
+    fn test_deep_copy_array_with_reference_elements() {
+        let mut dest_doc = create_empty_pdf();
+        let mut source_doc = create_empty_pdf();
+        let child_id = source_doc.add_object(Object::Integer(42));
+        let source_obj = Object::Array(vec![
+            Object::Integer(1),
+            Object::Reference(child_id),
+            Object::Integer(3),
+        ]);
+        let mut copied = BTreeMap::new();
+        let result = deep_copy_object(&mut dest_doc, &source_doc, &source_obj, &mut copied);
+        assert!(result.is_ok());
+        if let Object::Array(arr) = result.unwrap() {
+            assert_eq!(arr.len(), 3);
+            assert_eq!(arr[0], Object::Integer(1));
+            if let Object::Reference(new_id) = &arr[1] {
+                let obj = dest_doc.get_object(*new_id).unwrap();
+                assert_eq!(*obj, Object::Integer(42));
+            } else {
+                panic!("Expected reference in array");
+            }
+            assert_eq!(arr[2], Object::Integer(3));
+        } else {
+            panic!("Expected Array");
+        }
+    }
+
+    #[test]
+    fn test_deep_copy_stream_with_dict_references() {
+        let mut dest_doc = create_empty_pdf();
+        let mut source_doc = create_empty_pdf();
+        let font_id = source_doc.add_object(dictionary! {
+            "Type" => "Font",
+            "BaseFont" => "Helvetica",
+        });
+        let stream_dict = dictionary! {
+            "Font" => Object::Reference(font_id),
+        };
+        let source_obj = Object::Stream(Stream::new(stream_dict, b"test content".to_vec()));
+        let mut copied = BTreeMap::new();
+        let result = deep_copy_object(&mut dest_doc, &source_doc, &source_obj, &mut copied);
+        assert!(result.is_ok());
+        if let Object::Stream(stream) = result.unwrap() {
+            assert_eq!(stream.content, b"test content");
+            let font_ref = stream.dict.get(b"Font").unwrap();
+            if let Object::Reference(new_id) = font_ref {
+                let font_obj = dest_doc.get_object(*new_id).unwrap();
+                assert!(font_obj.as_dict().is_ok());
+            } else {
+                panic!("Font should be a reference");
+            }
+        } else {
+            panic!("Expected Stream");
+        }
+    }
+
+    #[test]
+    fn test_deep_copy_nested_dictionary() {
+        let mut dest_doc = create_empty_pdf();
+        let source_doc = create_empty_pdf();
+        let mut copied = BTreeMap::new();
+        let source_obj = Object::Dictionary(dictionary! {
+            "Outer" => dictionary! {
+                "Inner" => 42,
+            },
+        });
+        let result = deep_copy_object(&mut dest_doc, &source_doc, &source_obj, &mut copied);
+        assert!(result.is_ok());
+        if let Object::Dictionary(outer) = result.unwrap() {
+            if let Object::Dictionary(inner) = outer.get(b"Outer").unwrap() {
+                assert_eq!(inner.get(b"Inner").unwrap(), &Object::Integer(42));
+            } else {
+                panic!("Expected nested dictionary");
+            }
+        } else {
+            panic!("Expected Dictionary");
+        }
+    }
 }

@@ -5,7 +5,7 @@ use ttf_parser::{name_id, Face};
 use crate::error::PdfMergeError;
 
 #[derive(Debug, Clone)]
-pub struct FontPdfInfo {
+pub(crate) struct FontPdfInfo {
     pub base_font: String,
     pub subtype: String,
     pub encoding: Option<String>, // None for symbol fonts
@@ -15,7 +15,7 @@ pub struct FontPdfInfo {
 }
 
 #[derive(Debug, Clone)]
-pub struct FontDescriptorPdfInfo {
+pub(crate) struct FontDescriptorPdfInfo {
     pub font_name: String,
     pub flags: u16,
     pub font_bbox: [i16; 4],
@@ -30,7 +30,7 @@ pub struct FontDescriptorPdfInfo {
                                //pub embedded_font_subtype: String, // "Type1" or "Type1C" or "TrueType" or "CIDFontType0" or "CIDFontType2"
 }
 
-pub fn get_name<'a>(face: &Face<'a>, name_id: u16) -> Cow<'a, str> {
+pub(crate) fn get_name<'a>(face: &Face<'a>, name_id: u16) -> Cow<'a, str> {
     face.names()
         .into_iter()
         .find(|name| name.name_id == name_id)
@@ -38,7 +38,7 @@ pub fn get_name<'a>(face: &Face<'a>, name_id: u16) -> Cow<'a, str> {
         .unwrap_or("<none>".into())
 }
 
-pub fn get_font_widths(face: &Face, first_char: u8, last_char: u8) -> Vec<u16> {
+pub(crate) fn get_font_widths(face: &Face, first_char: u8, last_char: u8) -> Vec<u16> {
     let mut widths = vec![0; (last_char - first_char + 1) as usize];
     for ch in first_char..=last_char {
         let glyph_index = face.glyph_index(ch as char);
@@ -116,13 +116,13 @@ fn compute_pdf_font_flags_internal(face: &Face, is_symbolic: bool) -> u16 {
         (if is_italic_flag   { 0x0040 } else { 0x0000 }) // Bit 7 = Italic (slanted strokes)
 }
 
-pub fn guess_pdf_stem_v_for_font(face: &Face) -> u16 {
+pub(crate) fn guess_pdf_stem_v_for_font(face: &Face) -> u16 {
     let w_temp = face.weight().to_number() as f32 / 65.0;
     // Also: (10.0 + 220. * ((face.weight().to_number() as f32 - 50.0) / 900.0)).floor() as u16
     (50.0 + w_temp * w_temp + 0.5).floor() as u16
 }
 
-pub fn get_pdf_font_bbox(face: &Face) -> [i16; 4] {
+pub(crate) fn get_pdf_font_bbox(face: &Face) -> [i16; 4] {
     let gbbox = face.global_bounding_box();
     [gbbox.x_min, gbbox.y_min, gbbox.x_max, gbbox.y_max]
 }
@@ -148,15 +148,15 @@ fn classify_font(face: &Face) -> (&'static str, &'static str) {
     }
 }
 
-pub fn get_pdf_font_file_key(face: &Face) -> String {
+pub(crate) fn get_pdf_font_file_key(face: &Face) -> String {
     classify_font(face).0.to_string()
 }
 
-pub fn get_pdf_font_subtype(face: &Face) -> String {
+pub(crate) fn get_pdf_font_subtype(face: &Face) -> String {
     classify_font(face).1.to_string()
 }
 
-pub fn get_pdf_font_info_of_data(
+pub(crate) fn get_pdf_font_info_of_data(
     font_data: &[u8],
 ) -> Result<(FontPdfInfo, FontDescriptorPdfInfo), PdfMergeError> {
     let face = Face::parse(font_data, 0)?;
@@ -193,7 +193,7 @@ pub fn measure_text_width(
     Ok(width * scale)
 }
 
-pub fn get_pdf_info_of_face(face: &Face) -> (FontPdfInfo, FontDescriptorPdfInfo) {
+pub(crate) fn get_pdf_info_of_face(face: &Face) -> (FontPdfInfo, FontDescriptorPdfInfo) {
     let is_symbolic = detect_is_symbolic(face);
     let (first_char, last_char) = compute_char_range(face, is_symbolic);
     let encoding = determine_pdf_encoding(is_symbolic);
@@ -221,4 +221,71 @@ pub fn get_pdf_info_of_face(face: &Face) -> (FontPdfInfo, FontDescriptorPdfInfo)
             font_file_key: get_pdf_font_file_key(face),
         },
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_get_pdf_font_info_of_data_invalid_data() {
+        let result = get_pdf_font_info_of_data(&[]);
+        assert!(result.is_err(), "Empty data should fail");
+    }
+
+    #[test]
+    fn test_get_pdf_font_info_of_data_random_bytes() {
+        let result = get_pdf_font_info_of_data(&[0xDE, 0xAD, 0xBE, 0xEF]);
+        assert!(result.is_err(), "Random bytes should fail");
+    }
+
+    #[test]
+    fn test_font_pdf_info_clone() {
+        let info = FontPdfInfo {
+            base_font: "TestFont".to_string(),
+            subtype: "TrueType".to_string(),
+            encoding: Some("WinAnsiEncoding".to_string()),
+            first_char: 32,
+            last_char: 255,
+            widths: vec![600; 224],
+        };
+        let cloned = info.clone();
+        assert_eq!(cloned.base_font, info.base_font);
+        assert_eq!(cloned.encoding, info.encoding);
+        assert_eq!(cloned.widths.len(), info.widths.len());
+    }
+
+    #[test]
+    fn test_font_pdf_info_no_encoding_for_symbol() {
+        let info = FontPdfInfo {
+            base_font: "Symbol".to_string(),
+            subtype: "Type1".to_string(),
+            encoding: None,
+            first_char: 0,
+            last_char: 255,
+            widths: vec![600; 256],
+        };
+        assert!(info.encoding.is_none());
+    }
+
+    #[test]
+    fn test_font_descriptor_pdf_info_clone() {
+        let desc = FontDescriptorPdfInfo {
+            font_name: "TestFont".to_string(),
+            flags: 0x0020,
+            font_bbox: [-100, -200, 1000, 800],
+            italic_angle: 0,
+            ascent: 800,
+            descent: -200,
+            leading: 0,
+            x_height: 500,
+            stem_v: 80,
+            cap_height: 700,
+            font_file_key: "FontFile2".to_string(),
+        };
+        let cloned = desc.clone();
+        assert_eq!(cloned.font_name, desc.font_name);
+        assert_eq!(cloned.flags, desc.flags);
+        assert_eq!(cloned.font_bbox, desc.font_bbox);
+    }
 }

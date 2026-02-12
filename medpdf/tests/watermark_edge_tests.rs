@@ -5,7 +5,7 @@ mod fixtures;
 
 use lopdf::{dictionary, Object, Stream};
 use medpdf::pdf_copy_page::copy_page;
-use medpdf::pdf_watermark::{add_text_params, unicode_to_winansi, utf8_to_winansi};
+use medpdf::pdf_watermark::add_text_params;
 use medpdf::types::{AddTextParams, HAlign, PdfColor, VAlign};
 
 
@@ -318,76 +318,6 @@ fn test_watermark_negative_coordinates() {
     let params = builtin_font_params("OFFSCREEN").position(-100.0, -50.0);
     let result = add_text_params(&mut dest_doc, page_id, &params);
     assert!(result.is_ok(), "Negative coordinates should succeed: {:?}", result.err());
-}
-
-// --- WinAnsi encoding edge cases ---
-
-#[test]
-fn test_winansi_ascii_range() {
-    for ch in 0x00u8..=0x7F {
-        let result = unicode_to_winansi(ch as char);
-        assert_eq!(result, ch, "ASCII char {ch} should map directly");
-    }
-}
-
-#[test]
-fn test_winansi_latin1_supplement() {
-    // Characters 0xA0-0xFF map directly
-    for cp in 0xA0u32..=0xFF {
-        let ch = char::from_u32(cp).unwrap();
-        let result = unicode_to_winansi(ch);
-        assert_eq!(result, cp as u8, "Latin-1 char U+{cp:04X} should map to {cp}");
-    }
-}
-
-#[test]
-fn test_winansi_special_mappings() {
-    // Euro sign
-    assert_eq!(unicode_to_winansi('\u{20AC}'), 0x80);
-    // En dash
-    assert_eq!(unicode_to_winansi('\u{2013}'), 0x96);
-    // Em dash
-    assert_eq!(unicode_to_winansi('\u{2014}'), 0x97);
-    // Left double quotation mark
-    assert_eq!(unicode_to_winansi('\u{201C}'), 0x93);
-    // Right double quotation mark
-    assert_eq!(unicode_to_winansi('\u{201D}'), 0x94);
-    // Bullet
-    assert_eq!(unicode_to_winansi('\u{2022}'), 0x95);
-    // Trade mark sign
-    assert_eq!(unicode_to_winansi('\u{2122}'), 0x99);
-    // OE ligature (capital)
-    assert_eq!(unicode_to_winansi('\u{0152}'), 0x8C);
-    // oe ligature (small)
-    assert_eq!(unicode_to_winansi('\u{0153}'), 0x9C);
-}
-
-#[test]
-fn test_winansi_unmappable_chars() {
-    // CJK character -> '?'
-    assert_eq!(unicode_to_winansi('\u{4E2D}'), b'?');
-    // Emoji -> '?'
-    assert_eq!(unicode_to_winansi('\u{1F600}'), b'?');
-    // Arabic -> '?'
-    assert_eq!(unicode_to_winansi('\u{0627}'), b'?');
-}
-
-#[test]
-fn test_utf8_to_winansi_mixed_string() {
-    let result = utf8_to_winansi("Hello\u{20AC}World");
-    assert_eq!(result, b"Hello\x80World");
-}
-
-#[test]
-fn test_utf8_to_winansi_empty() {
-    let result = utf8_to_winansi("");
-    assert!(result.is_empty());
-}
-
-#[test]
-fn test_utf8_to_winansi_all_unmappable() {
-    let result = utf8_to_winansi("\u{4E2D}\u{6587}");
-    assert_eq!(result, b"??");
 }
 
 // --- Page without existing Contents ---

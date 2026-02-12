@@ -52,13 +52,13 @@ fn get_content_stream_ids(dest_doc: &Document, page_id: ObjectId) -> Result<Vec<
 
 /// Converts a UTF-8 string to WinAnsiEncoding (Windows Code Page 1252) bytes.
 /// Characters that cannot be represented in WinAnsiEncoding are replaced with '?'.
-pub fn utf8_to_winansi(text: &str) -> Vec<u8> {
+pub(crate) fn utf8_to_winansi(text: &str) -> Vec<u8> {
     text.chars().map(unicode_to_winansi).collect()
 }
 
 /// Maps a Unicode codepoint to its WinAnsiEncoding byte value.
 /// Returns b'?' for characters not representable in WinAnsiEncoding.
-pub fn unicode_to_winansi(c: char) -> u8 {
+pub(crate) fn unicode_to_winansi(c: char) -> u8 {
     let cp = c as u32;
     match cp {
         // ASCII range (0x00-0x7F) - direct mapping
@@ -618,4 +618,135 @@ fn add_embedded_font(
 
     let font_id = dest_doc.add_object(font_dict);
     register_font_in_page_resources(dest_doc, page_id, font_id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // --- utf8_to_winansi / unicode_to_winansi tests (from watermark_tests.rs) ---
+
+    #[test]
+    fn test_winansi_ascii_passthrough() {
+        assert_eq!(utf8_to_winansi("Hello"), b"Hello".to_vec());
+        assert_eq!(utf8_to_winansi("ABC123"), b"ABC123".to_vec());
+        assert_eq!(utf8_to_winansi("!@#$%"), b"!@#$%".to_vec());
+    }
+
+    #[test]
+    fn test_winansi_latin1_supplement() {
+        assert_eq!(unicode_to_winansi('\u{00E9}'), 0xE9);
+        assert_eq!(unicode_to_winansi('\u{00F1}'), 0xF1);
+        assert_eq!(unicode_to_winansi('\u{00FC}'), 0xFC);
+        assert_eq!(unicode_to_winansi('\u{00A9}'), 0xA9);
+        assert_eq!(unicode_to_winansi('\u{00AE}'), 0xAE);
+        assert_eq!(unicode_to_winansi('\u{00B0}'), 0xB0);
+    }
+
+    #[test]
+    fn test_winansi_special_chars() {
+        assert_eq!(unicode_to_winansi('\u{20AC}'), 0x80);
+        assert_eq!(unicode_to_winansi('\u{2122}'), 0x99);
+        assert_eq!(unicode_to_winansi('\u{2022}'), 0x95);
+        assert_eq!(unicode_to_winansi('\u{2013}'), 0x96);
+        assert_eq!(unicode_to_winansi('\u{2014}'), 0x97);
+        assert_eq!(unicode_to_winansi('\u{201C}'), 0x93);
+        assert_eq!(unicode_to_winansi('\u{201D}'), 0x94);
+        assert_eq!(unicode_to_winansi('\u{2018}'), 0x91);
+        assert_eq!(unicode_to_winansi('\u{2019}'), 0x92);
+        assert_eq!(unicode_to_winansi('\u{2026}'), 0x85);
+    }
+
+    #[test]
+    fn test_winansi_unmappable_fallback() {
+        assert_eq!(unicode_to_winansi('\u{4E2D}'), b'?');
+        assert_eq!(unicode_to_winansi('\u{65E5}'), b'?');
+        assert_eq!(unicode_to_winansi('\u{03B1}'), b'?');
+        assert_eq!(unicode_to_winansi('\u{2192}'), b'?');
+        assert_eq!(unicode_to_winansi('\u{1F600}'), b'?');
+    }
+
+    #[test]
+    fn test_winansi_cafe_example() {
+        let encoded = utf8_to_winansi("Caf\u{00E9}");
+        assert_eq!(encoded, vec![b'C', b'a', b'f', 0xE9]);
+    }
+
+    #[test]
+    fn test_winansi_mixed_text() {
+        let encoded = utf8_to_winansi("Price: \u{20AC}50");
+        assert_eq!(
+            encoded,
+            vec![b'P', b'r', b'i', b'c', b'e', b':', b' ', 0x80, b'5', b'0']
+        );
+    }
+
+    #[test]
+    fn test_winansi_empty_string() {
+        assert_eq!(utf8_to_winansi(""), Vec::<u8>::new());
+    }
+
+    #[test]
+    fn test_winansi_copyright_notice() {
+        let encoded = utf8_to_winansi("\u{00A9} 2024 Company\u{2122}");
+        assert_eq!(encoded[0], 0xA9);
+        assert_eq!(encoded[encoded.len() - 1], 0x99);
+    }
+
+    // --- Tests from watermark_edge_tests.rs ---
+
+    #[test]
+    fn test_winansi_ascii_range() {
+        for ch in 0x00u8..=0x7F {
+            let result = unicode_to_winansi(ch as char);
+            assert_eq!(result, ch, "ASCII char {ch} should map directly");
+        }
+    }
+
+    #[test]
+    fn test_winansi_latin1_supplement_full() {
+        for cp in 0xA0u32..=0xFF {
+            let ch = char::from_u32(cp).unwrap();
+            let result = unicode_to_winansi(ch);
+            assert_eq!(result, cp as u8, "Latin-1 char U+{cp:04X} should map to {cp}");
+        }
+    }
+
+    #[test]
+    fn test_winansi_special_mappings() {
+        assert_eq!(unicode_to_winansi('\u{20AC}'), 0x80);
+        assert_eq!(unicode_to_winansi('\u{2013}'), 0x96);
+        assert_eq!(unicode_to_winansi('\u{2014}'), 0x97);
+        assert_eq!(unicode_to_winansi('\u{201C}'), 0x93);
+        assert_eq!(unicode_to_winansi('\u{201D}'), 0x94);
+        assert_eq!(unicode_to_winansi('\u{2022}'), 0x95);
+        assert_eq!(unicode_to_winansi('\u{2122}'), 0x99);
+        assert_eq!(unicode_to_winansi('\u{0152}'), 0x8C);
+        assert_eq!(unicode_to_winansi('\u{0153}'), 0x9C);
+    }
+
+    #[test]
+    fn test_winansi_unmappable_chars() {
+        assert_eq!(unicode_to_winansi('\u{4E2D}'), b'?');
+        assert_eq!(unicode_to_winansi('\u{1F600}'), b'?');
+        assert_eq!(unicode_to_winansi('\u{0627}'), b'?');
+    }
+
+    #[test]
+    fn test_utf8_to_winansi_mixed_string() {
+        let result = utf8_to_winansi("Hello\u{20AC}World");
+        assert_eq!(result, b"Hello\x80World");
+    }
+
+    #[test]
+    fn test_utf8_to_winansi_empty() {
+        let result = utf8_to_winansi("");
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_utf8_to_winansi_all_unmappable() {
+        let result = utf8_to_winansi("\u{4E2D}\u{6587}");
+        assert_eq!(result, b"??");
+    }
 }

@@ -61,7 +61,7 @@ pdf_merger/                    # Repository root (workspace)
 | `medpdf::error` | Custom `PdfMergeError` enum with Display/Error traits |
 | `medpdf::parsing` | Page spec parsing with nom (`"1-3,5,7-"`, `"all"`) |
 | `medpdf::pdf_helpers` | Deep object copying, PDF key constants, Unit enum, page rotation |
-| `medpdf::pdf_font` | Font discovery (system/file) and caching |
+| `medpdf::pdf_font` | Font discovery (system/file) and caching; re-exports `find_font`, `FontCache`, `FontPath` |
 | `medpdf::font_helpers` | TTF parsing, font metrics, PDF FontDescriptor generation |
 | `medpdf::pdf_copy_page` | `copy_page()` - copy pages between documents |
 | `medpdf::pdf_delete_page` | `delete_page()` - remove pages from documents |

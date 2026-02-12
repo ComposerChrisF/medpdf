@@ -19,7 +19,7 @@ pub use parsing::parse_page_spec;
 pub use pdf_blank_page::create_blank_page;
 pub use pdf_copy_page::{copy_page, copy_page_with_cache};
 pub use pdf_delete_page::delete_page;
-pub use pdf_font::find_font_with_style;
+pub use pdf_font::{find_font, find_font_with_style, FontCache, FontPath};
 pub use pdf_helpers::{get_page_media_box, get_page_rotation, set_page_rotation, Unit};
 pub use pdf_overlay::overlay_page;
 pub use pdf_watermark::add_text_params;

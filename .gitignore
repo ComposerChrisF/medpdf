@@ -3,3 +3,4 @@ in*.pdf
 out*.pdf
 *.docx.pdf
 .claude/settings.local.json
+.publish-bin.toml
