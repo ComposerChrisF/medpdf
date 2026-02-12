@@ -423,4 +423,310 @@ mod tests {
         let spec = WatermarkSpec::from_str(r"text=Hello\, World,font=@Helvetica,x=1,y=1").unwrap();
         assert_eq!(spec.text, "Hello, World");
     }
+
+    // --- split_escaped_commas edge cases ---
+
+    #[test]
+    fn test_split_escaped_commas_no_escapes() {
+        let parts = split_escaped_commas("a=1,b=2,c=3");
+        assert_eq!(parts, vec!["a=1", "b=2", "c=3"]);
+    }
+
+    #[test]
+    fn test_split_escaped_commas_single_part() {
+        let parts = split_escaped_commas("text=hello");
+        assert_eq!(parts, vec!["text=hello"]);
+    }
+
+    #[test]
+    fn test_split_escaped_commas_empty_string() {
+        let parts = split_escaped_commas("");
+        assert_eq!(parts, vec![""]);
+    }
+
+    #[test]
+    fn test_split_escaped_commas_multiple_escapes() {
+        let parts = split_escaped_commas(r"a\,b\,c,d");
+        assert_eq!(parts, vec!["a,b,c", "d"]);
+    }
+
+    #[test]
+    fn test_split_escaped_commas_trailing_backslash() {
+        // A trailing backslash not followed by comma is preserved
+        let parts = split_escaped_commas(r"text=hello\");
+        assert_eq!(parts, vec!["text=hello\\"]);
+    }
+
+    #[test]
+    fn test_split_escaped_commas_backslash_not_before_comma() {
+        // Backslash not followed by comma is preserved as-is
+        let parts = split_escaped_commas(r"path=C:\Users\test,key=val");
+        assert_eq!(parts, vec![r"path=C:\Users\test", "key=val"]);
+    }
+
+    #[test]
+    fn test_split_escaped_commas_consecutive_commas() {
+        let parts = split_escaped_commas("a,,b");
+        assert_eq!(parts, vec!["a", "", "b"]);
+    }
+
+    // --- parse_color edge cases ---
+
+    #[test]
+    fn test_parse_color_gray_alias() {
+        let c = parse_color("gray").unwrap();
+        assert!((c.r - 0.5).abs() < f32::EPSILON);
+        assert!((c.g - 0.5).abs() < f32::EPSILON);
+        assert!((c.b - 0.5).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_parse_color_grey_alias() {
+        let c = parse_color("grey").unwrap();
+        assert!((c.r - 0.5).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_parse_color_case_insensitive() {
+        let c1 = parse_color("RED").unwrap();
+        let c2 = parse_color("Red").unwrap();
+        let c3 = parse_color("red").unwrap();
+        assert_eq!(c1, c2);
+        assert_eq!(c2, c3);
+    }
+
+    #[test]
+    fn test_parse_color_hex_without_hash() {
+        let c = parse_color("FF0000").unwrap();
+        assert!((c.r - 1.0).abs() < f32::EPSILON);
+        assert!((c.g - 0.0).abs() < f32::EPSILON);
+        assert!((c.b - 0.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_parse_color_rrggbbaa() {
+        let c = parse_color("#FF000080").unwrap();
+        assert!((c.r - 1.0).abs() < f32::EPSILON);
+        assert!((c.a - 128.0 / 255.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_parse_color_invalid_hex() {
+        let result = parse_color("#GG0000");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_color_invalid_length() {
+        // 5 hex chars - not 3, 6, or 8
+        let result = parse_color("#12345");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid color value"));
+    }
+
+    #[test]
+    fn test_parse_color_unknown_name() {
+        // "purple" is not a named color in the parser
+        let result = parse_color("purple");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_color_black() {
+        let c = parse_color("black").unwrap();
+        assert_eq!(c, PdfColor::BLACK);
+    }
+
+    #[test]
+    fn test_parse_color_white() {
+        let c = parse_color("white").unwrap();
+        assert_eq!(c, PdfColor::WHITE);
+    }
+
+    #[test]
+    fn test_parse_color_blue() {
+        let c = parse_color("blue").unwrap();
+        assert!((c.b - 1.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_parse_color_green() {
+        let c = parse_color("green").unwrap();
+        assert!((c.g - 0.5).abs() < f32::EPSILON);
+        assert!((c.r - 0.0).abs() < f32::EPSILON);
+    }
+
+    // --- Alpha override behavior ---
+
+    #[test]
+    fn test_watermark_alpha_overrides_hex_alpha() {
+        // Color has alpha from RRGGBBAA, but explicit alpha= should override
+        let spec = WatermarkSpec::from_str(
+            "text=X,font=@H,x=0,y=0,color=#FF0000FF,alpha=0.3"
+        ).unwrap();
+        // alpha=0.3 should override the FF (1.0) from color
+        assert!((spec.color.a - 0.3).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_watermark_color_without_alpha_defaults_opaque() {
+        let spec = WatermarkSpec::from_str("text=X,font=@H,x=0,y=0,color=#00FF00").unwrap();
+        assert!((spec.color.a - 1.0).abs() < f32::EPSILON);
+    }
+
+    // --- Missing required fields ---
+
+    #[test]
+    fn test_watermark_spec_missing_x() {
+        let result = WatermarkSpec::from_str("text=DRAFT,font=@H,y=1");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("x"));
+    }
+
+    #[test]
+    fn test_watermark_spec_missing_y() {
+        let result = WatermarkSpec::from_str("text=DRAFT,font=@H,x=1");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("y"));
+    }
+
+    // --- Invalid numeric values ---
+
+    #[test]
+    fn test_watermark_spec_invalid_size() {
+        let result = WatermarkSpec::from_str("text=X,font=@H,x=0,y=0,size=abc");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_watermark_spec_invalid_x() {
+        let result = WatermarkSpec::from_str("text=X,font=@H,x=notanumber,y=0");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_watermark_spec_invalid_alpha() {
+        let result = WatermarkSpec::from_str("text=X,font=@H,x=0,y=0,alpha=nope");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_watermark_spec_invalid_rotation() {
+        let result = WatermarkSpec::from_str("text=X,font=@H,x=0,y=0,rotation=xyz");
+        assert!(result.is_err());
+    }
+
+    // --- Invalid enum values ---
+
+    #[test]
+    fn test_watermark_spec_invalid_h_align() {
+        let result = WatermarkSpec::from_str("text=X,font=@H,x=0,y=0,h_align=middle");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("h_align"));
+    }
+
+    #[test]
+    fn test_watermark_spec_invalid_v_align() {
+        let result = WatermarkSpec::from_str("text=X,font=@H,x=0,y=0,v_align=middle");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("v_align"));
+    }
+
+    #[test]
+    fn test_watermark_spec_invalid_strikeout() {
+        let result = WatermarkSpec::from_str("text=X,font=@H,x=0,y=0,strikeout=yes");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_watermark_spec_invalid_underline() {
+        let result = WatermarkSpec::from_str("text=X,font=@H,x=0,y=0,underline=1");
+        assert!(result.is_err());
+    }
+
+    // --- OverlaySpec edge cases ---
+
+    #[test]
+    fn test_overlay_spec_invalid_src_page_value() {
+        let result = OverlaySpec::from_str("file=f.pdf,src_page=abc");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_overlay_spec_empty_string() {
+        let result = OverlaySpec::from_str("");
+        assert!(result.is_err());
+    }
+
+    // --- PadToSpec edge cases ---
+
+    #[test]
+    fn test_pad_to_spec_large_value() {
+        let spec = PadToSpec::from_str("1000").unwrap();
+        assert_eq!(spec.pages, 1000);
+    }
+
+    #[test]
+    fn test_pad_to_spec_one() {
+        let spec = PadToSpec::from_str("1").unwrap();
+        assert_eq!(spec.pages, 1);
+    }
+
+    #[test]
+    fn test_pad_to_spec_float_fails() {
+        assert!(PadToSpec::from_str("1.5").is_err());
+    }
+
+    #[test]
+    fn test_pad_to_spec_empty_fails() {
+        assert!(PadToSpec::from_str("").is_err());
+    }
+
+    // --- PadFileSpec edge cases ---
+
+    #[test]
+    fn test_pad_file_spec_unknown_key() {
+        let result = PadFileSpec::from_str("file=f.pdf,bogus=val");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("bogus"));
+    }
+
+    #[test]
+    fn test_pad_file_spec_invalid_page() {
+        let result = PadFileSpec::from_str("file=f.pdf,page=abc");
+        assert!(result.is_err());
+    }
+
+    // --- WatermarkSpec with whitespace in values ---
+
+    #[test]
+    fn test_watermark_spec_whitespace_in_key_value() {
+        // Keys and values are trimmed
+        let spec = WatermarkSpec::from_str("text = DRAFT , font = @Helvetica , x = 1 , y = 1").unwrap();
+        assert_eq!(spec.text, "DRAFT");
+        assert_eq!(spec.font, PathBuf::from("@Helvetica"));
+    }
+
+    // --- Default units ---
+
+    #[test]
+    fn test_watermark_spec_default_units_is_inches() {
+        let spec = WatermarkSpec::from_str("text=X,font=@H,x=1,y=1").unwrap();
+        assert_eq!(spec.units, Unit::In);
+    }
+
+    #[test]
+    fn test_watermark_spec_units_mm() {
+        let spec = WatermarkSpec::from_str("text=X,font=@H,x=1,y=1,units=mm").unwrap();
+        assert_eq!(spec.units, Unit::Mm);
+    }
+
+    // --- Default strikeout/underline ---
+
+    #[test]
+    fn test_watermark_spec_default_decorations_false() {
+        let spec = WatermarkSpec::from_str("text=X,font=@H,x=0,y=0").unwrap();
+        assert!(!spec.strikeout);
+        assert!(!spec.underline);
+    }
 }

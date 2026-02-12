@@ -445,3 +445,199 @@ fn test_get_media_box_deeply_nested_inheritance() {
     assert!((x1 - 500.0).abs() < 0.01);
     assert!((y1 - 700.0).abs() < 0.01);
 }
+
+// --- deep_copy_object with dictionary containing references ---
+
+#[test]
+fn test_deep_copy_dictionary_with_reference_values() {
+    let mut dest_doc = fixtures::create_empty_pdf();
+    let mut source_doc = fixtures::create_empty_pdf();
+
+    // Add a referenced object to source
+    let child_id = source_doc.add_object(Object::Integer(999));
+
+    // Create a dictionary that references the child
+    let source_obj = Object::Dictionary(dictionary! {
+        "Type" => "Test",
+        "Child" => Object::Reference(child_id),
+    });
+    let mut copied = BTreeMap::new();
+
+    let result = deep_copy_object(&mut dest_doc, &source_doc, &source_obj, &mut copied);
+    assert!(result.is_ok());
+
+    if let Object::Dictionary(dict) = result.unwrap() {
+        // The Child reference should now point to a new ID in dest_doc
+        let child_ref = dict.get(b"Child").unwrap();
+        if let Object::Reference(new_id) = child_ref {
+            // And the new ID should resolve to the same value
+            let obj = dest_doc.get_object(*new_id).unwrap();
+            assert_eq!(*obj, Object::Integer(999));
+        } else {
+            panic!("Child should still be a reference");
+        }
+    } else {
+        panic!("Expected Dictionary");
+    }
+}
+
+#[test]
+fn test_deep_copy_array_with_reference_elements() {
+    let mut dest_doc = fixtures::create_empty_pdf();
+    let mut source_doc = fixtures::create_empty_pdf();
+
+    let child_id = source_doc.add_object(Object::Integer(42));
+
+    let source_obj = Object::Array(vec![
+        Object::Integer(1),
+        Object::Reference(child_id),
+        Object::Integer(3),
+    ]);
+    let mut copied = BTreeMap::new();
+
+    let result = deep_copy_object(&mut dest_doc, &source_doc, &source_obj, &mut copied);
+    assert!(result.is_ok());
+
+    if let Object::Array(arr) = result.unwrap() {
+        assert_eq!(arr.len(), 3);
+        assert_eq!(arr[0], Object::Integer(1));
+        // Second element should be a reference to a copied object
+        if let Object::Reference(new_id) = &arr[1] {
+            let obj = dest_doc.get_object(*new_id).unwrap();
+            assert_eq!(*obj, Object::Integer(42));
+        } else {
+            panic!("Expected reference in array");
+        }
+        assert_eq!(arr[2], Object::Integer(3));
+    } else {
+        panic!("Expected Array");
+    }
+}
+
+#[test]
+fn test_deep_copy_stream_with_dict_references() {
+    let mut dest_doc = fixtures::create_empty_pdf();
+    let mut source_doc = fixtures::create_empty_pdf();
+
+    let font_id = source_doc.add_object(dictionary! {
+        "Type" => "Font",
+        "BaseFont" => "Helvetica",
+    });
+
+    let stream_dict = dictionary! {
+        "Font" => Object::Reference(font_id),
+    };
+    let source_obj = Object::Stream(Stream::new(stream_dict, b"test content".to_vec()));
+    let mut copied = BTreeMap::new();
+
+    let result = deep_copy_object(&mut dest_doc, &source_doc, &source_obj, &mut copied);
+    assert!(result.is_ok());
+
+    if let Object::Stream(stream) = result.unwrap() {
+        assert_eq!(stream.content, b"test content");
+        let font_ref = stream.dict.get(b"Font").unwrap();
+        if let Object::Reference(new_id) = font_ref {
+            let font_obj = dest_doc.get_object(*new_id).unwrap();
+            assert!(font_obj.as_dict().is_ok());
+        } else {
+            panic!("Font should be a reference");
+        }
+    } else {
+        panic!("Expected Stream");
+    }
+}
+
+#[test]
+fn test_deep_copy_nested_dictionary() {
+    let mut dest_doc = fixtures::create_empty_pdf();
+    let source_doc = fixtures::create_empty_pdf();
+    let mut copied = BTreeMap::new();
+
+    let source_obj = Object::Dictionary(dictionary! {
+        "Outer" => dictionary! {
+            "Inner" => 42,
+        },
+    });
+
+    let result = deep_copy_object(&mut dest_doc, &source_doc, &source_obj, &mut copied);
+    assert!(result.is_ok());
+    if let Object::Dictionary(outer) = result.unwrap() {
+        if let Object::Dictionary(inner) = outer.get(b"Outer").unwrap() {
+            assert_eq!(inner.get(b"Inner").unwrap(), &Object::Integer(42));
+        } else {
+            panic!("Expected nested dictionary");
+        }
+    } else {
+        panic!("Expected Dictionary");
+    }
+}
+
+// --- get_page_media_box with non-zero origin ---
+
+#[test]
+fn test_get_media_box_nonzero_origin() {
+    let doc = fixtures::create_pdf_with_nonzero_origin_media_box(50.0, 100.0, 662.0, 892.0);
+    let page_id = fixtures::get_first_page_id(&doc);
+    let mb = get_page_media_box(&doc, page_id);
+    assert!(mb.is_some());
+    let [x0, y0, x1, y1] = mb.unwrap();
+    assert!((x0 - 50.0).abs() < 0.01);
+    assert!((y0 - 100.0).abs() < 0.01);
+    assert!((x1 - 662.0).abs() < 0.01);
+    assert!((y1 - 892.0).abs() < 0.01);
+}
+
+// --- get_page_media_box with invalid object ID ---
+
+#[test]
+fn test_get_media_box_invalid_object_id() {
+    let doc = fixtures::create_pdf_with_pages(1);
+    let bogus_id = (9999, 0);
+    let mb = get_page_media_box(&doc, bogus_id);
+    assert!(mb.is_none(), "Bogus ID should return None");
+}
+
+// --- deep_copy_object_by_id with missing source object ---
+
+#[test]
+fn test_deep_copy_by_id_missing_source_object() {
+    let mut dest_doc = fixtures::create_empty_pdf();
+    let source_doc = fixtures::create_empty_pdf();
+    let mut copied = BTreeMap::new();
+
+    let bogus_id = (9999, 0);
+    let result = deep_copy_object_by_id(&mut dest_doc, &source_doc, bogus_id, &mut copied);
+    assert!(result.is_err(), "Missing source object should fail");
+}
+
+// --- Unit conversion tests (already covered in unit_conversion_tests.rs but adding edge cases) ---
+
+#[test]
+fn test_unit_equality() {
+    use medpdf::Unit;
+    assert_eq!(Unit::In, Unit::In);
+    assert_eq!(Unit::Mm, Unit::Mm);
+    assert_ne!(Unit::In, Unit::Mm);
+}
+
+#[test]
+fn test_unit_copy() {
+    use medpdf::Unit;
+    let u = Unit::In;
+    let u2 = u; // Copy
+    assert_eq!(u, u2);
+}
+
+#[test]
+fn test_unit_to_points_zero() {
+    use medpdf::Unit;
+    assert!((Unit::In.to_points(0.0)).abs() < f32::EPSILON);
+    assert!((Unit::Mm.to_points(0.0)).abs() < f32::EPSILON);
+}
+
+#[test]
+fn test_unit_to_points_negative() {
+    use medpdf::Unit;
+    let result = Unit::In.to_points(-1.0);
+    assert!((result - (-72.0)).abs() < f32::EPSILON);
+}
