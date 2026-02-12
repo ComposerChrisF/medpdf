@@ -96,4 +96,4 @@ pdf-merger -o out.pdf in1.pdf "1-3" in2.pdf "all" \
 
 ### Known Limitations
 
-**Overlay resource key deduplication is shallow.** `accumulate_dictionary_keys()` in `medpdf::pdf_overlay` only scans the root `/Pages` node for existing resource names when generating unique keys for overlay resources. It does not recurse into child `/Pages` nodes or individual `/Page` nodes. If a destination page defines its own `/Resources` with keys that differ from the root, an overlay could introduce a name collision. In practice this is rare — most PDF generators place shared resources on the root `/Pages` node — but it could occur with documents that have per-page resource dictionaries. A proper fix requires recursing the full page tree to collect all resource keys.
+(None at this time.)

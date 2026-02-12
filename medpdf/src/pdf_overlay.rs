@@ -1,5 +1,5 @@
 use crate::error::{PdfMergeError, Result};
-use crate::pdf_helpers::{self, KEY_CONTENTS, KEY_PAGE, KEY_PAGES, KEY_RESOURCES, KEY_TYPE};
+use crate::pdf_helpers::{self, KEY_CONTENTS, KEY_KIDS, KEY_PAGE, KEY_PAGES, KEY_RESOURCES, KEY_TYPE};
 use log::{debug, trace, warn};
 use lopdf::content::Operation;
 use lopdf::{Dictionary, Document, Object, ObjectId};
@@ -16,40 +16,54 @@ fn add_resource_keys(keys: &mut HashSet<Vec<u8>>, dict_resources: &Dictionary) -
     Ok(())
 }
 
-/// Collects resource key names from a document node's `/Resources` dictionary.
+/// Collects resource key names from a document's page tree, starting at `start`.
 ///
-/// # Known limitation
-///
-/// This function only inspects the single node at `start` (typically the root `/Pages` node).
-/// It does **not** recurse into child `/Pages` or individual `/Page` nodes. If pages define
-/// their own `/Resources` (rather than inheriting from the root), those keys will not be
-/// collected, which could lead to resource-name collisions during overlay. In practice this
-/// is rare because most PDF generators place shared resources on the root `/Pages` node.
+/// Recurses into child `/Pages` nodes and individual `/Page` nodes so that
+/// per-page `/Resources` dictionaries are also collected, preventing
+/// resource-name collisions during overlay.
 fn accumulate_dictionary_keys(
     keys: &mut HashSet<Vec<u8>>,
     doc: &Document,
     start: ObjectId,
 ) -> Result<()> {
     let o = doc.get_object(start)?;
-    if let Object::Dictionary(dict) = o {
-        if let Ok(Object::Name(v)) = dict.get(KEY_TYPE) {
-            if v == KEY_PAGES || v == KEY_PAGE {
-                match dict.get(KEY_RESOURCES) {
-                    Ok(Object::Dictionary(dict_resources)) => {
-                        add_resource_keys(keys, dict_resources)?;
-                    }
-                    Ok(Object::Reference(id_resources)) => {
-                        if let Ok(dict_resources) = doc.get_dictionary(*id_resources) {
-                            add_resource_keys(keys, dict_resources)?;
-                        }
-                    }
-                    _ => {
-                        return Ok(());
-                    } // Nothing to bother with
-                }
+    let dict = match o {
+        Object::Dictionary(d) => d,
+        _ => return Ok(()),
+    };
+
+    let is_page_node = match dict.get(KEY_TYPE) {
+        Ok(Object::Name(v)) => v == KEY_PAGES || v == KEY_PAGE,
+        _ => false,
+    };
+    if !is_page_node {
+        return Ok(());
+    }
+
+    // Collect resource keys from this node's /Resources
+    match dict.get(KEY_RESOURCES) {
+        Ok(Object::Dictionary(dict_resources)) => {
+            add_resource_keys(keys, dict_resources)?;
+        }
+        Ok(Object::Reference(id_resources)) => {
+            if let Ok(dict_resources) = doc.get_dictionary(*id_resources) {
+                add_resource_keys(keys, dict_resources)?;
             }
         }
+        _ => {}
     }
+
+    // Recurse into /Kids for /Pages nodes
+    if let Ok(Object::Array(kids)) = dict.get(KEY_KIDS) {
+        let child_ids: Vec<ObjectId> = kids
+            .iter()
+            .filter_map(|obj| obj.as_reference().ok())
+            .collect();
+        for child_id in child_ids {
+            accumulate_dictionary_keys(keys, doc, child_id)?;
+        }
+    }
+
     Ok(())
 }
 
@@ -278,10 +292,8 @@ pub fn overlay_page(
     // Object::Dictionary() to the dest_doc... we'll remove this later to tidy up.
 
     // Starting at the root of the *destination* document, build a list (HashSet) of all keys in
-    // all /Resource dictionaries, so we can later make sure no names we add to /Resources conflict!
-    // KNOWN LIMITATION: accumulate_dictionary_keys only scans the root /Pages node, not individual
-    // page nodes or intermediate page tree levels. Resource keys defined on per-page /Resources
-    // dictionaries are not collected, so overlay resource renaming may miss conflicts in those cases.
+    // all /Resource dictionaries (recursing the full page tree), so we can later make sure no
+    // names we add to /Resources conflict!
     debug!("Accumulating dictionary keys in destination document");
     let mut keys_used = HashSet::<Vec<u8>>::new();
     accumulate_dictionary_keys(

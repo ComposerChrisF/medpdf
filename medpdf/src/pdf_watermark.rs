@@ -362,7 +362,7 @@ pub fn add_text_params(
     };
     // Compute vertical metrics from font data (scaled to font_size).
     // For built-in/hack fonts (data len <= 1), use reasonable approximations.
-    let (ascent_scaled, descent_scaled, x_height_scaled) = if params.font_data.len() > 1 {
+    let (ascent_scaled, descent_scaled, x_height_scaled, cap_height_scaled, bbox_bottom_scaled) = if params.font_data.len() > 1 {
         if let Ok(face) = ttf_parser::Face::parse(&params.font_data, 0) {
             let upem = face.units_per_em() as f32;
             if upem > 0.0 {
@@ -371,29 +371,36 @@ pub fn add_text_params(
                     face.ascender() as f32 * scale,
                     face.descender() as f32 * scale, // negative value
                     face.x_height().unwrap_or((upem * 0.5) as i16) as f32 * scale,
+                    face.capital_height().unwrap_or(face.ascender()) as f32 * scale,
+                    face.global_bounding_box().y_min as f32 * scale, // negative value
                 )
             } else {
-                (params.font_size * 0.7, params.font_size * -0.3, params.font_size * 0.5)
+                (params.font_size * 0.7, params.font_size * -0.3, params.font_size * 0.5, params.font_size * 0.7, params.font_size * -0.3)
             }
         } else {
-            (params.font_size * 0.7, params.font_size * -0.3, params.font_size * 0.5)
+            (params.font_size * 0.7, params.font_size * -0.3, params.font_size * 0.5, params.font_size * 0.7, params.font_size * -0.3)
         }
     } else {
-        (params.font_size * 0.7, params.font_size * -0.3, params.font_size * 0.5)
+        (params.font_size * 0.7, params.font_size * -0.3, params.font_size * 0.5, params.font_size * 0.7, params.font_size * -0.3)
     };
     let dy = match params.v_align {
         crate::types::VAlign::Baseline => 0.0,
-        crate::types::VAlign::Bottom => -descent_scaled, // shift up by descent (descent is negative)
-        crate::types::VAlign::Center => x_height_scaled / 2.0,
-        crate::types::VAlign::Top => ascent_scaled,
+        crate::types::VAlign::DescentBottom => -descent_scaled, // shift up by |descent| (typographic descent line)
+        crate::types::VAlign::Bottom => -bbox_bottom_scaled, // shift up by |bbox.y_min| (clears all glyphs)
+        crate::types::VAlign::Center => -x_height_scaled / 2.0, // shift down so x-height center lands at y
+        crate::types::VAlign::Top => -ascent_scaled, // shift down so typographic top lands at y
+        crate::types::VAlign::CapTop => -cap_height_scaled, // shift down so cap height lands at y
     };
 
     let encoded_text = utf8_to_winansi(&params.text);
 
     let mut ops = vec![Operation::new("q", vec![])];
 
+    // Clamp color to valid PDF range [0.0, 1.0]
+    let color = params.color.clamped();
+
     // Apply alpha via ExtGState when not fully opaque
-    let alpha = params.color.a;
+    let alpha = color.a;
     if (alpha - 1.0).abs() > f32::EPSILON {
         let gs_dict = dictionary! {
             "Type" => "ExtGState",
@@ -411,11 +418,7 @@ pub fn add_text_params(
     // Set color
     ops.push(Operation::new(
         "rg",
-        vec![
-            params.color.r.into(),
-            params.color.g.into(),
-            params.color.b.into(),
-        ],
+        vec![color.r.into(), color.g.into(), color.b.into()],
     ));
 
     // Apply rotation + translation via cm (concat matrix)

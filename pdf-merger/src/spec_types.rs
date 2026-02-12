@@ -149,10 +149,12 @@ impl FromStr for WatermarkSpec {
                 }),
                 "v_align" => v_align = Some(match value {
                     "top" => VAlign::Top,
+                    "cap_top" => VAlign::CapTop,
                     "center" => VAlign::Center,
                     "baseline" => VAlign::Baseline,
+                    "descent_bottom" => VAlign::DescentBottom,
                     "bottom" => VAlign::Bottom,
-                    _ => return Err(format!("Invalid v_align value: '{}'. Use top, center, baseline, or bottom.", value)),
+                    _ => return Err(format!("Invalid v_align value: '{}'. Use top, cap_top, center, baseline, descent_bottom, or bottom.", value)),
                 }),
                 "strikeout" => strikeout = Some(value.parse::<bool>().map_err(|_| format!("Invalid strikeout value: '{}'. Use true or false.", value))?),
                 "underline" => underline = Some(value.parse::<bool>().map_err(|_| format!("Invalid underline value: '{}'. Use true or false.", value))?),

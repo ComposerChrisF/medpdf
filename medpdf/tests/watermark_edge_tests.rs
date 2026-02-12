@@ -96,6 +96,14 @@ fn test_watermark_valign_bottom() {
 }
 
 #[test]
+fn test_watermark_valign_descent_bottom() {
+    let (mut dest_doc, page_id) = setup_dest_doc();
+    let params = builtin_font_params("DESCENT").v_align(VAlign::DescentBottom);
+    let result = add_text_params(&mut dest_doc, page_id, &params);
+    assert!(result.is_ok(), "VAlign::DescentBottom should succeed: {:?}", result.err());
+}
+
+#[test]
 fn test_watermark_valign_baseline() {
     let (mut dest_doc, page_id) = setup_dest_doc();
     let params = builtin_font_params("BASELINE").v_align(VAlign::Baseline);

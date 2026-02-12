@@ -56,6 +56,16 @@ impl PdfColor {
             a: a as f32 / 255.0,
         }
     }
+
+    /// Returns a copy with all components clamped to [0.0, 1.0].
+    pub fn clamped(self) -> Self {
+        Self {
+            r: self.r.clamp(0.0, 1.0),
+            g: self.g.clamp(0.0, 1.0),
+            b: self.b.clamp(0.0, 1.0),
+            a: self.a.clamp(0.0, 1.0),
+        }
+    }
 }
 
 impl Default for PdfColor {
@@ -76,10 +86,16 @@ pub enum HAlign {
 /// Vertical text alignment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum VAlign {
+    /// Typographic ascent — includes headroom for diacriticals (Å, Ö).
     Top,
+    /// Cap height — tight alignment to top of capital letters (H, T).
+    CapTop,
     Center,
     #[default]
     Baseline,
+    /// Typographic descent line — the "expected" descent, some deep descenders may extend below.
+    DescentBottom,
+    /// Font bounding box bottom — guaranteed to clear every glyph in the font.
     Bottom,
 }
 

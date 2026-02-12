@@ -33,7 +33,7 @@ fn test_measure_text_width_hack_font_multi_char() {
 
 #[test]
 fn test_measure_text_width_builtin_font() {
-    let font_data = &[b'@'];
+    let font_data: &[u8] = b"@";
     let font_size = 24.0;
     let text = "Test";
     let width = font_helpers::measure_text_width(font_data, font_size, text).unwrap();

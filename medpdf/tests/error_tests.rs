@@ -183,7 +183,10 @@ fn test_source_face_is_some() {
 #[test]
 fn test_result_type_alias_ok() {
     let result: medpdf::Result<i32> = Ok(42);
-    assert_eq!(result.unwrap(), 42);
+    match result {
+        Ok(v) => assert_eq!(v, 42),
+        Err(e) => panic!("Expected Ok(42), got Err({e})"),
+    }
 }
 
 #[test]

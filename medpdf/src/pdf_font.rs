@@ -97,7 +97,6 @@ pub fn find_font_with_style(
         return Ok(resolved);
     }
 
-    // Search system fonts with weight/style properties
     let source = SystemSource::new();
     let family_name = font_path
         .file_stem()
@@ -121,8 +120,8 @@ pub fn find_font_with_style(
         Ok(font_kit::handle::Handle::Path { path, .. }) => Ok(FontPath::Path(path)),
         Ok(_) => Err(format!("Font {font_path:?} not found as path handle").into()),
         Err(_) => {
-            // Fall back to default properties
-            find_font(font_path)
+            // Fall back to default properties, reusing the existing SystemSource
+            find_font_with_source(font_path, &source)
         }
     }
 }
@@ -131,8 +130,11 @@ pub fn find_font(font_path: &Path) -> Result<FontPath> {
     if let Some(resolved) = resolve_non_system_font(font_path) {
         return Ok(resolved);
     }
-    // Search system fonts
     let source = SystemSource::new();
+    find_font_with_source(font_path, &source)
+}
+
+fn find_font_with_source(font_path: &Path, source: &SystemSource) -> Result<FontPath> {
     let family_name = font_path
         .file_stem()
         .and_then(|s| s.to_str())

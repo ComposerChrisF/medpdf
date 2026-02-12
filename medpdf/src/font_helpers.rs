@@ -1,5 +1,3 @@
-use std::borrow::Cow;
-
 use ttf_parser::{name_id, Face};
 
 use crate::error::PdfMergeError;
@@ -30,18 +28,61 @@ pub(crate) struct FontDescriptorPdfInfo {
                                //pub embedded_font_subtype: String, // "Type1" or "Type1C" or "TrueType" or "CIDFontType0" or "CIDFontType2"
 }
 
-pub(crate) fn get_name<'a>(face: &Face<'a>, name_id: u16) -> Cow<'a, str> {
+pub(crate) fn get_name(face: &Face, name_id: u16) -> String {
     face.names()
         .into_iter()
-        .find(|name| name.name_id == name_id)
-        .map(|name| String::from_utf8_lossy(name.name))
-        .unwrap_or("<none>".into())
+        .filter(|name| name.name_id == name_id)
+        .find_map(|name| name.to_string())
+        .unwrap_or_else(|| "<none>".to_string())
+}
+
+/// Maps a WinAnsiEncoding byte value to its Unicode code point.
+/// Bytes 0x00–0x7F and 0xA0–0xFF map directly to the same Unicode code point.
+/// Bytes 0x80–0x9F map to specific Unicode characters (smart quotes, Euro, etc.).
+/// Bytes 0x81, 0x8D, 0x8F, 0x90, 0x9D are undefined in WinAnsi and return None.
+fn winansi_to_unicode(byte: u8) -> Option<char> {
+    match byte {
+        0x00..=0x7F => Some(byte as char),
+        0xA0..=0xFF => Some(byte as char),
+        0x80 => Some('\u{20AC}'), // Euro sign
+        0x82 => Some('\u{201A}'), // single low-9 quotation mark
+        0x83 => Some('\u{0192}'), // latin small letter f with hook
+        0x84 => Some('\u{201E}'), // double low-9 quotation mark
+        0x85 => Some('\u{2026}'), // horizontal ellipsis
+        0x86 => Some('\u{2020}'), // dagger
+        0x87 => Some('\u{2021}'), // double dagger
+        0x88 => Some('\u{02C6}'), // modifier letter circumflex accent
+        0x89 => Some('\u{2030}'), // per mille sign
+        0x8A => Some('\u{0160}'), // latin capital letter s with caron
+        0x8B => Some('\u{2039}'), // single left-pointing angle quotation mark
+        0x8C => Some('\u{0152}'), // latin capital ligature oe
+        0x8E => Some('\u{017D}'), // latin capital letter z with caron
+        0x91 => Some('\u{2018}'), // left single quotation mark
+        0x92 => Some('\u{2019}'), // right single quotation mark
+        0x93 => Some('\u{201C}'), // left double quotation mark
+        0x94 => Some('\u{201D}'), // right double quotation mark
+        0x95 => Some('\u{2022}'), // bullet
+        0x96 => Some('\u{2013}'), // en dash
+        0x97 => Some('\u{2014}'), // em dash
+        0x98 => Some('\u{02DC}'), // small tilde
+        0x99 => Some('\u{2122}'), // trade mark sign
+        0x9A => Some('\u{0161}'), // latin small letter s with caron
+        0x9B => Some('\u{203A}'), // single right-pointing angle quotation mark
+        0x9C => Some('\u{0153}'), // latin small ligature oe
+        0x9E => Some('\u{017E}'), // latin small letter z with caron
+        0x9F => Some('\u{0178}'), // latin capital letter y with diaeresis
+        _ => None, // 0x81, 0x8D, 0x8F, 0x90, 0x9D are undefined
+    }
 }
 
 pub(crate) fn get_font_widths(face: &Face, first_char: u8, last_char: u8) -> Vec<u16> {
     let mut widths = vec![0; (last_char - first_char + 1) as usize];
     for ch in first_char..=last_char {
-        let glyph_index = face.glyph_index(ch as char);
+        let unicode_char = match winansi_to_unicode(ch) {
+            Some(c) => c,
+            None => continue,
+        };
+        let glyph_index = face.glyph_index(unicode_char);
         if let Some(glyph_index) = glyph_index {
             widths[(ch - first_char) as usize] = face.glyph_hor_advance(glyph_index).unwrap_or_else(|| {
                 log::trace!("Missing glyph advance for glyph {:?} (char {})", glyph_index, ch);
@@ -200,7 +241,7 @@ pub(crate) fn get_pdf_info_of_face(face: &Face) -> (FontPdfInfo, FontDescriptorP
 
     (
         FontPdfInfo {
-            base_font: get_name(face, name_id::POST_SCRIPT_NAME).into(),
+            base_font: get_name(face, name_id::POST_SCRIPT_NAME),
             encoding,
             first_char: first_char.into(),
             last_char: last_char.into(),
@@ -208,7 +249,7 @@ pub(crate) fn get_pdf_info_of_face(face: &Face) -> (FontPdfInfo, FontDescriptorP
             subtype: get_pdf_font_subtype(face),
         },
         FontDescriptorPdfInfo {
-            font_name: get_name(face, name_id::POST_SCRIPT_NAME).into(),
+            font_name: get_name(face, name_id::POST_SCRIPT_NAME),
             flags: compute_pdf_font_flags_internal(face, is_symbolic),
             font_bbox: get_pdf_font_bbox(face),
             italic_angle: face.italic_angle().round() as i16,
