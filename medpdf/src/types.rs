@@ -1,5 +1,4 @@
 /// Rich types for the medpdf crate: color, alignment, font properties, and AddTextParams.
-
 /// An RGBA color with components in [0.0, 1.0].
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PdfColor {

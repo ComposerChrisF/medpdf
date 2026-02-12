@@ -1,45 +1,8 @@
-use std::{borrow::Cow, collections::HashMap, fs, path::Path};
+use std::borrow::Cow;
 
 use ttf_parser::{name_id, Face};
 
 use crate::error::PdfMergeError;
-
-#[allow(dead_code)]
-pub fn get_name_id_map() -> HashMap<u16, &'static str> {
-    HashMap::from([
-        (name_id::COPYRIGHT_NOTICE, "Copyright Notice"),
-        (name_id::FAMILY, "Family"),
-        (name_id::SUBFAMILY, "Subfamily"),
-        (name_id::UNIQUE_ID, "Unique ID"),
-        (name_id::FULL_NAME, "Full Name"),
-        (name_id::VERSION, "Version"),
-        (name_id::POST_SCRIPT_NAME, "PostScript Name"),
-        (name_id::TRADEMARK, "Trademark"),
-        (name_id::MANUFACTURER, "Manufacturer"),
-        (name_id::DESIGNER, "Designer"),
-        (name_id::DESCRIPTION, "Description"),
-        (name_id::VENDOR_URL, "Vendor URL"),
-        (name_id::DESIGNER_URL, "Designer URL"),
-        (name_id::LICENSE, "License"),
-        (name_id::LICENSE_URL, "License URL"),
-        (name_id::TYPOGRAPHIC_FAMILY, "Typographic Family"),
-        (name_id::TYPOGRAPHIC_SUBFAMILY, "Typographic Subfamily"),
-        (name_id::COMPATIBLE_FULL, "Compatible Full"),
-        (name_id::SAMPLE_TEXT, "Sample Text"),
-        (name_id::POST_SCRIPT_CID, "PostScript CID"),
-        (name_id::WWS_FAMILY, "WWS Family"),
-        (name_id::WWS_SUBFAMILY, "WWS Subfamily"),
-        (
-            name_id::LIGHT_BACKGROUND_PALETTE,
-            "Light Background Palette",
-        ),
-        (name_id::DARK_BACKGROUND_PALETTE, "Dark Background Palette"),
-        (
-            name_id::VARIATIONS_POST_SCRIPT_NAME_PREFIX,
-            "Variations PostScript Name Prefix",
-        ),
-    ])
-}
 
 #[derive(Debug, Clone)]
 pub struct FontPdfInfo {
@@ -142,12 +105,6 @@ fn compute_char_range(face: &Face, is_symbolic: bool) -> (u8, u8) {
     }
 }
 
-#[allow(dead_code)]
-pub fn compute_pdf_font_flags(face: &Face) -> u16 {
-    let is_symbolic = detect_is_symbolic(face);
-    compute_pdf_font_flags_internal(face, is_symbolic)
-}
-
 fn compute_pdf_font_flags_internal(face: &Face, is_symbolic: bool) -> u16 {
     let is_italic_flag = face.is_italic() || face.is_oblique();
     (if face.is_monospaced() { 0x0001 } else { 0x0000 }) |      // Bit 1 = FixedPitch
@@ -167,50 +124,33 @@ pub fn get_pdf_font_bbox(face: &Face) -> [i16; 4] {
     [gbbox.x_min, gbbox.y_min, gbbox.x_max, gbbox.y_max]
 }
 
-pub fn get_pdf_font_file_key(face: &Face) -> String {
+/// Classifies a font face into its PDF font file key and subtype.
+/// Returns `(font_file_key, subtype)`.
+fn classify_font(face: &Face) -> (&'static str, &'static str) {
     if face
         .raw_face()
         .table(ttf_parser::Tag::from_bytes(b"CFF "))
         .is_some()
     {
-        "FontFile".to_string()
+        ("FontFile", "Type1")
     } else if face
         .raw_face()
         .table(ttf_parser::Tag::from_bytes(b"glyf"))
         .is_some()
     {
-        "FontFile2".to_string()
+        ("FontFile2", "TrueType")
     } else {
-        println!("Font file type not recognized!!!");
-        "FontFile".to_string()
+        log::warn!("Font file type not recognized");
+        ("FontFile", "Type1")
     }
+}
+
+pub fn get_pdf_font_file_key(face: &Face) -> String {
+    classify_font(face).0.to_string()
 }
 
 pub fn get_pdf_font_subtype(face: &Face) -> String {
-    if face
-        .raw_face()
-        .table(ttf_parser::Tag::from_bytes(b"CFF "))
-        .is_some()
-    {
-        "Type1".to_string()
-    } else if face
-        .raw_face()
-        .table(ttf_parser::Tag::from_bytes(b"glyf"))
-        .is_some()
-    {
-        "TrueType".to_string()
-    } else {
-        println!("Font file type not recognized!!!");
-        "Type1".to_string()
-    }
-}
-
-#[allow(dead_code)]
-pub fn get_pdf_font_info_of_path(
-    path: &Path,
-) -> Result<(FontPdfInfo, FontDescriptorPdfInfo), PdfMergeError> {
-    let font_data = fs::read(path)?;
-    get_pdf_font_info_of_data(&font_data)
+    classify_font(face).1.to_string()
 }
 
 pub fn get_pdf_font_info_of_data(

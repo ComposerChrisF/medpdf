@@ -59,10 +59,10 @@ impl std::fmt::Display for PdfMergeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Io(e) => write!(f, "I/O error: {}", e),
-            Self::LoPdf(e) => write!(f, "PDF error: {:?}", e),
+            Self::LoPdf(e) => write!(f, "PDF error: {}", e),
             Self::Message(msg) => write!(f, "{}", msg),
-            Self::FontKit(e) => write!(f, "Font error: {:?}", e),
-            Self::Face(e) => write!(f, "Font parsing error: {:?}", e),
+            Self::FontKit(e) => write!(f, "Font error: {}", e),
+            Self::Face(e) => write!(f, "Font parsing error: {}", e),
         }
     }
 }

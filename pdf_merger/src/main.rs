@@ -1,8 +1,5 @@
-#[macro_use]
-extern crate lopdf;
-
 use clap::Parser;
-use lopdf::{Document, Object, Stream, StringFormat};
+use lopdf::{dictionary, Document, Object, Stream, StringFormat};
 use std::path::PathBuf;
 use uuid::Uuid;
 
@@ -42,6 +39,7 @@ struct Args {
 
 fn format_xmp_metadata(doc_uuid: &str) -> String {
     let now = chrono::Local::now();
+    let version = env!("CARGO_PKG_VERSION");
     let metadata = format!("<?xpacket begin=\"?\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>
 <x:xmpmeta xmlns:x=\"adobe:ns:meta/\" xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\" xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\" xmlns:xmpMM=\"http://ns.adobe.com/xap/1.0/mm/\" xmlns:pdf=\"http://ns.adobe.com/pdf/1.3/\" xmlns:pdfaid=\"http://www.aiim.org/pdfa/ns/id/\" xmlns:pdfxid=\"http://www.npes.org/pdfx/ns/id/\">
     <rdf:RDF>
@@ -53,7 +51,7 @@ fn format_xmp_metadata(doc_uuid: &str) -> String {
             </dc:title>
         </rdf:Description>
         <rdf:Description rdf:about=\"\" pdf:Producer=\"lopdf\" pdf:Trapped=\"False\"/>
-        <rdf:Description rdf:about=\"\" xmp:CreatorTool=\"pdf_merger v0.1.0\" xmp:CreateDate=\"{now}\" xmp:ModifyDate=\"{now}\" xmp:MetadataDate=\"{now}\"/>
+        <rdf:Description rdf:about=\"\" xmp:CreatorTool=\"pdf_merger v{version}\" xmp:CreateDate=\"{now}\" xmp:ModifyDate=\"{now}\" xmp:MetadataDate=\"{now}\"/>
         <rdf:Description rdf:about=\"\" xmpMM:DocumentID=\"uuid:{doc_uuid}\" xmpMM:VersionID=\"1\" xmpMM:RenditionClass=\"default\"/>
     </rdf:RDF>
 </x:xmpmeta>
@@ -62,6 +60,7 @@ fn format_xmp_metadata(doc_uuid: &str) -> String {
 }
 
 fn main() -> Result<(), PdfMergeError> {
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
     let args = Args::parse();
     if args.inputs.len() % 2 != 0 {
         return Err("Input arguments must be in pairs of file paths and page specifications.".into());
@@ -124,7 +123,8 @@ fn main() -> Result<(), PdfMergeError> {
         let overlay_doc = Document::load(&spec.file)?;
         let target_page_indices = parse_page_spec(&spec.target_pages, dest_page_ids.len() as u32)?;
         for page_index in target_page_indices {
-            let dest_page_id = dest_page_ids[(page_index - 1) as usize];
+            let dest_page_id = *dest_page_ids.get((page_index - 1) as usize)
+                .ok_or_else(|| PdfMergeError::new(format!("Overlay target page index {} out of range", page_index)))?;
             medpdf::overlay_page(&mut dest_doc, dest_page_id, &overlay_doc, spec.src_page.into())?;
         }
     }
@@ -157,7 +157,8 @@ fn main() -> Result<(), PdfMergeError> {
 
             println!("Applying watermark ({layer_name}) '{}' to pages '{target_page_indices:?}'", spec.text);
             for page_index in target_page_indices {
-                let page_id = dest_page_ids[(page_index - 1) as usize];
+                let page_id = *dest_page_ids.get((page_index - 1) as usize)
+                    .ok_or_else(|| PdfMergeError::new(format!("Watermark target page index {} out of range", page_index)))?;
                 medpdf::add_text_params(dest_doc, page_id, &params)?;
             }
         }
@@ -183,8 +184,12 @@ fn main() -> Result<(), PdfMergeError> {
                     .ok_or_else(|| PdfMergeError::new("No pages in document to pad"))?;
                 let last_page = dest_doc.get_object(last_page_id)?.as_dict()?;
                 let media_box = last_page.get(KEY_MEDIA_BOX)?.as_array()?;
-                let width = media_box[2].as_f32()?;
-                let height = media_box[3].as_f32()?;
+                let width = media_box.get(2)
+                    .ok_or_else(|| PdfMergeError::new("Invalid MediaBox: expected 4 elements"))?
+                    .as_f32()?;
+                let height = media_box.get(3)
+                    .ok_or_else(|| PdfMergeError::new("Invalid MediaBox: expected 4 elements"))?
+                    .as_f32()?;
 
                 for _ in 0..(pages_to_add - 1) {
                     medpdf::create_blank_page(&mut dest_doc, width, height)?;

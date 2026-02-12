@@ -99,10 +99,10 @@ impl FromStr for WatermarkSpec {
         let mut strikeout = None;
         let mut underline = None;
         for part in s.split(',') {
-            let kv: Vec<&str> = part.splitn(2, '=').collect();
-            if kv.len() != 2 { return Err(format!("Invalid key-value pair: '{}'. Expected 'key=value'.", part)); }
-            let key = kv[0].trim();
-            let value = kv[1].trim();
+            let (key, value) = part.split_once('=')
+                .ok_or_else(|| format!("Invalid key-value pair: '{}'. Expected 'key=value'.", part))?;
+            let key = key.trim();
+            let value = value.trim();
             match key {
                 "text" => text = Some(value.to_string()),
                 "font" => font = Some(PathBuf::from(value)),
@@ -171,10 +171,10 @@ impl FromStr for OverlaySpec {
         let mut from_page = None;
         let mut pages = None;
         for part in s.split(',') {
-            let kv: Vec<&str> = part.splitn(2, '=').collect();
-            if kv.len() != 2 { return Err(format!("Invalid key-value pair: '{}'. Expected 'key=value'.", part)); }
-            let key = kv[0].trim();
-            let value = kv[1].trim();
+            let (key, value) = part.split_once('=')
+                .ok_or_else(|| format!("Invalid key-value pair: '{}'. Expected 'key=value'.", part))?;
+            let key = key.trim();
+            let value = value.trim();
             match key {
                 "file" => file = Some(PathBuf::from(value)),
                 "src_page" => from_page = Some(value.parse::<u16>().map_err(|_| format!("Invalid src_page value: '{}'", value))?),
@@ -215,10 +215,10 @@ impl FromStr for PadFileSpec {
         let mut file = None;
         let mut page = None;
         for part in s.split(',') {
-            let kv: Vec<&str> = part.splitn(2, '=').collect();
-            if kv.len() != 2 { return Err(format!("Invalid key-value pair: '{part}'.")); }
-            let key = kv[0].trim();
-            let value = kv[1].trim();
+            let (key, value) = part.split_once('=')
+                .ok_or_else(|| format!("Invalid key-value pair: '{part}'."))?;
+            let key = key.trim();
+            let value = value.trim();
             match key {
                 "file" => file = Some(PathBuf::from(value)),
                 "page" => page = Some(value.parse::<u16>().map_err(|e| e.to_string())?),
@@ -229,5 +229,159 @@ impl FromStr for PadFileSpec {
             file: file.ok_or("pad-file 'file' is required")?,
             page: page.unwrap_or(1),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // --- WatermarkSpec ---
+
+    #[test]
+    fn test_watermark_spec_minimal() {
+        let spec = WatermarkSpec::from_str("text=DRAFT,font=@Helvetica,x=1,y=1").unwrap();
+        assert_eq!(spec.text, "DRAFT");
+        assert_eq!(spec.font, PathBuf::from("@Helvetica"));
+        assert!((spec.x - 1.0).abs() < f32::EPSILON);
+        assert!((spec.y - 1.0).abs() < f32::EPSILON);
+        assert!((spec.size - 48.0).abs() < f32::EPSILON); // default
+        assert_eq!(spec.pages, "all"); // default
+        assert_eq!(spec.h_align, HAlign::Left); // default
+        assert_eq!(spec.v_align, VAlign::Baseline); // default
+        assert!((spec.rotation - 0.0).abs() < f32::EPSILON); // default
+    }
+
+    #[test]
+    fn test_watermark_spec_full() {
+        let spec = WatermarkSpec::from_str(
+            "text=Hello,font=@Courier,size=24,x=2,y=3,units=mm,pages=1-3,color=#FF0000,alpha=0.5,rotation=45,h_align=center,v_align=top,strikeout=true,underline=true"
+        ).unwrap();
+        assert_eq!(spec.text, "Hello");
+        assert!((spec.size - 24.0).abs() < f32::EPSILON);
+        assert!((spec.x - 2.0).abs() < f32::EPSILON);
+        assert!((spec.y - 3.0).abs() < f32::EPSILON);
+        assert_eq!(spec.pages, "1-3");
+        assert!((spec.color.r - 1.0).abs() < f32::EPSILON);
+        assert!((spec.color.a - 0.5).abs() < f32::EPSILON);
+        assert!((spec.rotation - 45.0).abs() < f32::EPSILON);
+        assert_eq!(spec.h_align, HAlign::Center);
+        assert_eq!(spec.v_align, VAlign::Top);
+        assert!(spec.strikeout);
+        assert!(spec.underline);
+    }
+
+    #[test]
+    fn test_watermark_spec_missing_text() {
+        let result = WatermarkSpec::from_str("font=@Helvetica,x=1,y=1");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("text"));
+    }
+
+    #[test]
+    fn test_watermark_spec_missing_font() {
+        let result = WatermarkSpec::from_str("text=DRAFT,x=1,y=1");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("font"));
+    }
+
+    #[test]
+    fn test_watermark_spec_invalid_kv() {
+        let result = WatermarkSpec::from_str("text=DRAFT,badinput,font=@Helvetica,x=1,y=1");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_watermark_spec_unknown_key() {
+        let result = WatermarkSpec::from_str("text=DRAFT,font=@Helvetica,x=1,y=1,bogus=val");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("bogus"));
+    }
+
+    #[test]
+    fn test_watermark_spec_color_named() {
+        let spec = WatermarkSpec::from_str("text=X,font=@H,x=0,y=0,color=red").unwrap();
+        assert!((spec.color.r - 1.0).abs() < f32::EPSILON);
+        assert!((spec.color.g - 0.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_watermark_spec_color_hex_short() {
+        let spec = WatermarkSpec::from_str("text=X,font=@H,x=0,y=0,color=#F00").unwrap();
+        assert!((spec.color.r - 1.0).abs() < f32::EPSILON);
+        assert!((spec.color.g - 0.0).abs() < f32::EPSILON);
+    }
+
+    // --- OverlaySpec ---
+
+    #[test]
+    fn test_overlay_spec_full() {
+        let spec = OverlaySpec::from_str("file=overlay.pdf,src_page=2,target_pages=1-5").unwrap();
+        assert_eq!(spec.file, PathBuf::from("overlay.pdf"));
+        assert_eq!(spec.src_page, 2);
+        assert_eq!(spec.target_pages, "1-5");
+    }
+
+    #[test]
+    fn test_overlay_spec_defaults() {
+        let spec = OverlaySpec::from_str("file=overlay.pdf,src_page=1").unwrap();
+        assert_eq!(spec.target_pages, "all");
+    }
+
+    #[test]
+    fn test_overlay_spec_missing_file() {
+        let result = OverlaySpec::from_str("src_page=1,target_pages=all");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_overlay_spec_missing_src_page() {
+        let result = OverlaySpec::from_str("file=overlay.pdf,target_pages=all");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_overlay_spec_unknown_key() {
+        let result = OverlaySpec::from_str("file=overlay.pdf,src_page=1,bogus=val");
+        assert!(result.is_err());
+    }
+
+    // --- PadToSpec ---
+
+    #[test]
+    fn test_pad_to_spec_valid() {
+        let spec = PadToSpec::from_str("4").unwrap();
+        assert_eq!(spec.pages, 4);
+    }
+
+    #[test]
+    fn test_pad_to_spec_invalid() {
+        assert!(PadToSpec::from_str("abc").is_err());
+        assert!(PadToSpec::from_str("-1").is_err());
+    }
+
+    // --- PadFileSpec ---
+
+    #[test]
+    fn test_pad_file_spec_full() {
+        let spec = PadFileSpec::from_str("file=blank.pdf,page=3").unwrap();
+        assert_eq!(spec.file, PathBuf::from("blank.pdf"));
+        assert_eq!(spec.page, 3);
+    }
+
+    #[test]
+    fn test_pad_file_spec_default_page() {
+        let spec = PadFileSpec::from_str("file=blank.pdf").unwrap();
+        assert_eq!(spec.page, 1);
+    }
+
+    #[test]
+    fn test_pad_file_spec_missing_file() {
+        assert!(PadFileSpec::from_str("page=1").is_err());
+    }
+
+    #[test]
+    fn test_pad_file_spec_invalid_kv() {
+        assert!(PadFileSpec::from_str("noequalssign").is_err());
     }
 }

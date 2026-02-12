@@ -1,6 +1,6 @@
 use crate::error::{PdfMergeError, Result};
 use crate::font_helpers;
-use crate::pdf_helpers::{KEY_CONTENTS, KEY_EXTGSTATE, KEY_FONT, KEY_FONT_DESTCRIPTOR, KEY_RESOURCES};
+use crate::pdf_helpers::{KEY_CONTENTS, KEY_EXTGSTATE, KEY_FONT, KEY_FONT_DESCRIPTOR, KEY_RESOURCES};
 use lopdf::content::{Content, Operation};
 use lopdf::{dictionary, Dictionary, Document, Object, ObjectId, Stream, StringFormat};
 
@@ -14,9 +14,9 @@ fn count_q_balance(dest_doc: &Document, content_refs: &[ObjectId]) -> Result<isi
         if let Ok(stream) = obj.as_stream() {
             // Need to decompress if necessary
             let content_bytes = if stream.is_compressed() {
-                stream.decompressed_content()?
+                std::borrow::Cow::Owned(stream.decompressed_content()?)
             } else {
-                stream.content.clone()
+                std::borrow::Cow::Borrowed(&stream.content)
             };
 
             // Parse and count q/Q operations
@@ -329,14 +329,16 @@ fn widths_as_object_array(widths: &[u16]) -> Object {
     Object::Array(widths.iter().map(|v| Object::Integer(*v as i64)).collect())
 }
 
-fn bbox_as_object_array(bbox: &[i16]) -> Object {
-    assert!(bbox.len() == 4);
-    Object::Array(vec![
+fn bbox_as_object_array(bbox: &[i16]) -> Result<Object> {
+    if bbox.len() != 4 {
+        return Err(PdfMergeError::new("FontBBox must have exactly 4 elements"));
+    }
+    Ok(Object::Array(vec![
         Object::Integer(bbox[0] as i64),
         Object::Integer(bbox[1] as i64),
         Object::Integer(bbox[2] as i64),
         Object::Integer(bbox[3] as i64),
-    ])
+    ]))
 }
 
 /// Adds text to a page using rich parameters (color, f32 coords, rotation, alignment).
@@ -523,8 +525,10 @@ pub fn add_text_params(
             match contents {
                 Object::Array(ref mut arr) => {
                     if params.layer_over {
-                        arr.insert(0, Object::Reference(q_id.unwrap()));
-                        arr.push(Object::Reference(closing_q_id.unwrap()));
+                        let q = q_id.ok_or_else(|| PdfMergeError::new("Internal error: missing q stream ID"))?;
+                        let closing_q = closing_q_id.ok_or_else(|| PdfMergeError::new("Internal error: missing closing q stream ID"))?;
+                        arr.insert(0, Object::Reference(q));
+                        arr.push(Object::Reference(closing_q));
                         arr.push(Object::Reference(content_id));
                     } else {
                         arr.insert(0, Object::Reference(content_id));
@@ -533,10 +537,12 @@ pub fn add_text_params(
                 Object::Reference(id) => {
                     let old_id = *id;
                     *contents = if params.layer_over {
+                        let q = q_id.ok_or_else(|| PdfMergeError::new("Internal error: missing q stream ID"))?;
+                        let closing_q = closing_q_id.ok_or_else(|| PdfMergeError::new("Internal error: missing closing q stream ID"))?;
                         Object::Array(vec![
-                            Object::Reference(q_id.unwrap()),
+                            Object::Reference(q),
                             Object::Reference(old_id),
-                            Object::Reference(closing_q_id.unwrap()),
+                            Object::Reference(closing_q),
                             Object::Reference(content_id),
                         ])
                     } else {
@@ -578,11 +584,12 @@ fn add_embedded_font(
     if let Some(ref encoding) = font_info.encoding {
         font_dict.set("Encoding", Object::Name(encoding.as_bytes().to_vec()));
     }
+    let font_bbox = bbox_as_object_array(&font_descriptor.font_bbox[..])?;
     let mut descriptor_dict = dictionary! {
         "Type" => "FontDescriptor",
         "FontName" => font_descriptor.font_name,
         "Flags" => font_descriptor.flags,
-        "FontBBox" => bbox_as_object_array(&font_descriptor.font_bbox[..]),
+        "FontBBox" => font_bbox,
         "ItalicAngle" => font_descriptor.italic_angle,
         "Ascent" => font_descriptor.ascent,
         "Descent" => font_descriptor.descent,
@@ -599,7 +606,7 @@ fn add_embedded_font(
     let font_file_id = dest_doc.add_object(font_file);
     descriptor_dict.set(font_descriptor.font_file_key, font_file_id);
     let descriptor_id = dest_doc.add_object(descriptor_dict);
-    font_dict.set(KEY_FONT_DESTCRIPTOR, descriptor_id);
+    font_dict.set(KEY_FONT_DESCRIPTOR, descriptor_id);
 
     let font_id = dest_doc.add_object(font_dict);
     register_font_in_page_resources(dest_doc, page_id, font_id)

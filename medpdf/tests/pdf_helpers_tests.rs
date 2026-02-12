@@ -88,12 +88,12 @@ fn test_deep_copy_real() {
     let source_doc = fixtures::create_empty_pdf();
     let mut copied = BTreeMap::new();
 
-    let source_obj = Object::Real(3.14);
+    let source_obj = Object::Real(3.15);
     let result = deep_copy_object(&mut dest_doc, &source_doc, &source_obj, &mut copied);
 
     assert!(result.is_ok());
     if let Object::Real(v) = result.unwrap() {
-        assert!((v - 3.14).abs() < 0.001);
+        assert!((v - 3.15).abs() < 0.001);
     } else {
         panic!("Expected Real object");
     }

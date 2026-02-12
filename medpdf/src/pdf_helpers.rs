@@ -11,7 +11,7 @@ pub const KEY_COUNT: &[u8] = b"Count";
 pub const KEY_RESOURCES: &[u8] = b"Resources";
 pub const KEY_CONTENTS: &[u8] = b"Contents";
 pub const KEY_FONT: &[u8] = b"Font";
-pub const KEY_FONT_DESTCRIPTOR: &[u8] = b"FontDescriptor";
+pub const KEY_FONT_DESCRIPTOR: &[u8] = b"FontDescriptor";
 pub const KEY_MEDIA_BOX: &[u8] = b"MediaBox";
 pub const KEY_EXTGSTATE: &[u8] = b"ExtGState";
 

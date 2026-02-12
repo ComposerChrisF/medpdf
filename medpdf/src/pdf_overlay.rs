@@ -1,7 +1,8 @@
 use crate::error::{PdfMergeError, Result};
 use crate::pdf_helpers::{self, KEY_CONTENTS, KEY_PAGE, KEY_PAGES, KEY_RESOURCES, KEY_TYPE};
+use log::{debug, trace, warn};
 use lopdf::content::Operation;
-use lopdf::{Dictionary, Document, Object, ObjectId, Stream};
+use lopdf::{Dictionary, Document, Object, ObjectId};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 fn add_resource_keys(keys: &mut HashSet<Vec<u8>>, dict_resources: &Dictionary) -> Result<()> {
@@ -108,49 +109,6 @@ fn rename_resources_in_dict(
     Ok(())
 }
 
-#[allow(dead_code, unused_variables)]
-fn debug_dump_stream_by_id(doc: &Document, id_stream: ObjectId) -> Result<()> {
-    #[cfg(debug_assertions)]
-    {
-        debug_dump_stream_object(doc.get_object(id_stream)?)?;
-    }
-    Ok(())
-}
-#[allow(dead_code, unused_variables)]
-fn debug_dump_stream_object(stream: &Object) -> Result<()> {
-    #[cfg(debug_assertions)]
-    {
-        let s = stream.as_stream()?;
-        debug_dump_stream(s)?;
-    }
-    Ok(())
-}
-#[allow(dead_code, unused_variables)]
-fn debug_dump_stream(stream: &Stream) -> Result<()> {
-    #[cfg(debug_assertions)]
-    {
-        print!("Dumping stream: ");
-        let ops = stream.decode_content()?.operations;
-        println!("    # ops = {}", ops.len());
-        for (i, op) in ops.iter().enumerate() {
-            println!("  op: {op:?}");
-            if i > 20 {
-                break;
-            }
-        }
-        println!("    Raw dump:");
-        println!(
-            "{}\n",
-            String::from_utf8_lossy(&stream.content[..stream.content.len().min(100)])
-        );
-        if stream.is_compressed() {
-            let x = stream.decompressed_content()?;
-            println!("{}\n", String::from_utf8_lossy(&x[..x.len().min(100)]));
-        }
-    }
-    Ok(())
-}
-
 fn modify_content_stream(
     dest_doc: &mut Document,
     contents_arr: &[Object],
@@ -187,19 +145,15 @@ fn modify_content_stream(
         content.operations.insert(0, Operation::new("q", vec![]));
         content.operations.push(Operation::new("Q", vec![]));
         // We count q/Q pairs to make sure they are balanced, so that we can add extra "Q" if necessary.
-        #[cfg(debug_assertions)]
-        {
-            println!("count_q = {count_q}");
-        }
+        trace!("count_q = {count_q}");
         for _ in 0..count_q {
-            println!("WARNING: Unbalanced q/Q pairs, so adding 'Q'.");
+            warn!("Unbalanced q/Q pairs, adding 'Q'");
             content.operations.push(Operation::new("Q", vec![]));
         }
 
         // TODO: Compress content stream!!!
         content_stream.content = content.encode()?;
-        #[cfg(debug_assertions)]
-        {
+        if log::log_enabled!(log::Level::Trace) {
             for (i, op) in content_stream
                 .decode_content()?
                 .operations
@@ -209,11 +163,36 @@ fn modify_content_stream(
                 if i > 20 {
                     break;
                 }
-                println!("op {op:?}");
+                trace!("op {op:?}");
             }
         }
     }
     Ok(())
+}
+
+/// Normalizes a contents array from a source document, deep-copying each stream/reference into dest_doc.
+fn normalize_contents_array(
+    dest_doc: &mut Document,
+    source_doc: &Document,
+    items: &[Object],
+    copied_objects: &mut BTreeMap<ObjectId, ObjectId>,
+) -> Result<Vec<Object>> {
+    let mut refs = Vec::with_capacity(items.len());
+    for item in items {
+        let id = match item {
+            Object::Stream(s) => dest_doc.add_object(s.clone()),
+            Object::Reference(id) => {
+                pdf_helpers::deep_copy_object_by_id(dest_doc, source_doc, *id, copied_objects)?
+            }
+            _ => {
+                return Err(PdfMergeError::new(
+                    "Page/Contents array must contain Streams or References",
+                ))
+            }
+        };
+        refs.push(Object::Reference(id));
+    }
+    Ok(refs)
 }
 
 /// Overlays the content of a source page onto a destination page.
@@ -240,13 +219,13 @@ pub fn overlay_page(
     //         to avoid unneeded object duplication (but only of objects we don't modify!).)
     //         Also, normalizing q/Q pairing (enforcing both proper pairing, and that all content
     //         starts with a q and ends with a Q).
-    println!("Standarding and cloning overlay's /Contents");
+    debug!("Standardizing and cloning overlay's /Contents");
     let overlay_contents = overlay_page.get(KEY_CONTENTS)?;
     let overlay_contents_arr_new = match overlay_contents {
         Object::Stream(stream) => {
             let dest_stream_id = dest_doc.add_object(stream.clone());
             vec![Object::Reference(dest_stream_id)]
-        },
+        }
         Object::Reference(reference) => {
             let o = overlay_doc.get_object(*reference)?;
             match o {
@@ -255,42 +234,20 @@ pub fn overlay_page(
                     vec![Object::Reference(dest_stream_id)]
                 }
                 Object::Array(a) => {
-                    let mut a_new = Vec::<Object>::with_capacity(a.len());
-                    for item in a {
-                        let id_item_new = match item {
-                            Object::Stream(s) => dest_doc.add_object(s.clone()),
-                            Object::Reference(id) => {
-                                pdf_helpers::deep_copy_object_by_id(dest_doc, overlay_doc, *id, &mut copied_objects)?
-                            }
-                            _ => return Err(PdfMergeError::new("Page/Contents array must contain Streams or References!")),
-                        };
-                        a_new.push(Object::Reference(id_item_new));
-                    }
-                    a_new
+                    normalize_contents_array(dest_doc, overlay_doc, a, &mut copied_objects)?
                 }
                 _ => return Err(PdfMergeError::Message(format!("Page {overlay_page_id:?} /Contents references a non-stream / non-array"))),
             }
         }
         Object::Array(a) => {
-            let mut a_new = Vec::<Object>::with_capacity(a.len());
-            for item in a {
-                let id_item_new = match item {
-                    Object::Stream(s) => dest_doc.add_object(s.clone()),
-                    Object::Reference(id) => {
-                        pdf_helpers::deep_copy_object_by_id(dest_doc, overlay_doc, *id, &mut copied_objects)?
-                    }
-                    _ => return Err(PdfMergeError::new("Page/Contents array must contain Streams or References!")),
-                };
-                a_new.push(Object::Reference(id_item_new));
-            }
-            a_new
+            normalize_contents_array(dest_doc, overlay_doc, a, &mut copied_objects)?
         }
         _ => return Err(PdfMergeError::Message(format!("Page {overlay_page_id:?} /Contents must be stream or array or reference to stream or array"))),
     };
 
     // Generate deep copy of overlay's page's /Resources dictionary, normalizing it to be a
     // reference (rather than an embedded resource).  FUTURE: Also need to copy/merge any parent /Resources...
-    println!("Generating deep copy of overlay's /Resources");
+    debug!("Generating deep copy of overlay's /Resources");
     let overlay_page_resources = overlay_page.get(KEY_RESOURCES)?;
     let overlay_resources_dict_id_new = match overlay_page_resources {
         Object::Dictionary(_) => {
@@ -307,7 +264,7 @@ pub fn overlay_page(
         }
         _ => {
             return Err(PdfMergeError::Message(format!(
-                "Page {overlay_page_id:?} /Resources must be dictionary or referece to dictionary"
+                "Page {overlay_page_id:?} /Resources must be dictionary or reference to dictionary"
             )))
         }
     };
@@ -316,7 +273,7 @@ pub fn overlay_page(
 
     // Starting at the root of the *destination* document, build a list (HashSet) of all keys in
     // all /Resource dictionaries, so we can later make sure no names we add to /Resources conflict!
-    println!("Accumulating dictionary keys in destination document");
+    debug!("Accumulating dictionary keys in destination document");
     let mut keys_used = HashSet::<Vec<u8>>::new();
     accumulate_dictionary_keys(
         &mut keys_used,
@@ -326,7 +283,7 @@ pub fn overlay_page(
 
     // Now generate new names for all resources in our copied resources_dict_id_new, mutably updating it.
     // Make sure the new names are not present in keys.
-    println!("Renaming keys in overlay dictionaries to be unique in destination");
+    debug!("Renaming keys in overlay dictionaries to be unique in destination");
     let mut key_mapping = HashMap::<Vec<u8>, Vec<u8>>::new();
     rename_resources_in_dict(
         &mut key_mapping,
@@ -335,11 +292,10 @@ pub fn overlay_page(
         overlay_resources_dict_id_new,
     )?;
     // We've now renamed the keys in the Resources dict from the overlay (resources_dict_id_new).
-    #[cfg(debug_assertions)]
-    {
-        println!("key_mapping:");
+    if log::log_enabled!(log::Level::Trace) {
+        trace!("key_mapping:");
         for (k, v) in key_mapping.iter() {
-            println!(
+            trace!(
                 "{} => {}",
                 String::from_utf8_lossy(k),
                 String::from_utf8_lossy(v)
@@ -350,28 +306,35 @@ pub fn overlay_page(
     // Update the Contents streams from the overlay document to use the new dictionary keys
     // Unobvious, but changing decoded operations does not modify the Content!!!!  It looks
     // like we need to build a *new* Content, modifying the ops as we copy them.
-    println!("Updating overlay Content streams to use new keys");
-    assert!(overlay_contents_arr_new
+    debug!("Updating overlay Content streams to use new keys");
+    if !overlay_contents_arr_new
         .iter()
-        .all(|obj| obj.as_reference().is_ok()));
-    assert!(overlay_contents_arr_new.iter().all(|obj| {
-        let o = dest_doc.get_object(obj.as_reference().unwrap()).unwrap();
-        o.as_stream().is_ok()
-    }));
-    modify_content_stream(dest_doc, &overlay_contents_arr_new, Some(&key_mapping))?;
-    #[cfg(debug_assertions)]
+        .all(|obj| obj.as_reference().is_ok())
     {
-        println!("arr_new: {overlay_contents_arr_new:?}");
+        return Err(PdfMergeError::new(
+            "Overlay contents array must contain only references",
+        ));
+    }
+    for obj in overlay_contents_arr_new.iter() {
+        let o = dest_doc.get_object(obj.as_reference()?)?;
+        if o.as_stream().is_err() {
+            return Err(PdfMergeError::new(
+                "Overlay contents references must point to streams",
+            ));
+        }
+    }
+    modify_content_stream(dest_doc, &overlay_contents_arr_new, Some(&key_mapping))?;
+    if log::log_enabled!(log::Level::Trace) {
+        trace!("arr_new: {overlay_contents_arr_new:?}");
         for item in overlay_contents_arr_new.iter() {
             let o = dest_doc.get_object(item.as_reference()?)?;
-            println!("o={o:?}");
-            debug_dump_stream_object(o)?;
+            trace!("o={o:?}");
         }
     }
 
     // Now add each element of the Contents array to the destination pages's /Contents (normalizing
     // the destination /Contents to be an array).
-    println!("Merging overlay's /Contents into the destination page's /Contents array");
+    debug!("Merging overlay's /Contents into the destination page's /Contents array");
     // a. We start by getting a copy of dest page's Contents, converting it to an array of
     //    references, if necessary.
     let dest_contents = dest_doc
@@ -400,7 +363,7 @@ pub fn overlay_page(
     // b. For the original Content, we need to make sure everything is both q/Q balanced, *and*
     //     add a starting q and ending Q to all Content streams!  Otherwise our overlay might be
     //     affected by stray scaling and rotations!
-    println!("Modifying existing Content streams");
+    debug!("Modifying existing Content streams");
     modify_content_stream(dest_doc, &dest_contents_arr_new, None)?;
     // c. We then copy the references from the overlay_contents_arr_new to the end of
     //    dest_content_arr_new.
@@ -408,15 +371,21 @@ pub fn overlay_page(
         let reference = item.as_reference()?;
         dest_contents_arr_new.push(Object::Reference(reference)); // For "underlay": .insert(i, Object::Reference(reference)); where i starts at 0 and increments for each content stream from the underlay.
     }
-    let x = dest_doc.get_object(overlay_contents_arr_new[0].as_reference()?)?;
-    let y = x.as_stream()?;
-    debug_dump_stream(y)?;
+    if log::log_enabled!(log::Level::Trace) {
+        if let Some(first) = overlay_contents_arr_new.first() {
+            let obj = dest_doc.get_object(first.as_reference()?)?;
+            if let Ok(stream) = obj.as_stream() {
+                let ops = stream.decode_content()?.operations;
+                trace!("First overlay stream: {} ops", ops.len());
+            }
+        }
+    }
     // c. Finally, we replace the dest page's Content value with our new array.
     let dest_page_dict = dest_doc.get_object_mut(dest_page_id)?.as_dict_mut()?;
     dest_page_dict.set(KEY_CONTENTS, Object::Array(dest_contents_arr_new));
 
     // On target output page, merge our renamed /Resources with the target page's /Resources dicts
-    println!("Merge overlay's /Resources dictionary (with keys renamed) into destination page's /Resources");
+    debug!("Merge overlay's /Resources dictionary (with keys renamed) into destination page's /Resources");
     // a. First, we must ensure the dest page's Resources exists, and normalize it to be a reference
     //    to a separate object.
     //    i. We first determine which scenario we're in: embedded Dictionary or Reference to dict obj:
@@ -430,8 +399,7 @@ pub fn overlay_page(
         }
         Err(_) => (Some(Dictionary::new()), None),
     };
-    assert!(dict_to_make_object.is_none() ^ dict_ref.is_none()); // Exactly one of these is Some() and one is None
-                                                                 //    ii. Now we add a new Dictionary object to dest_doc if needed, or use the one that's already there!
+    //    ii. Now we add a new Dictionary object to dest_doc if needed, or use the one that's already there!
     let dict_ref = match (dict_to_make_object, dict_ref) {
         (Some(dict_to_make_object), None) => {
             dest_doc.add_object(Object::Dictionary(dict_to_make_object))
