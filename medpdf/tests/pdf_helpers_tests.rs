@@ -154,3 +154,126 @@ fn test_unit_to_points_negative() {
     let result = Unit::In.to_points(-1.0);
     assert!((result - (-72.0)).abs() < f32::EPSILON);
 }
+
+// --- get_page_rotation / set_page_rotation Tests ---
+
+use medpdf::pdf_helpers::{get_page_rotation, set_page_rotation};
+
+#[test]
+fn test_get_page_rotation_default_is_zero() {
+    let doc = fixtures::create_pdf_with_pages(1);
+    let page_id = fixtures::get_first_page_id(&doc);
+    assert_eq!(get_page_rotation(&doc, page_id), 0);
+}
+
+#[test]
+fn test_set_page_rotation_90() {
+    let mut doc = fixtures::create_pdf_with_pages(1);
+    let page_id = fixtures::get_first_page_id(&doc);
+
+    set_page_rotation(&mut doc, page_id, 90).unwrap();
+    assert_eq!(get_page_rotation(&doc, page_id), 90);
+}
+
+#[test]
+fn test_set_page_rotation_180() {
+    let mut doc = fixtures::create_pdf_with_pages(1);
+    let page_id = fixtures::get_first_page_id(&doc);
+
+    set_page_rotation(&mut doc, page_id, 180).unwrap();
+    assert_eq!(get_page_rotation(&doc, page_id), 180);
+}
+
+#[test]
+fn test_set_page_rotation_270() {
+    let mut doc = fixtures::create_pdf_with_pages(1);
+    let page_id = fixtures::get_first_page_id(&doc);
+
+    set_page_rotation(&mut doc, page_id, 270).unwrap();
+    assert_eq!(get_page_rotation(&doc, page_id), 270);
+}
+
+#[test]
+fn test_set_page_rotation_360_normalizes_to_zero() {
+    let mut doc = fixtures::create_pdf_with_pages(1);
+    let page_id = fixtures::get_first_page_id(&doc);
+
+    set_page_rotation(&mut doc, page_id, 360).unwrap();
+    // 360 % 360 == 0, so /Rotate should be removed
+    assert_eq!(get_page_rotation(&doc, page_id), 0);
+}
+
+#[test]
+fn test_set_page_rotation_zero_removes_key() {
+    let mut doc = fixtures::create_pdf_with_pages(1);
+    let page_id = fixtures::get_first_page_id(&doc);
+
+    // First set a rotation, then set to 0
+    set_page_rotation(&mut doc, page_id, 90).unwrap();
+    assert_eq!(get_page_rotation(&doc, page_id), 90);
+
+    set_page_rotation(&mut doc, page_id, 0).unwrap();
+    assert_eq!(get_page_rotation(&doc, page_id), 0);
+
+    // Verify the key is actually removed
+    let page = doc.get_dictionary(page_id).unwrap();
+    assert!(page.get(b"Rotate").is_err(), "/Rotate key should be removed when set to 0");
+}
+
+#[test]
+fn test_set_page_rotation_invalid_angle() {
+    let mut doc = fixtures::create_pdf_with_pages(1);
+    let page_id = fixtures::get_first_page_id(&doc);
+
+    let result = set_page_rotation(&mut doc, page_id, 45);
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    assert!(err.contains("multiple of 90"), "got: {err}");
+}
+
+#[test]
+fn test_set_page_rotation_invalid_angle_15() {
+    let mut doc = fixtures::create_pdf_with_pages(1);
+    let page_id = fixtures::get_first_page_id(&doc);
+
+    let result = set_page_rotation(&mut doc, page_id, 15);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_get_page_rotation_bogus_id() {
+    let doc = fixtures::create_pdf_with_pages(1);
+    let bogus_id = (9999, 0);
+    // Should return 0 (default) for non-existent pages
+    assert_eq!(get_page_rotation(&doc, bogus_id), 0);
+}
+
+#[test]
+fn test_get_page_rotation_inherited_from_parent() {
+    // Create a PDF where Rotate is set on the Pages node, not on the page itself
+    let mut doc = fixtures::create_pdf_with_pages(1);
+    let page_id = fixtures::get_first_page_id(&doc);
+
+    // Get the parent Pages node ID
+    let page_dict = doc.get_dictionary(page_id).unwrap();
+    let parent_id = page_dict.get(b"Parent").unwrap().as_reference().unwrap();
+
+    // Set Rotate on the parent Pages node
+    let parent = doc.get_object_mut(parent_id).unwrap().as_dict_mut().unwrap();
+    parent.set("Rotate", lopdf::Object::Integer(90));
+
+    // Page should inherit the rotation from parent
+    assert_eq!(get_page_rotation(&doc, page_id), 90);
+}
+
+#[test]
+fn test_set_page_rotation_overwrite() {
+    let mut doc = fixtures::create_pdf_with_pages(1);
+    let page_id = fixtures::get_first_page_id(&doc);
+
+    set_page_rotation(&mut doc, page_id, 90).unwrap();
+    assert_eq!(get_page_rotation(&doc, page_id), 90);
+
+    set_page_rotation(&mut doc, page_id, 270).unwrap();
+    assert_eq!(get_page_rotation(&doc, page_id), 270);
+}

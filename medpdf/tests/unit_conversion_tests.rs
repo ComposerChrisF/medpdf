@@ -162,3 +162,130 @@ fn test_mm_conversion_ratio() {
     let points_20 = Unit::Mm.to_points(20.0);
     assert!(approx_eq(points_20, points_10 * 2.0));
 }
+
+// --- Points (identity) ---
+
+#[test]
+fn test_pt_identity() {
+    // Points are the native PDF unit — should pass through unchanged
+    let points = Unit::Pt.to_points(72.0);
+    assert!(approx_eq(points, 72.0), "Expected 72.0, got {}", points);
+}
+
+#[test]
+fn test_pt_zero() {
+    let points = Unit::Pt.to_points(0.0);
+    assert!(approx_eq(points, 0.0), "Expected 0.0, got {}", points);
+}
+
+#[test]
+fn test_pt_negative() {
+    let points = Unit::Pt.to_points(-100.0);
+    assert!(approx_eq(points, -100.0), "Expected -100.0, got {}", points);
+}
+
+#[test]
+fn test_pt_fractional() {
+    let points = Unit::Pt.to_points(3.14159);
+    assert!(approx_eq(points, 3.14159), "Expected 3.14159, got {}", points);
+}
+
+#[test]
+fn test_pt_large() {
+    let points = Unit::Pt.to_points(10000.0);
+    assert!(approx_eq(points, 10000.0), "Expected 10000.0, got {}", points);
+}
+
+// --- Centimeters to Points ---
+
+#[test]
+fn test_cm_one_inch_equivalent() {
+    // 2.54 cm = 1 inch = 72 points
+    let points = Unit::Cm.to_points(2.54);
+    assert!(approx_eq(points, 72.0), "Expected 72.0, got {}", points);
+}
+
+#[test]
+fn test_cm_one() {
+    // 1 cm = 72/2.54 = ~28.34645669 points
+    let points = Unit::Cm.to_points(1.0);
+    let expected = 72.0 / 2.54;
+    assert!(
+        approx_eq(points, expected),
+        "Expected {}, got {}",
+        expected,
+        points
+    );
+}
+
+#[test]
+fn test_cm_zero() {
+    let points = Unit::Cm.to_points(0.0);
+    assert!(approx_eq(points, 0.0), "Expected 0.0, got {}", points);
+}
+
+#[test]
+fn test_cm_negative() {
+    let points = Unit::Cm.to_points(-2.54);
+    assert!(approx_eq(points, -72.0), "Expected -72.0, got {}", points);
+}
+
+#[test]
+fn test_cm_a4_width() {
+    // A4 width = 21cm = ~595.276 points
+    let points = Unit::Cm.to_points(21.0);
+    let expected = 21.0 * 72.0 / 2.54;
+    assert!(
+        approx_eq(points, expected),
+        "Expected {}, got {}",
+        expected,
+        points
+    );
+}
+
+#[test]
+fn test_cm_a4_height() {
+    // A4 height = 29.7cm = ~841.89 points
+    let points = Unit::Cm.to_points(29.7);
+    let expected = 29.7 * 72.0 / 2.54;
+    assert!(
+        approx_eq(points, expected),
+        "Expected {}, got {}",
+        expected,
+        points
+    );
+}
+
+// --- Cross-unit Consistency ---
+
+#[test]
+fn test_cm_and_mm_equivalence() {
+    // 1 cm should equal 10 mm in points
+    let cm_points = Unit::Cm.to_points(1.0);
+    let mm_points = Unit::Mm.to_points(10.0);
+    assert!(
+        approx_eq(cm_points, mm_points),
+        "1cm ({}) should equal 10mm ({}) in points",
+        cm_points,
+        mm_points
+    );
+}
+
+#[test]
+fn test_all_units_agree_on_one_inch() {
+    // 72pt = 1in = 25.4mm = 2.54cm
+    let pt = Unit::Pt.to_points(72.0);
+    let inches = Unit::In.to_points(1.0);
+    let mm = Unit::Mm.to_points(25.4);
+    let cm = Unit::Cm.to_points(2.54);
+    assert!(approx_eq(pt, inches), "Pt vs In: {} vs {}", pt, inches);
+    assert!(approx_eq(pt, mm), "Pt vs Mm: {} vs {}", pt, mm);
+    assert!(approx_eq(pt, cm), "Pt vs Cm: {} vs {}", pt, cm);
+}
+
+#[test]
+fn test_cm_conversion_ratio() {
+    let points_5 = Unit::Cm.to_points(5.0);
+    let points_10 = Unit::Cm.to_points(10.0);
+    assert!(approx_eq(points_10, points_5 * 2.0));
+}

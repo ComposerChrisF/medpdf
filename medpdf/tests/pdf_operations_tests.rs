@@ -405,3 +405,137 @@ fn test_copy_page_with_cache_tracks_objects() {
         "Cache should retain mappings from previous copies"
     );
 }
+
+// --- delete_page Tests ---
+
+use medpdf::pdf_delete_page::delete_page;
+
+#[test]
+fn test_delete_page_single_page_doc() {
+    let source = fixtures::create_pdf_with_pages(1);
+    let mut doc = fixtures::create_empty_pdf();
+    copy_page(&mut doc, &source, 1).unwrap();
+    assert_eq!(doc.get_pages().len(), 1);
+
+    let removed_id = delete_page(&mut doc, 1).unwrap();
+    assert_eq!(doc.get_pages().len(), 0);
+    // The object still exists in the table (not garbage-collected)
+    assert!(doc.get_object(removed_id).is_ok());
+}
+
+#[test]
+fn test_delete_page_first_of_three() {
+    let source = fixtures::create_pdf_with_pages(3);
+    let mut doc = fixtures::create_empty_pdf();
+    for p in 1..=3 {
+        copy_page(&mut doc, &source, p).unwrap();
+    }
+    assert_eq!(doc.get_pages().len(), 3);
+
+    delete_page(&mut doc, 1).unwrap();
+    assert_eq!(doc.get_pages().len(), 2);
+}
+
+#[test]
+fn test_delete_page_middle_of_three() {
+    let source = fixtures::create_pdf_with_pages(3);
+    let mut doc = fixtures::create_empty_pdf();
+    for p in 1..=3 {
+        copy_page(&mut doc, &source, p).unwrap();
+    }
+
+    delete_page(&mut doc, 2).unwrap();
+    assert_eq!(doc.get_pages().len(), 2);
+}
+
+#[test]
+fn test_delete_page_last_of_three() {
+    let source = fixtures::create_pdf_with_pages(3);
+    let mut doc = fixtures::create_empty_pdf();
+    for p in 1..=3 {
+        copy_page(&mut doc, &source, p).unwrap();
+    }
+
+    delete_page(&mut doc, 3).unwrap();
+    assert_eq!(doc.get_pages().len(), 2);
+}
+
+#[test]
+fn test_delete_page_updates_count() {
+    let source = fixtures::create_pdf_with_pages(5);
+    let mut doc = fixtures::create_empty_pdf();
+    for p in 1..=5 {
+        copy_page(&mut doc, &source, p).unwrap();
+    }
+
+    delete_page(&mut doc, 3).unwrap();
+
+    let pages_id = doc
+        .catalog()
+        .unwrap()
+        .get(b"Pages")
+        .unwrap()
+        .as_reference()
+        .unwrap();
+    let pages = doc.get_dictionary(pages_id).unwrap();
+    let count = pages.get(b"Count").unwrap();
+    assert_eq!(count, &Object::Integer(4));
+}
+
+#[test]
+fn test_delete_page_invalid_page_number() {
+    let source = fixtures::create_pdf_with_pages(3);
+    let mut doc = fixtures::create_empty_pdf();
+    for p in 1..=3 {
+        copy_page(&mut doc, &source, p).unwrap();
+    }
+
+    let result = delete_page(&mut doc, 4);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_delete_page_zero() {
+    let source = fixtures::create_pdf_with_pages(1);
+    let mut doc = fixtures::create_empty_pdf();
+    copy_page(&mut doc, &source, 1).unwrap();
+
+    let result = delete_page(&mut doc, 0);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_delete_page_from_empty_doc() {
+    let mut doc = fixtures::create_empty_pdf();
+
+    let result = delete_page(&mut doc, 1);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_delete_all_pages_one_by_one() {
+    let source = fixtures::create_pdf_with_pages(3);
+    let mut doc = fixtures::create_empty_pdf();
+    for p in 1..=3 {
+        copy_page(&mut doc, &source, p).unwrap();
+    }
+
+    // Delete from back to front to avoid index shifting
+    delete_page(&mut doc, 3).unwrap();
+    assert_eq!(doc.get_pages().len(), 2);
+    delete_page(&mut doc, 2).unwrap();
+    assert_eq!(doc.get_pages().len(), 1);
+    delete_page(&mut doc, 1).unwrap();
+    assert_eq!(doc.get_pages().len(), 0);
+}
+
+#[test]
+fn test_delete_page_returns_correct_id() {
+    let source = fixtures::create_pdf_with_pages(2);
+    let mut doc = fixtures::create_empty_pdf();
+    let page1_id = copy_page(&mut doc, &source, 1).unwrap();
+    let _page2_id = copy_page(&mut doc, &source, 2).unwrap();
+
+    let removed_id = delete_page(&mut doc, 1).unwrap();
+    assert_eq!(removed_id, page1_id);
+}

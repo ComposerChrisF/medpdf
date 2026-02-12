@@ -353,6 +353,151 @@ mod tests {
         assert!(FontWeight::BOLD < FontWeight::BLACK);
     }
 
+    // --- PdfColor::from_argb8 ---
+
+    #[test]
+    fn test_pdf_color_from_argb8_full_alpha() {
+        let c = PdfColor::from_argb8(255, 255, 0, 128);
+        assert!((c.a - 1.0).abs() < f32::EPSILON);
+        assert!((c.r - 1.0).abs() < f32::EPSILON);
+        assert!((c.g - 0.0).abs() < f32::EPSILON);
+        assert!((c.b - 128.0 / 255.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_pdf_color_from_argb8_half_alpha() {
+        let c = PdfColor::from_argb8(128, 0, 255, 0);
+        assert!((c.a - 128.0 / 255.0).abs() < 0.001);
+        assert!((c.r - 0.0).abs() < f32::EPSILON);
+        assert!((c.g - 1.0).abs() < f32::EPSILON);
+        assert!((c.b - 0.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_pdf_color_from_argb8_zero_alpha() {
+        let c = PdfColor::from_argb8(0, 100, 100, 100);
+        assert!((c.a - 0.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_pdf_color_from_argb8_all_zeros() {
+        let c = PdfColor::from_argb8(0, 0, 0, 0);
+        assert!((c.a - 0.0).abs() < f32::EPSILON);
+        assert!((c.r - 0.0).abs() < f32::EPSILON);
+        assert!((c.g - 0.0).abs() < f32::EPSILON);
+        assert!((c.b - 0.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_pdf_color_from_argb8_all_max() {
+        let c = PdfColor::from_argb8(255, 255, 255, 255);
+        assert!((c.a - 1.0).abs() < f32::EPSILON);
+        assert!((c.r - 1.0).abs() < f32::EPSILON);
+        assert!((c.g - 1.0).abs() < f32::EPSILON);
+        assert!((c.b - 1.0).abs() < f32::EPSILON);
+    }
+
+    // --- PdfColor::clamped ---
+
+    #[test]
+    fn test_pdf_color_clamped_in_range() {
+        let c = PdfColor::rgba(0.5, 0.3, 0.7, 0.9);
+        let clamped = c.clamped();
+        assert_eq!(c, clamped);
+    }
+
+    #[test]
+    fn test_pdf_color_clamped_above_max() {
+        let c = PdfColor::rgba(1.5, 2.0, 0.5, 3.0);
+        let clamped = c.clamped();
+        assert!((clamped.r - 1.0).abs() < f32::EPSILON);
+        assert!((clamped.g - 1.0).abs() < f32::EPSILON);
+        assert!((clamped.b - 0.5).abs() < f32::EPSILON);
+        assert!((clamped.a - 1.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_pdf_color_clamped_below_min() {
+        let c = PdfColor::rgba(-0.5, 0.0, -1.0, -0.1);
+        let clamped = c.clamped();
+        assert!((clamped.r - 0.0).abs() < f32::EPSILON);
+        assert!((clamped.g - 0.0).abs() < f32::EPSILON);
+        assert!((clamped.b - 0.0).abs() < f32::EPSILON);
+        assert!((clamped.a - 0.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_pdf_color_clamped_boundary_values() {
+        let c = PdfColor::rgba(0.0, 1.0, 0.0, 1.0);
+        let clamped = c.clamped();
+        assert_eq!(c, clamped);
+    }
+
+    #[test]
+    fn test_pdf_color_clamped_does_not_mutate() {
+        let c = PdfColor::rgba(2.0, -1.0, 0.5, 0.5);
+        let _clamped = c.clamped();
+        // Original should be unchanged
+        assert!((c.r - 2.0).abs() < f32::EPSILON);
+        assert!((c.g - (-1.0)).abs() < f32::EPSILON);
+    }
+
+    // --- PdfColor::from_rgb8 boundary values ---
+
+    #[test]
+    fn test_pdf_color_from_rgb8_all_zeros() {
+        let c = PdfColor::from_rgb8(0, 0, 0);
+        assert!((c.r - 0.0).abs() < f32::EPSILON);
+        assert!((c.g - 0.0).abs() < f32::EPSILON);
+        assert!((c.b - 0.0).abs() < f32::EPSILON);
+        assert!((c.a - 1.0).abs() < f32::EPSILON); // alpha defaults to 1.0
+    }
+
+    #[test]
+    fn test_pdf_color_from_rgb8_all_max() {
+        let c = PdfColor::from_rgb8(255, 255, 255);
+        assert!((c.r - 1.0).abs() < f32::EPSILON);
+        assert!((c.g - 1.0).abs() < f32::EPSILON);
+        assert!((c.b - 1.0).abs() < f32::EPSILON);
+    }
+
+    // --- PdfColor::rgba ---
+
+    #[test]
+    fn test_pdf_color_rgba() {
+        let c = PdfColor::rgba(0.1, 0.2, 0.3, 0.4);
+        assert!((c.r - 0.1).abs() < f32::EPSILON);
+        assert!((c.g - 0.2).abs() < f32::EPSILON);
+        assert!((c.b - 0.3).abs() < f32::EPSILON);
+        assert!((c.a - 0.4).abs() < f32::EPSILON);
+    }
+
+    // --- AddTextParams builder edge cases ---
+
+    #[test]
+    fn test_add_text_params_default_values() {
+        let params = AddTextParams::new("text", vec![1], "font");
+        assert!((params.font_size - 12.0).abs() < f32::EPSILON);
+        assert!((params.x - 0.0).abs() < f32::EPSILON);
+        assert!((params.y - 0.0).abs() < f32::EPSILON);
+        assert_eq!(params.color, PdfColor::BLACK);
+        assert!((params.rotation - 0.0).abs() < f32::EPSILON);
+        assert_eq!(params.h_align, HAlign::Left);
+        assert_eq!(params.v_align, VAlign::Baseline);
+        assert!(params.layer_over);
+        assert!(!params.strikeout);
+        assert!(!params.underline);
+    }
+
+    #[test]
+    fn test_add_text_params_strikeout_underline() {
+        let params = AddTextParams::new("text", vec![1], "font")
+            .strikeout(true)
+            .underline(true);
+        assert!(params.strikeout);
+        assert!(params.underline);
+    }
+
     #[test]
     fn test_draw_rect_params_builder() {
         let params = DrawRectParams::new(10.0, 20.0, 100.0, 50.0)
