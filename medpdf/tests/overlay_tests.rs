@@ -3,8 +3,8 @@
 
 mod fixtures;
 
-use medpdf::pdf_overlay::overlay_page;
 use medpdf::pdf_copy_page::copy_page;
+use medpdf::pdf_overlay::overlay_page;
 
 // --- Basic Overlay Tests ---
 
@@ -51,9 +51,12 @@ fn test_overlay_adds_content_streams() {
         _ => 0,
     };
 
-    assert!(count_after > count_before,
-            "After overlay, content count ({}) should be greater than before ({})",
-            count_after, count_before);
+    assert!(
+        count_after > count_before,
+        "After overlay, content count ({}) should be greater than before ({})",
+        count_after,
+        count_before
+    );
 }
 
 #[test]
@@ -107,9 +110,12 @@ fn test_overlay_q_balancing_works() {
 
     // With the bug fixed, the balancing code adds extra Q operators
     // The exact counts depend on wrapping, but Q should be >= q
-    assert!(big_q_count >= q_count,
-            "Q count ({}) should be >= q count ({}) after balancing",
-            big_q_count, q_count);
+    assert!(
+        big_q_count >= q_count,
+        "Q count ({}) should be >= q count ({}) after balancing",
+        big_q_count,
+        q_count
+    );
 }
 
 #[test]
@@ -142,7 +148,10 @@ fn test_overlay_resources_merged() {
     // Verify page still has Resources
     let page = dest_doc.get_dictionary(dest_page_id).unwrap();
     let resources = page.get(b"Resources");
-    assert!(resources.is_ok(), "Page should have Resources after overlay");
+    assert!(
+        resources.is_ok(),
+        "Page should have Resources after overlay"
+    );
 }
 
 #[test]

@@ -1,15 +1,10 @@
-use lopdf::content::Operation;
-use lopdf::{Document, Object, ObjectId, Stream, Dictionary};
-use std::collections::{BTreeMap, HashMap, HashSet};
-use crate::error::{Result, PdfMergeError};
+use crate::error::{PdfMergeError, Result};
 use crate::pdf_helpers::{self, KEY_CONTENTS, KEY_PAGE, KEY_PAGES, KEY_RESOURCES, KEY_TYPE};
+use lopdf::content::Operation;
+use lopdf::{Dictionary, Document, Object, ObjectId, Stream};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
-
-
-fn add_resource_keys(
-    keys: &mut HashSet<Vec<u8>>,
-    dict_resources: &Dictionary,
-) -> Result<()> {
+fn add_resource_keys(keys: &mut HashSet<Vec<u8>>, dict_resources: &Dictionary) -> Result<()> {
     for (_, value) in dict_resources.iter() {
         if let Object::Dictionary(dict) = value {
             for (key, _) in dict.iter() {
@@ -23,20 +18,24 @@ fn add_resource_keys(
 fn accumulate_dictionary_keys(
     keys: &mut HashSet<Vec<u8>>,
     doc: &Document,
-    start: ObjectId
+    start: ObjectId,
 ) -> Result<()> {
     let o = doc.get_object(start)?;
     if let Object::Dictionary(dict) = o {
         if let Ok(Object::Name(v)) = dict.get(KEY_TYPE) {
             if v == KEY_PAGES || v == KEY_PAGE {
                 match dict.get(KEY_RESOURCES) {
-                    Ok(Object::Dictionary(dict_resources)) => { add_resource_keys(keys, dict_resources)?; }
+                    Ok(Object::Dictionary(dict_resources)) => {
+                        add_resource_keys(keys, dict_resources)?;
+                    }
                     Ok(Object::Reference(id_resources)) => {
                         if let Ok(dict_resources) = doc.get_dictionary(*id_resources) {
                             add_resource_keys(keys, dict_resources)?;
                         }
                     }
-                    _ => { return Ok(()); } // Nothing to bother with
+                    _ => {
+                        return Ok(());
+                    } // Nothing to bother with
                 }
             }
         }
@@ -50,25 +49,32 @@ fn find_unique_name(
     suffix: &[u8],
 ) -> Result<Vec<u8>> {
     let mut buffer = Vec::<u8>::with_capacity(16);
-    for b in key_old.iter() { buffer.push(*b); }
-    for b in suffix.iter() { buffer.push(*b); }
+    for b in key_old.iter() {
+        buffer.push(*b);
+    }
+    for b in suffix.iter() {
+        buffer.push(*b);
+    }
     let start_len = buffer.len();
     for i in 0..10_000 {
         if i > 0 {
             buffer.truncate(start_len);
-            for b in format!("{i}").as_bytes().iter() { buffer.push(*b) }
+            for b in format!("{i}").as_bytes().iter() {
+                buffer.push(*b)
+            }
         }
-        if !keys_used.contains(&buffer) { return Ok(buffer); }
+        if !keys_used.contains(&buffer) {
+            return Ok(buffer);
+        }
     }
     Err(PdfMergeError::new("No new unique key could be generated"))
 }
-
 
 fn rename_resources_in_dict(
     key_mapping: &mut HashMap<Vec<u8>, Vec<u8>>,
     keys_used: &mut HashSet<Vec<u8>>,
     dest_doc: &mut Document,
-    resources_dict_id_new: ObjectId
+    resources_dict_id_new: ObjectId,
 ) -> Result<()> {
     let dict = dest_doc.get_dictionary_mut(resources_dict_id_new)?;
     let new_key_suffix = vec![b'_', b'o'];
@@ -76,12 +82,17 @@ fn rename_resources_in_dict(
         // The unused "key" here is /Font, /XObject, etc.  We don't need to know what key it is
         // When value is a dictionary, it contains key->value pairs for resources.  We can ignore non-dictionary values
         if let Object::Dictionary(dict) = value {
-            let list_of_keys = dict.iter().map(|(k,_v)| k.clone()).collect::<Vec<Vec<u8>>>();
+            let list_of_keys = dict
+                .iter()
+                .map(|(k, _v)| k.clone())
+                .collect::<Vec<Vec<u8>>>();
             for key in list_of_keys {
                 // If we've already mapped this key, skip regenerating new key as we need to
                 // preserve the mapping from old keys (that may be shadowing across multiple
                 // dictionaries from the source overlay document).
-                if key_mapping.contains_key(&key) { continue; }
+                if key_mapping.contains_key(&key) {
+                    continue;
+                }
 
                 // These key/value pairs are a resource_name/resource_value pair.  We need to rename the name.
                 let key_new = find_unique_name(keys_used, &key, &new_key_suffix)?;
@@ -97,33 +108,41 @@ fn rename_resources_in_dict(
     Ok(())
 }
 
-#[allow(dead_code,unused_variables)]
+#[allow(dead_code, unused_variables)]
 fn debug_dump_stream_by_id(doc: &Document, id_stream: ObjectId) -> Result<()> {
-    #[cfg(debug_assertions)] {
+    #[cfg(debug_assertions)]
+    {
         debug_dump_stream_object(doc.get_object(id_stream)?)?;
     }
     Ok(())
 }
-#[allow(dead_code,unused_variables)]
+#[allow(dead_code, unused_variables)]
 fn debug_dump_stream_object(stream: &Object) -> Result<()> {
-    #[cfg(debug_assertions)] {
+    #[cfg(debug_assertions)]
+    {
         let s = stream.as_stream()?;
         debug_dump_stream(s)?;
     }
     Ok(())
 }
-#[allow(dead_code,unused_variables)]
+#[allow(dead_code, unused_variables)]
 fn debug_dump_stream(stream: &Stream) -> Result<()> {
-    #[cfg(debug_assertions)] {
+    #[cfg(debug_assertions)]
+    {
         print!("Dumping stream: ");
         let ops = stream.decode_content()?.operations;
         println!("    # ops = {}", ops.len());
         for (i, op) in ops.iter().enumerate() {
             println!("  op: {op:?}");
-            if i > 20 { break; }
+            if i > 20 {
+                break;
+            }
         }
         println!("    Raw dump:");
-        println!("{}\n", String::from_utf8_lossy(&stream.content[..stream.content.len().min(100)]));
+        println!(
+            "{}\n",
+            String::from_utf8_lossy(&stream.content[..stream.content.len().min(100)])
+        );
         if stream.is_compressed() {
             let x = stream.decompressed_content()?;
             println!("{}\n", String::from_utf8_lossy(&x[..x.len().min(100)]));
@@ -135,11 +154,15 @@ fn debug_dump_stream(stream: &Stream) -> Result<()> {
 fn modify_content_stream(
     dest_doc: &mut Document,
     contents_arr: &[Object],
-    key_mapping: Option<&HashMap<Vec<u8>, Vec<u8>>>
+    key_mapping: Option<&HashMap<Vec<u8>, Vec<u8>>>,
 ) -> Result<()> {
     for content_ref_obj in contents_arr.iter() {
-        let content_stream = dest_doc.get_object_mut(content_ref_obj.as_reference()?)?.as_stream_mut()?;
-        if content_stream.is_compressed() { content_stream.decompress()?; }
+        let content_stream = dest_doc
+            .get_object_mut(content_ref_obj.as_reference()?)?
+            .as_stream_mut()?;
+        if content_stream.is_compressed() {
+            content_stream.decompress()?;
+        }
         let mut content = content_stream.decode_content()?;
         let mut count_q = 0_isize;
         for operation in content.operations.iter_mut() {
@@ -164,7 +187,8 @@ fn modify_content_stream(
         content.operations.insert(0, Operation::new("q", vec![]));
         content.operations.push(Operation::new("Q", vec![]));
         // We count q/Q pairs to make sure they are balanced, so that we can add extra "Q" if necessary.
-        #[cfg(debug_assertions)] {
+        #[cfg(debug_assertions)]
+        {
             println!("count_q = {count_q}");
         }
         for _ in 0..count_q {
@@ -174,16 +198,23 @@ fn modify_content_stream(
 
         // TODO: Compress content stream!!!
         content_stream.content = content.encode()?;
-        #[cfg(debug_assertions)] {
-            for (i, op) in content_stream.decode_content()?.operations.iter().enumerate() {
-                if i > 20 { break; }
+        #[cfg(debug_assertions)]
+        {
+            for (i, op) in content_stream
+                .decode_content()?
+                .operations
+                .iter()
+                .enumerate()
+            {
+                if i > 20 {
+                    break;
+                }
                 println!("op {op:?}");
             }
         }
     }
     Ok(())
 }
-
 
 /// Overlays the content of a source page onto a destination page.
 pub fn overlay_page(
@@ -263,13 +294,22 @@ pub fn overlay_page(
     let overlay_page_resources = overlay_page.get(KEY_RESOURCES)?;
     let overlay_resources_dict_id_new = match overlay_page_resources {
         Object::Dictionary(_) => {
-            let d_new = pdf_helpers::deep_copy_object(dest_doc, overlay_doc, overlay_page_resources, &mut copied_objects)?;
+            let d_new = pdf_helpers::deep_copy_object(
+                dest_doc,
+                overlay_doc,
+                overlay_page_resources,
+                &mut copied_objects,
+            )?;
             dest_doc.add_object(d_new)
         }
         Object::Reference(id) => {
             pdf_helpers::deep_copy_object_by_id(dest_doc, overlay_doc, *id, &mut copied_objects)?
         }
-        _ => return Err(PdfMergeError::Message(format!("Page {overlay_page_id:?} /Resources must be dictionary or referece to dictionary"))),
+        _ => {
+            return Err(PdfMergeError::Message(format!(
+                "Page {overlay_page_id:?} /Resources must be dictionary or referece to dictionary"
+            )))
+        }
     };
     // NOTE: As a side-effect of the deep copy of the overlay's /Resources, we've added an unnecessary
     // Object::Dicitonary() to the dest_doc... we'll remove this later to tidy up.
@@ -278,18 +318,32 @@ pub fn overlay_page(
     // all /Resource dictionaries, so we can later make sure no names we add to /Resources conflict!
     println!("Accumulating dictionary keys in destination document");
     let mut keys_used = HashSet::<Vec<u8>>::new();
-    accumulate_dictionary_keys(&mut keys_used, &*dest_doc, dest_doc.catalog()?.get(KEY_PAGES)?.as_reference()?)?;
+    accumulate_dictionary_keys(
+        &mut keys_used,
+        &*dest_doc,
+        dest_doc.catalog()?.get(KEY_PAGES)?.as_reference()?,
+    )?;
 
     // Now generate new names for all resources in our copied resources_dict_id_new, mutably updating it.
     // Make sure the new names are not present in keys.
     println!("Renaming keys in overlay dictionaries to be unique in destination");
     let mut key_mapping = HashMap::<Vec<u8>, Vec<u8>>::new();
-    rename_resources_in_dict(&mut key_mapping, &mut keys_used, dest_doc, overlay_resources_dict_id_new)?;
+    rename_resources_in_dict(
+        &mut key_mapping,
+        &mut keys_used,
+        dest_doc,
+        overlay_resources_dict_id_new,
+    )?;
     // We've now renamed the keys in the Resources dict from the overlay (resources_dict_id_new).
-    #[cfg(debug_assertions)] {
+    #[cfg(debug_assertions)]
+    {
         println!("key_mapping:");
         for (k, v) in key_mapping.iter() {
-            println!("{} => {}", String::from_utf8_lossy(k), String::from_utf8_lossy(v));
+            println!(
+                "{} => {}",
+                String::from_utf8_lossy(k),
+                String::from_utf8_lossy(v)
+            );
         }
     }
 
@@ -297,10 +351,16 @@ pub fn overlay_page(
     // Unobvious, but changing decoded operations does not modify the Content!!!!  It looks
     // like we need to build a *new* Content, modifying the ops as we copy them.
     println!("Updating overlay Content streams to use new keys");
-    assert!(overlay_contents_arr_new.iter().all(|obj| obj.as_reference().is_ok()));
-    assert!(overlay_contents_arr_new.iter().all(|obj| { let o = dest_doc.get_object(obj.as_reference().unwrap()).unwrap(); o.as_stream().is_ok() }));
+    assert!(overlay_contents_arr_new
+        .iter()
+        .all(|obj| obj.as_reference().is_ok()));
+    assert!(overlay_contents_arr_new.iter().all(|obj| {
+        let o = dest_doc.get_object(obj.as_reference().unwrap()).unwrap();
+        o.as_stream().is_ok()
+    }));
     modify_content_stream(dest_doc, &overlay_contents_arr_new, Some(&key_mapping))?;
-    #[cfg(debug_assertions)] {
+    #[cfg(debug_assertions)]
+    {
         println!("arr_new: {overlay_contents_arr_new:?}");
         for item in overlay_contents_arr_new.iter() {
             let o = dest_doc.get_object(item.as_reference()?)?;
@@ -314,7 +374,10 @@ pub fn overlay_page(
     println!("Merging overlay's /Contents into the destination page's /Contents array");
     // a. We start by getting a copy of dest page's Contents, converting it to an array of
     //    references, if necessary.
-    let dest_contents = dest_doc.get_object(dest_page_id)?.as_dict()?.get(KEY_CONTENTS)?;
+    let dest_contents = dest_doc
+        .get_object(dest_page_id)?
+        .as_dict()?
+        .get(KEY_CONTENTS)?;
     let mut dest_contents_arr_new = match dest_contents {
         Object::Stream(s) => {
             let dest_stream_id = dest_doc.add_object(s.clone());
@@ -343,7 +406,7 @@ pub fn overlay_page(
     //    dest_content_arr_new.
     for item in overlay_contents_arr_new.iter() {
         let reference = item.as_reference()?;
-        dest_contents_arr_new.push(Object::Reference(reference));   // For "underlay": .insert(i, Object::Reference(reference)); where i starts at 0 and increments for each content stream from the underlay.
+        dest_contents_arr_new.push(Object::Reference(reference)); // For "underlay": .insert(i, Object::Reference(reference)); where i starts at 0 and increments for each content stream from the underlay.
     }
     let x = dest_doc.get_object(overlay_contents_arr_new[0].as_reference()?)?;
     let y = x.as_stream()?;
@@ -360,15 +423,25 @@ pub fn overlay_page(
     let (dict_to_make_object, dict_ref) = match dest_page_dict.get(KEY_RESOURCES) {
         Ok(Object::Dictionary(dict)) => (Some(dict.clone()), None),
         Ok(Object::Reference(reference)) => (None, Some(*reference)),
-        Ok(_) => return Err(PdfMergeError::new("Destination page's /Resource was not a Dictionary nor Reference")),
+        Ok(_) => {
+            return Err(PdfMergeError::new(
+                "Destination page's /Resource was not a Dictionary nor Reference",
+            ))
+        }
         Err(_) => (Some(Dictionary::new()), None),
     };
-    assert!(dict_to_make_object.is_none() ^ dict_ref.is_none());  // Exactly one of these is Some() and one is None
-    //    ii. Now we add a new Dictionary object to dest_doc if needed, or use the one that's already there!
+    assert!(dict_to_make_object.is_none() ^ dict_ref.is_none()); // Exactly one of these is Some() and one is None
+                                                                 //    ii. Now we add a new Dictionary object to dest_doc if needed, or use the one that's already there!
     let dict_ref = match (dict_to_make_object, dict_ref) {
-        (Some(dict_to_make_object), None) => dest_doc.add_object(Object::Dictionary(dict_to_make_object)),
+        (Some(dict_to_make_object), None) => {
+            dest_doc.add_object(Object::Dictionary(dict_to_make_object))
+        }
         (None, Some(dict_ref)) => dict_ref,
-        _ => return Err(PdfMergeError::new("Internal error: unexpected state in resources normalization")),
+        _ => {
+            return Err(PdfMergeError::new(
+                "Internal error: unexpected state in resources normalization",
+            ))
+        }
     };
     //    iii. Finally, we update dest page's /Resources to be dict_ref
     let dest_page_dict = dest_doc.get_object_mut(dest_page_id)?.as_dict_mut()?;
@@ -380,7 +453,10 @@ pub fn overlay_page(
     //       We also need to get this "outside" the dest_doc to avoid borrow checker
     //       issues, so we remove this object now, keeping a copy of the underlying
     //       Dictionary, though.
-    let source_resources_dict = dest_doc.get_object(overlay_resources_dict_id_new)?.as_dict()?.clone();
+    let source_resources_dict = dest_doc
+        .get_object(overlay_resources_dict_id_new)?
+        .as_dict()?
+        .clone();
     dest_doc.objects.remove(&overlay_resources_dict_id_new);
     //    ii. Now merge the source_resources_dict into the dict_ref
     let dest_resources = dest_doc.get_object_mut(dict_ref)?.as_dict_mut()?;

@@ -4,8 +4,10 @@
 // NOTE: Some tests require system fonts to be available.
 // Font embedding tests are limited without actual font files.
 
+use medpdf::font_helpers::measure_text_width;
+use medpdf::pdf_font::{find_font, find_font_with_style, FontCache, FontPath};
+use medpdf::types::{FontStyle, FontWeight};
 use std::path::PathBuf;
-use medpdf::pdf_font::{find_font, FontPath, FontCache};
 
 // --- find_font Tests ---
 
@@ -145,10 +147,7 @@ fn test_find_font_system_default() {
             println!("Found system font '{}' at {:?}", name, path);
         }
         None => {
-            panic!(
-                "No system font found. Tried: {:?}",
-                font_candidates
-            );
+            panic!("No system font found. Tried: {:?}", font_candidates);
         }
     }
 }
@@ -239,4 +238,104 @@ fn test_font_helpers_symbol_detection_documented() {
     // Symbol font detection is now implemented using:
     // - Name-based detection for known symbol fonts (Symbol, Dingbats, Wingdings, etc.)
     // - Character coverage heuristic (fonts with <20 Latin letters are considered symbolic)
+}
+
+// --- measure_text_width Tests ---
+
+#[test]
+fn test_measure_text_width_builtin_font_estimate() {
+    // Builtin font data is a single byte [b'@']
+    let font_data = vec![b'@'];
+    let width = measure_text_width(&font_data, 12.0, "Hello").unwrap();
+    // Expected: 5 chars * 12.0 * 0.6 = 36.0
+    assert!((width - 36.0).abs() < f32::EPSILON);
+}
+
+#[test]
+fn test_measure_text_width_hack_font_estimate() {
+    // Hack font data is a single byte [n] where n != b'@'
+    let font_data = vec![3];
+    let width = measure_text_width(&font_data, 10.0, "Test").unwrap();
+    // Expected: 4 chars * 10.0 * 0.6 = 24.0
+    assert!((width - 24.0).abs() < f32::EPSILON);
+}
+
+#[test]
+fn test_measure_text_width_empty_string() {
+    let font_data = vec![b'@'];
+    let width = measure_text_width(&font_data, 12.0, "").unwrap();
+    assert!((width - 0.0).abs() < f32::EPSILON);
+}
+
+#[test]
+fn test_measure_text_width_zero_font_size() {
+    let font_data = vec![b'@'];
+    let width = measure_text_width(&font_data, 0.0, "Hello").unwrap();
+    assert!((width - 0.0).abs() < f32::EPSILON);
+}
+
+#[test]
+fn test_measure_text_width_single_char_builtin() {
+    let font_data = vec![b'@'];
+    let width = measure_text_width(&font_data, 20.0, "X").unwrap();
+    // Expected: 1 char * 20.0 * 0.6 = 12.0
+    assert!((width - 12.0).abs() < f32::EPSILON);
+}
+
+// --- find_font_with_style Tests ---
+
+#[test]
+fn test_find_font_with_style_hack_ignores_style() {
+    let result = find_font_with_style(
+        &PathBuf::from("5"),
+        FontWeight::BOLD,
+        FontStyle::Italic,
+    );
+    assert!(result.is_ok());
+    if let FontPath::Hack(n) = result.unwrap() {
+        assert_eq!(n, 5);
+    } else {
+        panic!("Expected FontPath::Hack");
+    }
+}
+
+#[test]
+fn test_find_font_with_style_builtin_ignores_style() {
+    let result = find_font_with_style(
+        &PathBuf::from("@Helvetica"),
+        FontWeight::BOLD,
+        FontStyle::Italic,
+    );
+    assert!(result.is_ok());
+    if let FontPath::BuiltIn(name) = result.unwrap() {
+        assert_eq!(name, "Helvetica");
+    } else {
+        panic!("Expected FontPath::BuiltIn");
+    }
+}
+
+#[test]
+fn test_find_font_with_style_nonexistent_falls_back() {
+    // A font that doesn't exist should fall back to find_font, which should also fail
+    let result = find_font_with_style(
+        &PathBuf::from("NonExistentFont99999"),
+        FontWeight::NORMAL,
+        FontStyle::Normal,
+    );
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_find_font_with_style_numeric_zero() {
+    let result = find_font_with_style(
+        &PathBuf::from("0"),
+        FontWeight::NORMAL,
+        FontStyle::Normal,
+    );
+    assert!(result.is_ok());
+    if let FontPath::Hack(n) = result.unwrap() {
+        assert_eq!(n, 0);
+    } else {
+        panic!("Expected FontPath::Hack");
+    }
 }

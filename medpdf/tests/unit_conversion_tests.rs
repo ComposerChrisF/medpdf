@@ -73,7 +73,12 @@ fn test_mm_one() {
     // 1 mm = 72/25.4 = ~2.834645669 points
     let points = Unit::Mm.to_points(1.0);
     let expected = 72.0 / 25.4;
-    assert!(approx_eq(points, expected), "Expected {}, got {}", expected, points);
+    assert!(
+        approx_eq(points, expected),
+        "Expected {}, got {}",
+        expected,
+        points
+    );
 }
 
 #[test]
@@ -93,7 +98,12 @@ fn test_mm_a4_width() {
     // A4 width = 210mm = ~595.276 points
     let points = Unit::Mm.to_points(210.0);
     let expected = 210.0 * 72.0 / 25.4;
-    assert!(approx_eq(points, expected), "Expected {}, got {}", expected, points);
+    assert!(
+        approx_eq(points, expected),
+        "Expected {}, got {}",
+        expected,
+        points
+    );
 }
 
 #[test]
@@ -101,7 +111,12 @@ fn test_mm_a4_height() {
     // A4 height = 297mm = ~841.89 points
     let points = Unit::Mm.to_points(297.0);
     let expected = 297.0 * 72.0 / 25.4;
-    assert!(approx_eq(points, expected), "Expected {}, got {}", expected, points);
+    assert!(
+        approx_eq(points, expected),
+        "Expected {}, got {}",
+        expected,
+        points
+    );
 }
 
 #[test]
@@ -109,7 +124,12 @@ fn test_mm_small() {
     // 0.1 mm
     let points = Unit::Mm.to_points(0.1);
     let expected = 0.1 * 72.0 / 25.4;
-    assert!(approx_eq(points, expected), "Expected {}, got {}", expected, points);
+    assert!(
+        approx_eq(points, expected),
+        "Expected {}, got {}",
+        expected,
+        points
+    );
 }
 
 // --- Conversion Consistency ---
@@ -119,9 +139,12 @@ fn test_inches_and_mm_equivalence() {
     // 1 inch should equal 25.4 mm in points
     let inch_points = Unit::In.to_points(1.0);
     let mm_points = Unit::Mm.to_points(25.4);
-    assert!(approx_eq(inch_points, mm_points),
-            "1 inch ({}) should equal 25.4mm ({}) in points",
-            inch_points, mm_points);
+    assert!(
+        approx_eq(inch_points, mm_points),
+        "1 inch ({}) should equal 25.4mm ({}) in points",
+        inch_points,
+        mm_points
+    );
 }
 
 #[test]

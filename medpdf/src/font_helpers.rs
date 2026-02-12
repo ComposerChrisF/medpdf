@@ -29,18 +29,23 @@ pub fn get_name_id_map() -> HashMap<u16, &'static str> {
         (name_id::POST_SCRIPT_CID, "PostScript CID"),
         (name_id::WWS_FAMILY, "WWS Family"),
         (name_id::WWS_SUBFAMILY, "WWS Subfamily"),
-        (name_id::LIGHT_BACKGROUND_PALETTE, "Light Background Palette"),
+        (
+            name_id::LIGHT_BACKGROUND_PALETTE,
+            "Light Background Palette",
+        ),
         (name_id::DARK_BACKGROUND_PALETTE, "Dark Background Palette"),
-        (name_id::VARIATIONS_POST_SCRIPT_NAME_PREFIX, "Variations PostScript Name Prefix"),
+        (
+            name_id::VARIATIONS_POST_SCRIPT_NAME_PREFIX,
+            "Variations PostScript Name Prefix",
+        ),
     ])
 }
-
 
 #[derive(Debug, Clone)]
 pub struct FontPdfInfo {
     pub base_font: String,
     pub subtype: String,
-    pub encoding: Option<String>,  // None for symbol fonts
+    pub encoding: Option<String>, // None for symbol fonts
     pub first_char: u16,
     pub last_char: u16,
     pub widths: Vec<u16>,
@@ -58,13 +63,14 @@ pub struct FontDescriptorPdfInfo {
     pub x_height: i16,
     pub stem_v: u16,
     pub cap_height: i16,
-    pub font_file_key: String,  // "FontFile" for Type1 or MMType1; "FontFile2" for TrueType; others for compated formats
-    //pub embedded_font_subtype: String, // "Type1" or "Type1C" or "TrueType" or "CIDFontType0" or "CIDFontType2"
+    pub font_file_key: String, // "FontFile" for Type1 or MMType1; "FontFile2" for TrueType; others for compated formats
+                               //pub embedded_font_subtype: String, // "Type1" or "Type1C" or "TrueType" or "CIDFontType0" or "CIDFontType2"
 }
 
-
 pub fn get_name<'a>(face: &Face<'a>, name_id: u16) -> Cow<'a, str> {
-    face.names().into_iter().find(|name| name.name_id == name_id)
+    face.names()
+        .into_iter()
+        .find(|name| name.name_id == name_id)
         .map(|name| String::from_utf8_lossy(name.name))
         .unwrap_or("<none>".into())
 }
@@ -111,9 +117,9 @@ fn detect_is_symbolic(face: &Face) -> bool {
 /// Symbol fonts use their own encoding and return None.
 fn determine_pdf_encoding(is_symbolic: bool) -> Option<String> {
     if is_symbolic {
-        None  // Symbol fonts use their own encoding
+        None // Symbol fonts use their own encoding
     } else {
-        Some("WinAnsiEncoding".to_string())  // Cross-platform compatible
+        Some("WinAnsiEncoding".to_string()) // Cross-platform compatible
     }
 }
 
@@ -122,8 +128,13 @@ fn determine_pdf_encoding(is_symbolic: bool) -> Option<String> {
 fn compute_char_range(face: &Face, is_symbolic: bool) -> (u8, u8) {
     if is_symbolic {
         // Scan full range for symbol fonts
-        let first = (0u8..=255).find(|&ch| face.glyph_index(ch as char).is_some()).unwrap_or(32);
-        let last = (0u8..=255).rev().find(|&ch| face.glyph_index(ch as char).is_some()).unwrap_or(255);
+        let first = (0u8..=255)
+            .find(|&ch| face.glyph_index(ch as char).is_some())
+            .unwrap_or(32);
+        let last = (0u8..=255)
+            .rev()
+            .find(|&ch| face.glyph_index(ch as char).is_some())
+            .unwrap_or(255);
         (first, last)
     } else {
         // Standard range for regular fonts
@@ -142,7 +153,7 @@ fn compute_pdf_font_flags_internal(face: &Face, is_symbolic: bool) -> u16 {
     (if face.is_monospaced() { 0x0001 } else { 0x0000 }) |      // Bit 1 = FixedPitch
         (if is_symbolic      { 0x0004 } else { 0x0000 }) |      // Bit 3 = Symbolic
         (if !is_symbolic     { 0x0020 } else { 0x0000 }) |      // Bit 6 = Nonsymbolic
-        (if is_italic_flag   { 0x0040 } else { 0x0000 })        // Bit 7 = Italic (slanted strokes)
+        (if is_italic_flag   { 0x0040 } else { 0x0000 }) // Bit 7 = Italic (slanted strokes)
 }
 
 pub fn guess_pdf_stem_v_for_font(face: &Face) -> u16 {
@@ -157,9 +168,17 @@ pub fn get_pdf_font_bbox(face: &Face) -> [i16; 4] {
 }
 
 pub fn get_pdf_font_file_key(face: &Face) -> String {
-    if face.raw_face().table(ttf_parser::Tag::from_bytes(b"CFF ")).is_some() {
+    if face
+        .raw_face()
+        .table(ttf_parser::Tag::from_bytes(b"CFF "))
+        .is_some()
+    {
         "FontFile".to_string()
-    } else if face.raw_face().table(ttf_parser::Tag::from_bytes(b"glyf")).is_some() {
+    } else if face
+        .raw_face()
+        .table(ttf_parser::Tag::from_bytes(b"glyf"))
+        .is_some()
+    {
         "FontFile2".to_string()
     } else {
         println!("Font file type not recognized!!!");
@@ -168,9 +187,17 @@ pub fn get_pdf_font_file_key(face: &Face) -> String {
 }
 
 pub fn get_pdf_font_subtype(face: &Face) -> String {
-    if face.raw_face().table(ttf_parser::Tag::from_bytes(b"CFF ")).is_some() {
+    if face
+        .raw_face()
+        .table(ttf_parser::Tag::from_bytes(b"CFF "))
+        .is_some()
+    {
         "Type1".to_string()
-    } else if face.raw_face().table(ttf_parser::Tag::from_bytes(b"glyf")).is_some() {
+    } else if face
+        .raw_face()
+        .table(ttf_parser::Tag::from_bytes(b"glyf"))
+        .is_some()
+    {
         "TrueType".to_string()
     } else {
         println!("Font file type not recognized!!!");
@@ -179,19 +206,27 @@ pub fn get_pdf_font_subtype(face: &Face) -> String {
 }
 
 #[allow(dead_code)]
-pub fn get_pdf_font_info_of_path(path: &Path) -> Result<(FontPdfInfo, FontDescriptorPdfInfo), PdfMergeError> {
+pub fn get_pdf_font_info_of_path(
+    path: &Path,
+) -> Result<(FontPdfInfo, FontDescriptorPdfInfo), PdfMergeError> {
     let font_data = fs::read(path)?;
     get_pdf_font_info_of_data(&font_data)
 }
 
-pub fn get_pdf_font_info_of_data(font_data: &[u8]) -> Result<(FontPdfInfo, FontDescriptorPdfInfo), PdfMergeError> {
+pub fn get_pdf_font_info_of_data(
+    font_data: &[u8],
+) -> Result<(FontPdfInfo, FontDescriptorPdfInfo), PdfMergeError> {
     let face = Face::parse(font_data, 0)?;
     Ok(get_pdf_info_of_face(&face))
 }
 
 /// Measure the width of a text string in points for the given font data and size.
 /// Sums glyph horizontal advances scaled by font_size / units_per_em.
-pub fn measure_text_width(font_data: &[u8], font_size: f32, text: &str) -> Result<f32, PdfMergeError> {
+pub fn measure_text_width(
+    font_data: &[u8],
+    font_size: f32,
+    text: &str,
+) -> Result<f32, PdfMergeError> {
     // Skip hack/builtin font data (single byte markers)
     if font_data.len() <= 1 {
         // Rough estimate: 0.6 * font_size per character for monospace-ish fonts
@@ -238,6 +273,6 @@ pub fn get_pdf_info_of_face(face: &Face) -> (FontPdfInfo, FontDescriptorPdfInfo)
             stem_v: guess_pdf_stem_v_for_font(face),
             cap_height: face.capital_height().unwrap_or(0),
             font_file_key: get_pdf_font_file_key(face),
-        }
+        },
     )
 }

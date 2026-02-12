@@ -1,7 +1,12 @@
 use font_kit::source::SystemSource;
-use std::{collections::HashMap, fs, path::{Path, PathBuf}, sync::Arc};
+use std::{
+    collections::HashMap,
+    fs,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
-use crate::error::{Result, PdfMergeError};
+use crate::error::{PdfMergeError, Result};
 
 pub enum FontPath {
     Hack(u8),
@@ -22,7 +27,6 @@ impl FontPath {
         }
     }
 }
-
 
 pub struct FontCache {
     hash: HashMap<PathBuf, Arc<Vec<u8>>>,
@@ -56,7 +60,6 @@ impl Default for FontCache {
         Self::new()
     }
 }
-
 
 fn parse_font_path_as_number(font_path: &Path) -> Option<u8> {
     font_path.to_string_lossy().parse::<u8>().ok()
@@ -96,7 +99,9 @@ pub fn find_font_with_style(
     };
 
     match source.select_best_match(
-        &[font_kit::family_name::FamilyName::Title(family_name.to_string())],
+        &[font_kit::family_name::FamilyName::Title(
+            family_name.to_string(),
+        )],
         &properties,
     ) {
         Ok(font_kit::handle::Handle::Path { path, .. }) => Ok(FontPath::Path(path)),
@@ -142,9 +147,13 @@ pub fn find_font(font_path: &Path) -> Result<FontPath> {
         .and_then(|s| s.to_str())
         .ok_or_else(|| PdfMergeError::new(format!("Invalid font path: {:?}", font_path)))?;
     let properties = font_kit::properties::Properties::new();
-    let handle = source
-        .select_best_match(&[font_kit::family_name::FamilyName::Title(family_name.to_string())], &properties)?;
-        //.ok_or_else(|| format!("Font '{}' not found in CWD or system", family_name))?;
+    let handle = source.select_best_match(
+        &[font_kit::family_name::FamilyName::Title(
+            family_name.to_string(),
+        )],
+        &properties,
+    )?;
+    //.ok_or_else(|| format!("Font '{}' not found in CWD or system", family_name))?;
 
     if let font_kit::handle::Handle::Path { path, .. } = handle {
         Ok(FontPath::Path(path))

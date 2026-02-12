@@ -1,6 +1,6 @@
 use crate::error::{PdfMergeError, Result};
 use crate::font_helpers;
-use crate::pdf_helpers::{KEY_CONTENTS, KEY_FONT, KEY_FONT_DESTCRIPTOR, KEY_RESOURCES};
+use crate::pdf_helpers::{KEY_CONTENTS, KEY_EXTGSTATE, KEY_FONT, KEY_FONT_DESTCRIPTOR, KEY_RESOURCES};
 use lopdf::content::{Content, Operation};
 use lopdf::{dictionary, Dictionary, Document, Object, ObjectId, Stream, StringFormat};
 
@@ -344,6 +344,92 @@ fn handle_fonts_in_resources(
     }
 }
 
+/// Registers an ExtGState object in the page's resources and returns the gs key.
+/// Mirrors the three-tier pattern of `register_font_in_page_resources()`.
+fn register_extgstate_in_page_resources(
+    dest_doc: &mut Document,
+    page_id: ObjectId,
+    gs_id: ObjectId,
+) -> Result<String> {
+    let gs_key = format!("GS{}", gs_id.0);
+    let gs_key_bytes = gs_key.as_bytes().to_vec();
+
+    // First pass: handle page's Resources (may be inline dict or reference)
+    let page_dict = dest_doc
+        .get_object_mut(page_id)?
+        .as_dict_mut()
+        .map_err(|_| PdfMergeError::new("Page object is not a dictionary"))?;
+
+    let resources_obj = page_dict.get_mut(KEY_RESOURCES);
+    let (mut extgstate_ref_id, resources_dict_id) = match resources_obj {
+        Ok(Object::Reference(id_resources)) => (None, Some(*id_resources)),
+        Ok(Object::Dictionary(dict_resources)) => {
+            let extgstate_ref =
+                handle_extgstate_in_resources(dict_resources, &gs_key_bytes, gs_id)?;
+            (extgstate_ref, None)
+        }
+        Ok(_) => {
+            return Err(PdfMergeError::new(
+                "/Resource key of page not a Reference nor a Dictionary!",
+            ))
+        }
+        Err(_) => {
+            // No resources yet - create inline
+            let mut dict_resources = dictionary! {};
+            let extgstate_ref =
+                handle_extgstate_in_resources(&mut dict_resources, &gs_key_bytes, gs_id)?;
+            page_dict.set(KEY_RESOURCES, Object::Dictionary(dict_resources));
+            (extgstate_ref, None)
+        }
+    };
+
+    if extgstate_ref_id.is_some() && resources_dict_id.is_some() {
+        return Err(PdfMergeError::new(
+            "Internal error: both ExtGState and Resources are set!",
+        ));
+    }
+
+    // Second pass: if Resources was a reference, handle it now
+    if let Some(resources_dict_id) = resources_dict_id {
+        let resources_dict = dest_doc.get_object_mut(resources_dict_id)?.as_dict_mut()?;
+        extgstate_ref_id = handle_extgstate_in_resources(resources_dict, &gs_key_bytes, gs_id)?;
+    }
+
+    // Third pass: if ExtGState was a reference, handle it now
+    if let Some(extgstate_id) = extgstate_ref_id {
+        let extgstate_dict = dest_doc.get_object_mut(extgstate_id)?.as_dict_mut()?;
+        extgstate_dict.set(gs_key_bytes, Object::Reference(gs_id));
+    }
+
+    Ok(gs_key)
+}
+
+/// Handles adding an ExtGState entry to a Resources dictionary's ExtGState sub-dictionary.
+/// Returns Some(ObjectId) if the ExtGState entry is a reference that needs separate handling.
+fn handle_extgstate_in_resources(
+    resources_dict: &mut Dictionary,
+    gs_key: &[u8],
+    gs_id: ObjectId,
+) -> Result<Option<ObjectId>> {
+    match resources_dict.get_mut(KEY_EXTGSTATE) {
+        Ok(Object::Reference(id)) => Ok(Some(*id)),
+        Ok(Object::Dictionary(dict)) => {
+            dict.set(gs_key.to_vec(), Object::Reference(gs_id));
+            Ok(None)
+        }
+        Ok(_) => Err(PdfMergeError::new(
+            "/ExtGState key of Resource not a Reference nor a Dictionary!",
+        )),
+        Err(_) => {
+            // No ExtGState dict yet - create inline
+            let mut dict = dictionary! {};
+            dict.set(gs_key.to_vec(), Object::Reference(gs_id));
+            resources_dict.set(KEY_EXTGSTATE, Object::Dictionary(dict));
+            Ok(None)
+        }
+    }
+}
+
 fn add_known_named_font(
     dest_doc: &mut Document,
     page_id: ObjectId,
@@ -374,6 +460,10 @@ fn bbox_as_object_array(bbox: &[i16]) -> Object {
 }
 
 /// Adds text to a page using rich parameters (color, f32 coords, rotation, alignment).
+///
+/// **Note:** `VAlign::Bottom` currently behaves identically to `VAlign::Baseline`
+/// (both use `dy = 0.0`). True bottom alignment would require font descent metrics,
+/// which is not yet implemented.
 pub fn add_text_params(
     dest_doc: &mut Document,
     page_id: ObjectId,
@@ -409,6 +499,22 @@ pub fn add_text_params(
     let encoded_text = utf8_to_winansi(&params.text);
 
     let mut ops = vec![Operation::new("q", vec![])];
+
+    // Apply alpha via ExtGState when not fully opaque
+    let alpha = params.color.a;
+    if (alpha - 1.0).abs() > f32::EPSILON {
+        let gs_dict = dictionary! {
+            "Type" => "ExtGState",
+            "ca" => alpha,
+            "CA" => alpha,
+        };
+        let gs_id = dest_doc.add_object(gs_dict);
+        let gs_key = register_extgstate_in_page_resources(dest_doc, page_id, gs_id)?;
+        ops.push(Operation::new(
+            "gs",
+            vec![Object::Name(gs_key.as_bytes().to_vec())],
+        ));
+    }
 
     // Set color
     ops.push(Operation::new(

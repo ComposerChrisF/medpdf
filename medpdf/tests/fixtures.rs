@@ -33,7 +33,13 @@ pub fn create_pdf_with_pages(count: usize) -> Document {
 /// and custom page dimensions.
 pub fn create_pdf_with_pages_and_size(count: usize, width: f32, height: f32) -> Document {
     let mut doc = create_empty_pdf();
-    let pages_id = doc.catalog().unwrap().get(b"Pages").unwrap().as_reference().unwrap();
+    let pages_id = doc
+        .catalog()
+        .unwrap()
+        .get(b"Pages")
+        .unwrap()
+        .as_reference()
+        .unwrap();
 
     for _ in 0..count {
         let media_box = vec![0.0.into(), 0.0.into(), width.into(), height.into()];
@@ -66,7 +72,13 @@ pub fn create_pdf_with_pages_and_size(count: usize, width: f32, height: f32) -> 
 /// The `content_ops` should be valid PDF content stream commands.
 pub fn create_pdf_with_content(content_ops: &[u8]) -> Document {
     let mut doc = create_empty_pdf();
-    let pages_id = doc.catalog().unwrap().get(b"Pages").unwrap().as_reference().unwrap();
+    let pages_id = doc
+        .catalog()
+        .unwrap()
+        .get(b"Pages")
+        .unwrap()
+        .as_reference()
+        .unwrap();
 
     let media_box = vec![0.0.into(), 0.0.into(), 612.0.into(), 792.0.into()];
     let resources_id = doc.add_object(dictionary! {});
@@ -122,14 +134,18 @@ pub fn get_page_content_bytes(doc: &Document, page_id: ObjectId) -> Vec<u8> {
         Object::Reference(id) => {
             let stream = doc.get_object(*id).unwrap().as_stream().unwrap();
             if stream.is_compressed() {
-                stream.decompressed_content().unwrap_or_else(|_| stream.content.clone())
+                stream
+                    .decompressed_content()
+                    .unwrap_or_else(|_| stream.content.clone())
             } else {
                 stream.content.clone()
             }
         }
         Object::Stream(stream) => {
             if stream.is_compressed() {
-                stream.decompressed_content().unwrap_or_else(|_| stream.content.clone())
+                stream
+                    .decompressed_content()
+                    .unwrap_or_else(|_| stream.content.clone())
             } else {
                 stream.content.clone()
             }
@@ -141,7 +157,9 @@ pub fn get_page_content_bytes(doc: &Document, page_id: ObjectId) -> Vec<u8> {
                 if let Object::Reference(id) = item {
                     let stream = doc.get_object(*id).unwrap().as_stream().unwrap();
                     let bytes = if stream.is_compressed() {
-                        stream.decompressed_content().unwrap_or_else(|_| stream.content.clone())
+                        stream
+                            .decompressed_content()
+                            .unwrap_or_else(|_| stream.content.clone())
                     } else {
                         stream.content.clone()
                     };
@@ -172,11 +190,131 @@ pub fn count_q_operators(content: &[u8]) -> (i32, i32) {
     (q_count, big_q_count)
 }
 
+/// Creates a PDF where pages inherit MediaBox from the Pages node (no per-page MediaBox).
+/// This is valid per the PDF spec — MediaBox is inheritable.
+pub fn create_pdf_with_inherited_media_box(page_count: usize, width: f32, height: f32) -> Document {
+    let mut doc = Document::with_version("1.7");
+    let pages_id = doc.new_object_id();
+
+    // Build pages with MediaBox on the Pages node, not on individual pages
+    let mut kid_ids = Vec::new();
+    for _ in 0..page_count {
+        let resources_id = doc.add_object(dictionary! {});
+        let content_id = doc.add_object(Stream::new(dictionary! {}, vec![]));
+        let page = dictionary! {
+            "Type" => "Page",
+            "Parent" => pages_id,
+            "Contents" => Object::Reference(content_id),
+            "Resources" => Object::Reference(resources_id),
+        };
+        let page_id = doc.add_object(page);
+        kid_ids.push(page_id);
+    }
+
+    let kids: Vec<Object> = kid_ids.iter().map(|id| Object::Reference(*id)).collect();
+    let pages = dictionary! {
+        "Type" => "Pages",
+        "Kids" => kids,
+        "Count" => page_count as i64,
+        "MediaBox" => vec![0.0.into(), 0.0.into(), width.into(), height.into()],
+    };
+    doc.objects.insert(pages_id, Object::Dictionary(pages));
+
+    let catalog_id = doc.add_object(dictionary! {
+        "Type" => "Catalog",
+        "Pages" => pages_id,
+    });
+    doc.trailer.set("Root", catalog_id);
+    doc
+}
+
+/// Creates a PDF with a deeply nested page tree (Pages -> Pages -> Page)
+/// where MediaBox is only on the root Pages node.
+pub fn create_pdf_with_nested_page_tree(width: f32, height: f32) -> Document {
+    let mut doc = Document::with_version("1.7");
+    let root_pages_id = doc.new_object_id();
+    let intermediate_pages_id = doc.new_object_id();
+
+    // Create a leaf page under the intermediate node
+    let resources_id = doc.add_object(dictionary! {});
+    let content_id = doc.add_object(Stream::new(dictionary! {}, vec![]));
+    let page = dictionary! {
+        "Type" => "Page",
+        "Parent" => intermediate_pages_id,
+        "Contents" => Object::Reference(content_id),
+        "Resources" => Object::Reference(resources_id),
+    };
+    let page_id = doc.add_object(page);
+
+    // Intermediate Pages node (no MediaBox, points to root)
+    let intermediate_pages = dictionary! {
+        "Type" => "Pages",
+        "Parent" => root_pages_id,
+        "Kids" => vec![Object::Reference(page_id)],
+        "Count" => 1,
+    };
+    doc.objects
+        .insert(intermediate_pages_id, Object::Dictionary(intermediate_pages));
+
+    // Root Pages node with MediaBox
+    let root_pages = dictionary! {
+        "Type" => "Pages",
+        "Kids" => vec![Object::Reference(intermediate_pages_id)],
+        "Count" => 1,
+        "MediaBox" => vec![0.0.into(), 0.0.into(), width.into(), height.into()],
+    };
+    doc.objects
+        .insert(root_pages_id, Object::Dictionary(root_pages));
+
+    let catalog_id = doc.add_object(dictionary! {
+        "Type" => "Catalog",
+        "Pages" => root_pages_id,
+    });
+    doc.trailer.set("Root", catalog_id);
+    doc
+}
+
+/// Creates a PDF where the page has no MediaBox anywhere in the tree.
+pub fn create_pdf_without_media_box() -> Document {
+    let mut doc = Document::with_version("1.7");
+    let pages_id = doc.new_object_id();
+
+    let resources_id = doc.add_object(dictionary! {});
+    let content_id = doc.add_object(Stream::new(dictionary! {}, vec![]));
+    let page = dictionary! {
+        "Type" => "Page",
+        "Parent" => pages_id,
+        "Contents" => Object::Reference(content_id),
+        "Resources" => Object::Reference(resources_id),
+    };
+    let page_id = doc.add_object(page);
+
+    let pages = dictionary! {
+        "Type" => "Pages",
+        "Kids" => vec![Object::Reference(page_id)],
+        "Count" => 1,
+    };
+    doc.objects.insert(pages_id, Object::Dictionary(pages));
+
+    let catalog_id = doc.add_object(dictionary! {
+        "Type" => "Catalog",
+        "Pages" => pages_id,
+    });
+    doc.trailer.set("Root", catalog_id);
+    doc
+}
+
 /// Creates a PDF with multiple pages that share a common font resource.
 /// This is useful for testing resource deduplication during page copying.
 pub fn create_pdf_with_shared_font(page_count: usize) -> Document {
     let mut doc = create_empty_pdf();
-    let pages_id = doc.catalog().unwrap().get(b"Pages").unwrap().as_reference().unwrap();
+    let pages_id = doc
+        .catalog()
+        .unwrap()
+        .get(b"Pages")
+        .unwrap()
+        .as_reference()
+        .unwrap();
 
     // Create a shared font object
     let font_dict = dictionary! {

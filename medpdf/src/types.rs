@@ -6,6 +6,10 @@ pub struct PdfColor {
     pub r: f32,
     pub g: f32,
     pub b: f32,
+    /// Alpha component (0.0 = fully transparent, 1.0 = fully opaque).
+    /// Supported by `add_text_params()` via an ExtGState dictionary with `ca`/`CA`
+    /// parameters. When alpha is 1.0, no ExtGState is emitted (zero overhead).
+    /// Note: the legacy `add_text()` function does not support alpha.
     pub a: f32,
 }
 
@@ -113,6 +117,7 @@ pub enum FontStyle {
 }
 
 /// Parameters for adding text to a PDF page with full control over rendering.
+#[derive(Debug, Clone)]
 pub struct AddTextParams {
     pub text: String,
     pub font_data: Vec<u8>,

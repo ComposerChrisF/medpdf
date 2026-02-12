@@ -13,6 +13,7 @@ pub const KEY_CONTENTS: &[u8] = b"Contents";
 pub const KEY_FONT: &[u8] = b"Font";
 pub const KEY_FONT_DESTCRIPTOR: &[u8] = b"FontDescriptor";
 pub const KEY_MEDIA_BOX: &[u8] = b"MediaBox";
+pub const KEY_EXTGSTATE: &[u8] = b"ExtGState";
 
 /// Walk the page tree to find the inherited MediaBox for a page.
 /// Returns `[x0, y0, x1, y1]` if found on the page or any ancestor node.

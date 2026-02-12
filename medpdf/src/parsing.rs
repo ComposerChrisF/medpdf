@@ -58,24 +58,59 @@ pub fn parse_page_spec(spec: &str, max_pages: u32) -> Result<Vec<u32>, String> {
             for item in items {
                 match item {
                     PageItem::Single(num) => {
-                        if num == 0 { return Err("Page numbers must be 1 or greater.".to_string()); }
-                        if max_pages > 0 && num > max_pages { return Err(format!("Invalid page: page {} is out of bounds (max pages: {}).", num, max_pages)); }
+                        if num == 0 {
+                            return Err("Page numbers must be 1 or greater.".to_string());
+                        }
+                        if max_pages > 0 && num > max_pages {
+                            return Err(format!(
+                                "Invalid page: page {} is out of bounds (max pages: {}).",
+                                num, max_pages
+                            ));
+                        }
                         pages.insert(num);
                     }
                     PageItem::Range(start_opt, end_opt) => {
-                        if max_pages == 0 && (start_opt.is_none() || end_opt.is_none()) { return Err("Cannot use open ranges on a document with no pages.".to_string()); }
+                        if max_pages == 0 && (start_opt.is_none() || end_opt.is_none()) {
+                            return Err(
+                                "Cannot use open ranges on a document with no pages.".to_string()
+                            );
+                        }
                         let start = start_opt.unwrap_or(1);
                         let end = end_opt.unwrap_or(max_pages);
-                        if start == 0 || end == 0 { return Err("Page numbers must be 1 or greater.".to_string()); }
-                        if max_pages > 0 && start > max_pages { return Err(format!("Invalid range: start page {} is out of bounds (max pages: {}).", start, max_pages)); }
-                        if max_pages > 0 && end > max_pages { return Err(format!("Invalid range: end page {} is out of bounds (max pages: {}).", end, max_pages)); }
-                        if start > end { return Err(format!("Invalid range: start ({}) is greater than end ({}).", start, end)); }
-                        for i in start..=end { pages.insert(i); }
+                        if start == 0 || end == 0 {
+                            return Err("Page numbers must be 1 or greater.".to_string());
+                        }
+                        if max_pages > 0 && start > max_pages {
+                            return Err(format!(
+                                "Invalid range: start page {} is out of bounds (max pages: {}).",
+                                start, max_pages
+                            ));
+                        }
+                        if max_pages > 0 && end > max_pages {
+                            return Err(format!(
+                                "Invalid range: end page {} is out of bounds (max pages: {}).",
+                                end, max_pages
+                            ));
+                        }
+                        if start > end {
+                            return Err(format!(
+                                "Invalid range: start ({}) is greater than end ({}).",
+                                start, end
+                            ));
+                        }
+                        for i in start..=end {
+                            pages.insert(i);
+                        }
                     }
                 }
             }
         }
-        Err(e) => return Err(format!("Failed to parse page specification '{}': {}", spec, e)),
+        Err(e) => {
+            return Err(format!(
+                "Failed to parse page specification '{}': {}",
+                spec, e
+            ))
+        }
     }
     Ok(pages.into_iter().collect())
 }

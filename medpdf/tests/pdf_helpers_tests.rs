@@ -4,8 +4,10 @@
 mod fixtures;
 
 use lopdf::{dictionary, Object, Stream};
+use medpdf::pdf_helpers::{
+    deep_copy_object, deep_copy_object_by_id, get_page_media_box, get_page_object_id_from_doc,
+};
 use std::collections::BTreeMap;
-use medpdf::pdf_helpers::{deep_copy_object, deep_copy_object_by_id, get_page_object_id_from_doc};
 
 // --- get_page_object_id_from_doc Tests ---
 
@@ -256,7 +258,10 @@ fn test_deep_copy_dictionary_skips_parent() {
     assert!(result.is_ok());
     if let Object::Dictionary(dict) = result.unwrap() {
         // Parent should NOT be present in the copy
-        assert!(dict.get(b"Parent").is_err(), "Parent key should be skipped during copy");
+        assert!(
+            dict.get(b"Parent").is_err(),
+            "Parent key should be skipped during copy"
+        );
         // Other keys should be present
         assert!(dict.get(b"Type").is_ok());
         assert!(dict.get(b"MediaBox").is_ok());
@@ -271,10 +276,7 @@ fn test_deep_copy_stream() {
     let source_doc = fixtures::create_empty_pdf();
     let mut copied = BTreeMap::new();
 
-    let source_obj = Object::Stream(Stream::new(
-        dictionary! {},
-        b"q 1 0 0 1 0 0 cm Q".to_vec(),
-    ));
+    let source_obj = Object::Stream(Stream::new(dictionary! {}, b"q 1 0 0 1 0 0 cm Q".to_vec()));
     let result = deep_copy_object(&mut dest_doc, &source_doc, &source_obj, &mut copied);
 
     assert!(result.is_ok());
@@ -320,7 +322,10 @@ fn test_deep_copy_by_id_caches_result() {
     let dest_id2 = result2.unwrap();
 
     // Should return the same destination ID
-    assert_eq!(dest_id1, dest_id2, "Same source object should map to same dest ID");
+    assert_eq!(
+        dest_id1, dest_id2,
+        "Same source object should map to same dest ID"
+    );
 }
 
 #[test]
@@ -332,8 +337,111 @@ fn test_deep_copy_by_id_different_objects_different_ids() {
     let source_id2 = source_doc.add_object(Object::Integer(2));
     let mut copied = BTreeMap::new();
 
-    let dest_id1 = deep_copy_object_by_id(&mut dest_doc, &source_doc, source_id1, &mut copied).unwrap();
-    let dest_id2 = deep_copy_object_by_id(&mut dest_doc, &source_doc, source_id2, &mut copied).unwrap();
+    let dest_id1 =
+        deep_copy_object_by_id(&mut dest_doc, &source_doc, source_id1, &mut copied).unwrap();
+    let dest_id2 =
+        deep_copy_object_by_id(&mut dest_doc, &source_doc, source_id2, &mut copied).unwrap();
 
-    assert_ne!(dest_id1, dest_id2, "Different source objects should have different dest IDs");
+    assert_ne!(
+        dest_id1, dest_id2,
+        "Different source objects should have different dest IDs"
+    );
+}
+
+// --- get_page_media_box Tests ---
+
+#[test]
+fn test_get_media_box_explicit_on_page() {
+    let doc = fixtures::create_pdf_with_pages_and_size(1, 595.0, 842.0);
+    let page_id = fixtures::get_first_page_id(&doc);
+    let mb = get_page_media_box(&doc, page_id);
+    assert!(mb.is_some());
+    let [x0, y0, x1, y1] = mb.unwrap();
+    assert!((x0 - 0.0).abs() < 0.01);
+    assert!((y0 - 0.0).abs() < 0.01);
+    assert!((x1 - 595.0).abs() < 0.01);
+    assert!((y1 - 842.0).abs() < 0.01);
+}
+
+#[test]
+fn test_get_media_box_inherited_from_parent() {
+    let doc = fixtures::create_pdf_with_inherited_media_box(2, 612.0, 792.0);
+    let pages = doc.get_pages();
+    let page_id = *pages.get(&1).expect("Page 1 should exist");
+    let mb = get_page_media_box(&doc, page_id);
+    assert!(mb.is_some(), "Should inherit MediaBox from parent Pages node");
+    let [x0, y0, x1, y1] = mb.unwrap();
+    assert!((x0 - 0.0).abs() < 0.01);
+    assert!((y0 - 0.0).abs() < 0.01);
+    assert!((x1 - 612.0).abs() < 0.01);
+    assert!((y1 - 792.0).abs() < 0.01);
+}
+
+#[test]
+fn test_get_media_box_integer_values() {
+    // create_pdf_with_pages uses Real values via f32.into(); verify Integer parsing
+    // by building a page with explicit Integer MediaBox
+    let mut doc = fixtures::create_empty_pdf();
+    let pages_id = doc
+        .catalog()
+        .unwrap()
+        .get(b"Pages")
+        .unwrap()
+        .as_reference()
+        .unwrap();
+
+    let media_box = vec![
+        Object::Integer(0),
+        Object::Integer(0),
+        Object::Integer(612),
+        Object::Integer(792),
+    ];
+    let resources_id = doc.add_object(dictionary! {});
+    let content_id = doc.add_object(Stream::new(dictionary! {}, vec![]));
+    let page = dictionary! {
+        "Type" => "Page",
+        "Parent" => pages_id,
+        "MediaBox" => media_box,
+        "Contents" => Object::Reference(content_id),
+        "Resources" => Object::Reference(resources_id),
+    };
+    let page_id = doc.add_object(page);
+    let pages = doc.get_object_mut(pages_id).unwrap().as_dict_mut().unwrap();
+    let kids = pages.get_mut(b"Kids").unwrap().as_array_mut().unwrap();
+    kids.push(page_id.into());
+    pages.set("Count", Object::Integer(1));
+
+    let mb = get_page_media_box(&doc, page_id);
+    assert!(mb.is_some());
+    let [x0, y0, x1, y1] = mb.unwrap();
+    assert!((x0 - 0.0).abs() < 0.01);
+    assert!((y0 - 0.0).abs() < 0.01);
+    assert!((x1 - 612.0).abs() < 0.01);
+    assert!((y1 - 792.0).abs() < 0.01);
+}
+
+#[test]
+fn test_get_media_box_none_when_missing() {
+    let doc = fixtures::create_pdf_without_media_box();
+    let pages = doc.get_pages();
+    let page_id = *pages.get(&1).expect("Page 1 should exist");
+    let mb = get_page_media_box(&doc, page_id);
+    assert!(mb.is_none(), "Should return None when no MediaBox in tree");
+}
+
+#[test]
+fn test_get_media_box_deeply_nested_inheritance() {
+    let doc = fixtures::create_pdf_with_nested_page_tree(500.0, 700.0);
+    let pages = doc.get_pages();
+    let page_id = *pages.get(&1).expect("Page 1 should exist");
+    let mb = get_page_media_box(&doc, page_id);
+    assert!(
+        mb.is_some(),
+        "Should inherit MediaBox through nested page tree"
+    );
+    let [x0, y0, x1, y1] = mb.unwrap();
+    assert!((x0 - 0.0).abs() < 0.01);
+    assert!((y0 - 0.0).abs() < 0.01);
+    assert!((x1 - 500.0).abs() < 0.01);
+    assert!((y1 - 700.0).abs() < 0.01);
 }

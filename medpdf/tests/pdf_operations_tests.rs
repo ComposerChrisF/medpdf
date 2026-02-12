@@ -4,9 +4,9 @@
 mod fixtures;
 
 use lopdf::Object;
-use std::collections::BTreeMap;
-use medpdf::pdf_copy_page::{copy_page, copy_page_with_cache};
 use medpdf::pdf_blank_page::create_blank_page;
+use medpdf::pdf_copy_page::{copy_page, copy_page_with_cache};
+use std::collections::BTreeMap;
 
 // --- create_blank_page Tests ---
 
@@ -101,7 +101,10 @@ fn test_blank_page_has_parent() {
     let parent = page.get(b"Parent");
 
     assert!(parent.is_ok(), "Page should have Parent reference");
-    assert!(parent.unwrap().as_reference().is_ok(), "Parent should be a reference");
+    assert!(
+        parent.unwrap().as_reference().is_ok(),
+        "Parent should be a reference"
+    );
 }
 
 #[test]
@@ -114,7 +117,10 @@ fn test_blank_page_empty_content_stream() {
     let contents = doc.get_object(contents_ref).unwrap().as_stream().unwrap();
 
     // Content stream should be empty
-    assert!(contents.content.is_empty(), "Blank page content stream should be empty");
+    assert!(
+        contents.content.is_empty(),
+        "Blank page content stream should be empty"
+    );
 }
 
 #[test]
@@ -247,7 +253,10 @@ fn test_copy_page_has_parent_in_dest() {
     // Parent should point to dest_doc's Pages object
     let parent_id = parent.as_reference().unwrap();
     let parent_dict = dest_doc.get_dictionary(parent_id).unwrap();
-    assert_eq!(parent_dict.get(b"Type").unwrap().as_name().unwrap(), b"Pages");
+    assert_eq!(
+        parent_dict.get(b"Type").unwrap().as_name().unwrap(),
+        b"Pages"
+    );
 }
 
 #[test]
@@ -258,7 +267,13 @@ fn test_copy_page_updates_page_count() {
     copy_page(&mut dest_doc, &source_doc, 1).unwrap();
     copy_page(&mut dest_doc, &source_doc, 2).unwrap();
 
-    let pages_id = dest_doc.catalog().unwrap().get(b"Pages").unwrap().as_reference().unwrap();
+    let pages_id = dest_doc
+        .catalog()
+        .unwrap()
+        .get(b"Pages")
+        .unwrap()
+        .as_reference()
+        .unwrap();
     let pages = dest_doc.get_dictionary(pages_id).unwrap();
     let count = pages.get(b"Count").unwrap();
 
@@ -289,7 +304,8 @@ fn test_copy_page_with_cache_deduplicates_shared_resources() {
     for page_num in 1..=3 {
         copy_page(&mut dest_without_cache, &source_doc, page_num).unwrap();
     }
-    let objects_added_without_cache = dest_without_cache.objects.len() - initial_objects_without_cache;
+    let objects_added_without_cache =
+        dest_without_cache.objects.len() - initial_objects_without_cache;
 
     // Copy pages WITH cache - shared resources should be deduplicated
     let mut dest_with_cache = fixtures::create_empty_pdf();
@@ -338,7 +354,10 @@ fn test_copy_page_with_cache_tracks_objects() {
     copy_page_with_cache(&mut dest_doc, &source_doc, 1, &mut cache).unwrap();
 
     // Cache should now contain mappings for copied objects
-    assert!(!cache.is_empty(), "Cache should contain object mappings after first copy");
+    assert!(
+        !cache.is_empty(),
+        "Cache should contain object mappings after first copy"
+    );
 
     let cache_size_after_first = cache.len();
     copy_page_with_cache(&mut dest_doc, &source_doc, 2, &mut cache).unwrap();
