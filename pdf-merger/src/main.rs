@@ -1,7 +1,6 @@
 use clap::Parser;
 use lopdf::{dictionary, Document, Object, Stream, StringFormat};
 use std::path::PathBuf;
-use std::sync::Arc;
 use uuid::Uuid;
 
 mod spec_types;
@@ -189,7 +188,7 @@ fn main() -> Result<(), PdfMergeError> {
             let x_points = spec.units.to_points(spec.x);
             let y_points = spec.units.to_points(spec.y);
 
-            let params = AddTextParams::new(&spec.text, Arc::clone(&font_data), font_name)
+            let params = AddTextParams::new(&spec.text, font_data.clone(), font_name)
                 .font_size(spec.size)
                 .position(x_points, y_points)
                 .color(spec.color)

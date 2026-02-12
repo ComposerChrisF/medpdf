@@ -6,19 +6,20 @@ mod fixtures;
 use lopdf::{dictionary, Object, Stream};
 use medpdf::pdf_copy_page::copy_page;
 use medpdf::pdf_watermark::{add_line, add_rect, add_text_params};
+use medpdf::FontData;
 use medpdf::types::{AddTextParams, DrawLineParams, DrawRectParams, HAlign, PdfColor, VAlign};
 
 
 // --- Helper ---
 
 fn builtin_font_params(text: &str) -> AddTextParams {
-    AddTextParams::new(text, vec![b'@'], "Helvetica")
+    AddTextParams::new(text, FontData::BuiltIn("Helvetica".into()), "Helvetica")
         .font_size(12.0)
         .position(72.0, 72.0)
 }
 
 fn hack_font_params(text: &str) -> AddTextParams {
-    AddTextParams::new(text, vec![1u8], "F1")
+    AddTextParams::new(text, FontData::Hack(1), "F1")
         .font_size(12.0)
         .position(72.0, 72.0)
 }
@@ -232,18 +233,6 @@ fn test_watermark_alpha_half_creates_extgstate() {
     assert!(result.is_ok(), "Alpha 0.5 should succeed: {:?}", result.err());
 }
 
-// --- Empty font data ---
-
-#[test]
-fn test_watermark_empty_font_data_fails() {
-    let (mut dest_doc, page_id) = setup_dest_doc();
-    let params = AddTextParams::new("Test", Vec::<u8>::new(), "Empty")
-        .font_size(12.0)
-        .position(72.0, 72.0);
-    let result = add_text_params(&mut dest_doc, page_id, &params);
-    assert!(result.is_err(), "Empty font data should fail");
-}
-
 // --- Hack font (numeric) ---
 
 #[test]
@@ -440,15 +429,15 @@ fn test_layer_over_wraps_existing_content_with_q() {
 fn test_multiple_different_builtin_fonts() {
     let (mut dest_doc, page_id) = setup_dest_doc();
 
-    let params1 = AddTextParams::new("Helvetica", vec![b'@'], "Helvetica")
+    let params1 = AddTextParams::new("Helvetica", FontData::BuiltIn("Helvetica".into()), "Helvetica")
         .font_size(12.0).position(72.0, 700.0);
     add_text_params(&mut dest_doc, page_id, &params1).unwrap();
 
-    let params2 = AddTextParams::new("Courier", vec![b'@'], "Courier")
+    let params2 = AddTextParams::new("Courier", FontData::BuiltIn("Courier".into()), "Courier")
         .font_size(12.0).position(72.0, 650.0);
     add_text_params(&mut dest_doc, page_id, &params2).unwrap();
 
-    let params3 = AddTextParams::new("Times", vec![b'@'], "Times-Roman")
+    let params3 = AddTextParams::new("Times", FontData::BuiltIn("Times-Roman".into()), "Times-Roman")
         .font_size(12.0).position(72.0, 600.0);
     add_text_params(&mut dest_doc, page_id, &params3).unwrap();
 
@@ -586,7 +575,7 @@ fn test_rect_line_watermark_combined() {
     add_line(&mut dest_doc, page_id, &line_params).unwrap();
 
     // Add watermark over
-    let text_params = AddTextParams::new("DRAFT", vec![b'@'], "Helvetica")
+    let text_params = AddTextParams::new("DRAFT", FontData::BuiltIn("Helvetica".into()), "Helvetica")
         .font_size(48.0)
         .position(100.0, 400.0);
     add_text_params(&mut dest_doc, page_id, &text_params).unwrap();

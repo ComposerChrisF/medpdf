@@ -215,6 +215,60 @@ fn normalize_contents_array(
     Ok(refs)
 }
 
+/// Resolves a page's `/Contents` value into a normalized `Vec<Object::Reference>`.
+///
+/// Handles all valid `/Contents` forms: inline Stream, Reference (to Stream or Array), or Array.
+/// When `source_doc` is `Some`, streams/references are deep-copied from the source document.
+/// When `source_doc` is `None`, the contents are assumed to already reside in `dest_doc`.
+fn resolve_contents_to_ref_array(
+    dest_doc: &mut Document,
+    source_doc: Option<&Document>,
+    contents: &Object,
+    copied_objects: &mut BTreeMap<ObjectId, ObjectId>,
+    context: &str,
+) -> Result<Vec<Object>> {
+    match contents {
+        Object::Stream(stream) => {
+            let id = dest_doc.add_object(stream.clone());
+            Ok(vec![Object::Reference(id)])
+        }
+        Object::Reference(reference) => {
+            // Clone the resolved object to release the borrow before mutating dest_doc.
+            let resolved = if let Some(src) = source_doc {
+                src.get_object(*reference)?.clone()
+            } else {
+                dest_doc.get_object(*reference)?.clone()
+            };
+            match resolved {
+                Object::Stream(stream) => {
+                    let id = dest_doc.add_object(stream);
+                    Ok(vec![Object::Reference(id)])
+                }
+                Object::Array(a) => {
+                    if let Some(src) = source_doc {
+                        normalize_contents_array(dest_doc, src, &a, copied_objects)
+                    } else {
+                        Ok(a)
+                    }
+                }
+                _ => Err(PdfMergeError::Message(format!(
+                    "{context} /Contents references a non-stream / non-array"
+                ))),
+            }
+        }
+        Object::Array(a) => {
+            if let Some(src) = source_doc {
+                normalize_contents_array(dest_doc, src, a, copied_objects)
+            } else {
+                Ok(a.clone())
+            }
+        }
+        _ => Err(PdfMergeError::Message(format!(
+            "{context} /Contents must be stream or array or reference to stream or array"
+        ))),
+    }
+}
+
 /// Overlays the content of a source page onto a destination page.
 pub fn overlay_page(
     dest_doc: &mut Document,
@@ -241,29 +295,10 @@ pub fn overlay_page(
     //         starts with a q and ends with a Q).
     debug!("Standardizing and cloning overlay's /Contents");
     let overlay_contents = overlay_page.get(KEY_CONTENTS)?;
-    let overlay_contents_arr_new = match overlay_contents {
-        Object::Stream(stream) => {
-            let dest_stream_id = dest_doc.add_object(stream.clone());
-            vec![Object::Reference(dest_stream_id)]
-        }
-        Object::Reference(reference) => {
-            let o = overlay_doc.get_object(*reference)?;
-            match o {
-                Object::Stream(stream) => {
-                    let dest_stream_id = dest_doc.add_object(stream.clone());
-                    vec![Object::Reference(dest_stream_id)]
-                }
-                Object::Array(a) => {
-                    normalize_contents_array(dest_doc, overlay_doc, a, &mut copied_objects)?
-                }
-                _ => return Err(PdfMergeError::Message(format!("Page {overlay_page_id:?} /Contents references a non-stream / non-array"))),
-            }
-        }
-        Object::Array(a) => {
-            normalize_contents_array(dest_doc, overlay_doc, a, &mut copied_objects)?
-        }
-        _ => return Err(PdfMergeError::Message(format!("Page {overlay_page_id:?} /Contents must be stream or array or reference to stream or array"))),
-    };
+    let overlay_contents_arr_new = resolve_contents_to_ref_array(
+        dest_doc, Some(overlay_doc), overlay_contents, &mut copied_objects,
+        &format!("Page {overlay_page_id:?}"),
+    )?;
 
     // Generate deep copy of overlay's page's /Resources dictionary, normalizing it to be a
     // reference (rather than an embedded resource).  FUTURE: Also need to copy/merge any parent /Resources...
@@ -349,30 +384,17 @@ pub fn overlay_page(
     // the destination /Contents to be an array).
     debug!("Merging overlay's /Contents into the destination page's /Contents array");
     // a. We start by getting a copy of dest page's Contents, converting it to an array of
-    //    references, if necessary.
+    //    references, if necessary.  Clone the Object to release the immutable borrow on
+    //    dest_doc before passing it mutably to the helper.
     let dest_contents = dest_doc
         .get_object(dest_page_id)?
         .as_dict()?
-        .get(KEY_CONTENTS)?;
-    let mut dest_contents_arr_new = match dest_contents {
-        Object::Stream(s) => {
-            let dest_stream_id = dest_doc.add_object(s.clone());
-            vec![Object::Reference(dest_stream_id)]
-        },
-        Object::Array(a) => a.clone(),
-        Object::Reference(reference) => {
-            let dest_obj = dest_doc.get_object(*reference)?;
-            match dest_obj {
-                Object::Stream(s) => {
-                    let dest_stream_id = dest_doc.add_object(s.clone());
-                    vec![Object::Reference(dest_stream_id)]
-                }
-                Object::Array(a) => a.clone(),
-                _ => return Err(PdfMergeError::Message(format!("Page {dest_page_id:?} /Contents reference must point to stream or array: {dest_contents:?}"))),
-            }
-        }
-        _ => return Err(PdfMergeError::Message(format!("Page {dest_page_id:?} /Contents must be stream or array or reference to one: {dest_contents:?}"))),
-    };
+        .get(KEY_CONTENTS)?
+        .clone();
+    let mut dest_contents_arr_new = resolve_contents_to_ref_array(
+        dest_doc, None, &dest_contents, &mut copied_objects,
+        &format!("Page {dest_page_id:?}"),
+    )?;
     // b. For the original Content, we need to make sure everything is both q/Q balanced, *and*
     //     add a starting q and ending Q to all Content streams!  Otherwise our overlay might be
     //     affected by stray scaling and rotations!

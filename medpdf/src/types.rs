@@ -134,7 +134,7 @@ pub enum FontStyle {
 #[derive(Debug, Clone)]
 pub struct AddTextParams {
     pub text: String,
-    pub font_data: std::sync::Arc<Vec<u8>>,
+    pub font_data: crate::font_data::FontData,
     pub font_name: String,
     pub font_size: f32,
     pub x: f32,
@@ -149,10 +149,10 @@ pub struct AddTextParams {
 }
 
 impl AddTextParams {
-    pub fn new(text: impl Into<String>, font_data: impl Into<std::sync::Arc<Vec<u8>>>, font_name: impl Into<String>) -> Self {
+    pub fn new(text: impl Into<String>, font_data: crate::font_data::FontData, font_name: impl Into<String>) -> Self {
         Self {
             text: text.into(),
-            font_data: font_data.into(),
+            font_data,
             font_name: font_name.into(),
             font_size: 12.0,
             x: 0.0,
@@ -292,6 +292,7 @@ impl DrawLineParams {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::font_data::FontData;
 
     #[test]
     fn test_pdf_color_rgb() {
@@ -326,7 +327,7 @@ mod tests {
 
     #[test]
     fn test_add_text_params_builder() {
-        let params = AddTextParams::new("Hello", vec![1, 2, 3], "TestFont")
+        let params = AddTextParams::new("Hello", FontData::Embedded(std::sync::Arc::new(vec![1, 2, 3])), "TestFont")
             .font_size(24.0)
             .position(100.0, 200.0)
             .color(PdfColor::RED)
@@ -476,7 +477,7 @@ mod tests {
 
     #[test]
     fn test_add_text_params_default_values() {
-        let params = AddTextParams::new("text", vec![1], "font");
+        let params = AddTextParams::new("text", FontData::Hack(1), "font");
         assert!((params.font_size - 12.0).abs() < f32::EPSILON);
         assert!((params.x - 0.0).abs() < f32::EPSILON);
         assert!((params.y - 0.0).abs() < f32::EPSILON);
@@ -491,7 +492,7 @@ mod tests {
 
     #[test]
     fn test_add_text_params_strikeout_underline() {
-        let params = AddTextParams::new("text", vec![1], "font")
+        let params = AddTextParams::new("text", FontData::Hack(1), "font")
             .strikeout(true)
             .underline(true);
         assert!(params.strikeout);

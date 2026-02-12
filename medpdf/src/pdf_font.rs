@@ -7,6 +7,7 @@ use std::{
 };
 
 use crate::error::{PdfMergeError, Result};
+use crate::font_data::FontData;
 
 pub enum FontPath {
     Hack(u8),
@@ -39,17 +40,17 @@ impl FontCache {
         }
     }
 
-    pub fn get_data(&mut self, font_path: &FontPath) -> Result<Arc<Vec<u8>>> {
+    pub fn get_data(&mut self, font_path: &FontPath) -> Result<FontData> {
         match font_path {
-            FontPath::Hack(n) => Ok(Arc::new(vec![*n])),
-            FontPath::BuiltIn(_) => Ok(Arc::new(vec![b'@'])),
+            FontPath::Hack(n) => Ok(FontData::Hack(*n)),
+            FontPath::BuiltIn(name) => Ok(FontData::BuiltIn(name.clone())),
             FontPath::Path(path) => {
                 if let Some(cached) = self.hash.get(path) {
-                    return Ok(Arc::clone(cached));
+                    return Ok(FontData::Embedded(Arc::clone(cached)));
                 }
                 let data = Arc::new(fs::read(path)?);
                 self.hash.insert(path.clone(), Arc::clone(&data));
-                Ok(data)
+                Ok(FontData::Embedded(data))
             }
         }
     }

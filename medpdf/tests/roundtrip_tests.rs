@@ -5,7 +5,7 @@ mod fixtures;
 
 use medpdf::pdf_helpers::get_page_media_box;
 use medpdf::types::{AddTextParams, PdfColor};
-use medpdf::{add_text_params, copy_page, create_blank_page, delete_page};
+use medpdf::{add_text_params, copy_page, create_blank_page, delete_page, FontData};
 use tempfile::NamedTempFile;
 
 /// Helper: saves a Document to a temp file and reloads it.
@@ -146,7 +146,7 @@ fn test_roundtrip_watermark_with_builtin_font() {
     let mut doc = fixtures::create_pdf_with_pages(1);
     let page_id = fixtures::get_first_page_id(&doc);
 
-    let params = AddTextParams::new("DRAFT", vec![b'@'], "@Helvetica")
+    let params = AddTextParams::new("DRAFT", FontData::BuiltIn("Helvetica".into()), "@Helvetica")
         .font_size(48.0)
         .position(100.0, 400.0)
         .color(PdfColor::RED);
@@ -171,7 +171,7 @@ fn test_roundtrip_watermark_with_alpha() {
     let mut doc = fixtures::create_pdf_with_pages(1);
     let page_id = fixtures::get_first_page_id(&doc);
 
-    let params = AddTextParams::new("CONFIDENTIAL", vec![b'@'], "@Courier")
+    let params = AddTextParams::new("CONFIDENTIAL", FontData::BuiltIn("Helvetica".into()), "@Courier")
         .font_size(36.0)
         .position(72.0, 72.0)
         .color(PdfColor::rgba(0.5, 0.5, 0.5, 0.3));
@@ -239,7 +239,7 @@ fn test_roundtrip_complex_pipeline() {
 
     // Add watermark to page 1
     let page_id = *doc.get_pages().get(&1).unwrap();
-    let params = AddTextParams::new("PAGE 1", vec![b'@'], "@Helvetica")
+    let params = AddTextParams::new("PAGE 1", FontData::BuiltIn("Helvetica".into()), "@Helvetica")
         .font_size(24.0)
         .position(72.0, 720.0);
     add_text_params(&mut doc, page_id, &params).unwrap();

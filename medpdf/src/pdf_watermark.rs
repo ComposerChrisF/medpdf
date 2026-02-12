@@ -121,20 +121,13 @@ fn measure_text_width_with_face(face: &ttf_parser::Face, font_size: f32, text: &
 fn add_font_objects(
     dest_doc: &mut Document,
     page_id: (u32, u16),
-    font_data: &[u8],
+    font_data: &crate::font_data::FontData,
     font_name: &str,
 ) -> Result<String> {
-    if font_data.is_empty() {
-        return Err(PdfMergeError::new("Font data is empty"));
-    }
-    if font_data.len() == 1 && font_data[0] != b'@' {
-        return Ok(format!("F{}", font_data[0])); // No need to add font objects since we're just reusing existing ones...
-    }
-
-    if font_data[0] == b'@' {
-        add_known_named_font(dest_doc, page_id, font_name)
-    } else {
-        add_embedded_font(dest_doc, page_id, font_data)
+    match font_data {
+        crate::font_data::FontData::Hack(n) => Ok(format!("F{n}")),
+        crate::font_data::FontData::BuiltIn(_) => add_known_named_font(dest_doc, page_id, font_name),
+        crate::font_data::FontData::Embedded(data) => add_embedded_font(dest_doc, page_id, data),
     }
 }
 
@@ -364,11 +357,8 @@ pub fn add_text_params(
         || params.strikeout
         || params.underline;
     // Parse the font face once for both width measurement and metrics extraction
-    let face_opt = if params.font_data.len() > 1 {
-        ttf_parser::Face::parse(&params.font_data, 0).ok()
-    } else {
-        None
-    };
+    let face_opt = params.font_data.embedded_bytes()
+        .and_then(|bytes| ttf_parser::Face::parse(bytes, 0).ok());
 
     let text_width = if needs_width {
         match &face_opt {

@@ -208,31 +208,34 @@ pub(crate) fn get_pdf_font_info_of_data(
 /// Measure the width of a text string in points for the given font data and size.
 /// Sums glyph horizontal advances scaled by font_size / units_per_em.
 pub fn measure_text_width(
-    font_data: &[u8],
+    font_data: &crate::font_data::FontData,
     font_size: f32,
     text: &str,
 ) -> Result<f32, PdfMergeError> {
-    // Skip hack/builtin font data (single byte markers)
-    if font_data.len() <= 1 {
-        // Rough estimate: 0.6 * font_size per character for monospace-ish fonts
-        return Ok(text.len() as f32 * font_size * 0.6);
-    }
-    let face = Face::parse(font_data, 0)?;
-    let units_per_em = face.units_per_em() as f32;
-    if units_per_em == 0.0 {
-        return Ok(0.0);
-    }
-    let scale = font_size / units_per_em;
-    let mut width: f32 = 0.0;
-    for ch in text.chars() {
-        if let Some(glyph_id) = face.glyph_index(ch) {
-            width += face.glyph_hor_advance(glyph_id).unwrap_or_else(|| {
-                log::trace!("Missing glyph advance for glyph {:?} (char '{}')", glyph_id, ch);
-                0
-            }) as f32;
+    match font_data {
+        crate::font_data::FontData::Hack(_) | crate::font_data::FontData::BuiltIn(_) => {
+            // Rough estimate: 0.6 * font_size per character for monospace-ish fonts
+            Ok(text.len() as f32 * font_size * 0.6)
+        }
+        crate::font_data::FontData::Embedded(data) => {
+            let face = Face::parse(data, 0)?;
+            let units_per_em = face.units_per_em() as f32;
+            if units_per_em == 0.0 {
+                return Ok(0.0);
+            }
+            let scale = font_size / units_per_em;
+            let mut width: f32 = 0.0;
+            for ch in text.chars() {
+                if let Some(glyph_id) = face.glyph_index(ch) {
+                    width += face.glyph_hor_advance(glyph_id).unwrap_or_else(|| {
+                        log::trace!("Missing glyph advance for glyph {:?} (char '{}')", glyph_id, ch);
+                        0
+                    }) as f32;
+                }
+            }
+            Ok(width * scale)
         }
     }
-    Ok(width * scale)
 }
 
 pub(crate) fn get_pdf_info_of_face(face: &Face) -> (FontPdfInfo, FontDescriptorPdfInfo) {

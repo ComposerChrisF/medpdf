@@ -1,6 +1,7 @@
 // medpdf - Medium-level PDF API over lopdf
 
 pub mod error;
+pub mod font_data;
 pub mod font_helpers;
 pub mod parsing;
 pub mod pdf_blank_page;
@@ -14,6 +15,7 @@ pub mod types;
 
 // Re-exports for convenience
 pub use error::{Error, PdfMergeError, Result};
+pub use font_data::FontData;
 pub use font_helpers::measure_text_width;
 pub use parsing::parse_page_spec;
 pub use pdf_blank_page::create_blank_page;

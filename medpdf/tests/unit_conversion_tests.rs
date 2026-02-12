@@ -186,8 +186,8 @@ fn test_pt_negative() {
 
 #[test]
 fn test_pt_fractional() {
-    let points = Unit::Pt.to_points(3.14159);
-    assert!(approx_eq(points, 3.14159), "Expected 3.14159, got {}", points);
+    let points = Unit::Pt.to_points(3.5);
+    assert!(approx_eq(points, 3.5), "Expected 3.5, got {}", points);
 }
 
 #[test]

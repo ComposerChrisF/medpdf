@@ -6,6 +6,7 @@ mod fixtures;
 
 use medpdf::types::{AddTextParams, DrawLineParams, DrawRectParams, HAlign, PdfColor, VAlign};
 use medpdf::{add_line, add_rect, add_text_params};
+use medpdf::FontData;
 
 /// Helper: extract all content stream bytes from the first page.
 fn get_first_page_content(doc: &lopdf::Document) -> String {
@@ -22,7 +23,7 @@ fn test_watermark_contains_q_and_big_q() {
     let mut doc = fixtures::create_pdf_with_pages(1);
     let page_id = fixtures::get_first_page_id(&doc);
 
-    let params = AddTextParams::new("Test", vec![b'@'], "@Helvetica")
+    let params = AddTextParams::new("Test", FontData::BuiltIn("Helvetica".into()), "@Helvetica")
         .font_size(12.0)
         .position(72.0, 72.0);
     add_text_params(&mut doc, page_id, &params).unwrap();
@@ -39,7 +40,7 @@ fn test_watermark_contains_bt_et() {
     let mut doc = fixtures::create_pdf_with_pages(1);
     let page_id = fixtures::get_first_page_id(&doc);
 
-    let params = AddTextParams::new("Hello", vec![b'@'], "@Helvetica")
+    let params = AddTextParams::new("Hello", FontData::BuiltIn("Helvetica".into()), "@Helvetica")
         .font_size(24.0)
         .position(100.0, 200.0);
     add_text_params(&mut doc, page_id, &params).unwrap();
@@ -55,7 +56,7 @@ fn test_watermark_contains_tf_operator() {
     let mut doc = fixtures::create_pdf_with_pages(1);
     let page_id = fixtures::get_first_page_id(&doc);
 
-    let params = AddTextParams::new("Font test", vec![b'@'], "@Helvetica")
+    let params = AddTextParams::new("Font test", FontData::BuiltIn("Helvetica".into()), "@Helvetica")
         .font_size(36.0)
         .position(72.0, 72.0);
     add_text_params(&mut doc, page_id, &params).unwrap();
@@ -71,7 +72,7 @@ fn test_watermark_contains_tj_with_text() {
     let mut doc = fixtures::create_pdf_with_pages(1);
     let page_id = fixtures::get_first_page_id(&doc);
 
-    let params = AddTextParams::new("SAMPLE", vec![b'@'], "@Helvetica")
+    let params = AddTextParams::new("SAMPLE", FontData::BuiltIn("Helvetica".into()), "@Helvetica")
         .font_size(12.0)
         .position(0.0, 0.0);
     add_text_params(&mut doc, page_id, &params).unwrap();
@@ -89,7 +90,7 @@ fn test_watermark_contains_td_position() {
 
     let x = 150.0_f32;
     let y = 300.0_f32;
-    let params = AddTextParams::new("Positioned", vec![b'@'], "@Helvetica")
+    let params = AddTextParams::new("Positioned", FontData::BuiltIn("Helvetica".into()), "@Helvetica")
         .font_size(12.0)
         .position(x, y);
     add_text_params(&mut doc, page_id, &params).unwrap();
@@ -107,7 +108,7 @@ fn test_watermark_color_rg_operator() {
     let mut doc = fixtures::create_pdf_with_pages(1);
     let page_id = fixtures::get_first_page_id(&doc);
 
-    let params = AddTextParams::new("Red text", vec![b'@'], "@Helvetica")
+    let params = AddTextParams::new("Red text", FontData::BuiltIn("Helvetica".into()), "@Helvetica")
         .font_size(12.0)
         .position(72.0, 72.0)
         .color(PdfColor::RED);
@@ -125,7 +126,7 @@ fn test_watermark_custom_color() {
     let page_id = fixtures::get_first_page_id(&doc);
 
     // Use a distinctive color
-    let params = AddTextParams::new("Custom", vec![b'@'], "@Helvetica")
+    let params = AddTextParams::new("Custom", FontData::BuiltIn("Helvetica".into()), "@Helvetica")
         .font_size(12.0)
         .position(72.0, 72.0)
         .color(PdfColor::rgb(0.0, 1.0, 0.0)); // Green
@@ -142,7 +143,7 @@ fn test_watermark_alpha_emits_gs_operator() {
     let mut doc = fixtures::create_pdf_with_pages(1);
     let page_id = fixtures::get_first_page_id(&doc);
 
-    let params = AddTextParams::new("Transparent", vec![b'@'], "@Helvetica")
+    let params = AddTextParams::new("Transparent", FontData::BuiltIn("Helvetica".into()), "@Helvetica")
         .font_size(12.0)
         .position(72.0, 72.0)
         .color(PdfColor::rgba(0.0, 0.0, 0.0, 0.5));
@@ -158,7 +159,7 @@ fn test_watermark_full_alpha_no_gs_operator() {
     let page_id = fixtures::get_first_page_id(&doc);
 
     // Alpha = 1.0 (fully opaque): should NOT emit gs
-    let params = AddTextParams::new("Opaque", vec![b'@'], "@Helvetica")
+    let params = AddTextParams::new("Opaque", FontData::BuiltIn("Helvetica".into()), "@Helvetica")
         .font_size(12.0)
         .position(72.0, 72.0)
         .color(PdfColor::rgba(0.0, 0.0, 0.0, 1.0));
@@ -181,7 +182,7 @@ fn test_watermark_rotation_emits_cm_operator() {
     let mut doc = fixtures::create_pdf_with_pages(1);
     let page_id = fixtures::get_first_page_id(&doc);
 
-    let params = AddTextParams::new("Rotated", vec![b'@'], "@Helvetica")
+    let params = AddTextParams::new("Rotated", FontData::BuiltIn("Helvetica".into()), "@Helvetica")
         .font_size(24.0)
         .position(100.0, 200.0)
         .rotation(45.0);
@@ -199,7 +200,7 @@ fn test_watermark_rotation_matrix_values() {
 
     let x = 100.0_f32;
     let y = 200.0_f32;
-    let params = AddTextParams::new("R45", vec![b'@'], "@Helvetica")
+    let params = AddTextParams::new("R45", FontData::BuiltIn("Helvetica".into()), "@Helvetica")
         .font_size(12.0)
         .position(x, y)
         .rotation(45.0);
@@ -226,7 +227,7 @@ fn test_watermark_no_rotation_no_cm() {
     let mut doc = fixtures::create_pdf_with_pages(1);
     let page_id = fixtures::get_first_page_id(&doc);
 
-    let params = AddTextParams::new("NoRot", vec![b'@'], "@Helvetica")
+    let params = AddTextParams::new("NoRot", FontData::BuiltIn("Helvetica".into()), "@Helvetica")
         .font_size(12.0)
         .position(72.0, 72.0)
         .rotation(0.0);
@@ -250,7 +251,7 @@ fn test_watermark_center_align_offsets_position() {
     let page_id = fixtures::get_first_page_id(&doc);
 
     let x = 300.0_f32;
-    let params = AddTextParams::new("Center", vec![b'@'], "@Helvetica")
+    let params = AddTextParams::new("Center", FontData::BuiltIn("Helvetica".into()), "@Helvetica")
         .font_size(24.0)
         .position(x, 400.0)
         .h_align(HAlign::Center);
@@ -286,7 +287,7 @@ fn test_watermark_right_align_offsets_position() {
     let page_id = fixtures::get_first_page_id(&doc);
 
     let x = 500.0_f32;
-    let params = AddTextParams::new("Right", vec![b'@'], "@Helvetica")
+    let params = AddTextParams::new("Right", FontData::BuiltIn("Helvetica".into()), "@Helvetica")
         .font_size(24.0)
         .position(x, 400.0)
         .h_align(HAlign::Right);
@@ -320,7 +321,7 @@ fn test_watermark_left_align_exact_position() {
 
     let x = 72.0_f32;
     let y = 720.0_f32;
-    let params = AddTextParams::new("Left", vec![b'@'], "@Helvetica")
+    let params = AddTextParams::new("Left", FontData::BuiltIn("Helvetica".into()), "@Helvetica")
         .font_size(12.0)
         .position(x, y)
         .h_align(HAlign::Left)
@@ -362,7 +363,7 @@ fn test_watermark_valign_top_shifts_down() {
     let page_id = fixtures::get_first_page_id(&doc);
 
     let y = 700.0_f32;
-    let params = AddTextParams::new("TopAlign", vec![b'@'], "@Helvetica")
+    let params = AddTextParams::new("TopAlign", FontData::BuiltIn("Helvetica".into()), "@Helvetica")
         .font_size(24.0)
         .position(72.0, y)
         .v_align(VAlign::Top);
@@ -396,7 +397,7 @@ fn test_watermark_valign_center_adjusts_y() {
     let page_id = fixtures::get_first_page_id(&doc);
 
     let y = 400.0_f32;
-    let params = AddTextParams::new("CenterV", vec![b'@'], "@Helvetica")
+    let params = AddTextParams::new("CenterV", FontData::BuiltIn("Helvetica".into()), "@Helvetica")
         .font_size(24.0)
         .position(72.0, y)
         .v_align(VAlign::Center);
@@ -631,7 +632,7 @@ fn test_watermark_layer_over_appends() {
     let mut doc = fixtures::create_pdf_with_pages(1);
     let page_id = fixtures::get_first_page_id(&doc);
 
-    let params = AddTextParams::new("Over", vec![b'@'], "@Helvetica")
+    let params = AddTextParams::new("Over", FontData::BuiltIn("Helvetica".into()), "@Helvetica")
         .font_size(12.0)
         .position(72.0, 72.0)
         .layer_over(true);
@@ -651,7 +652,7 @@ fn test_watermark_layer_under_prepends() {
     let mut doc = fixtures::create_pdf_with_pages(1);
     let page_id = fixtures::get_first_page_id(&doc);
 
-    let params = AddTextParams::new("Under", vec![b'@'], "@Helvetica")
+    let params = AddTextParams::new("Under", FontData::BuiltIn("Helvetica".into()), "@Helvetica")
         .font_size(12.0)
         .position(72.0, 72.0)
         .layer_over(false);
@@ -673,10 +674,10 @@ fn test_multiple_watermarks_on_same_page() {
     let mut doc = fixtures::create_pdf_with_pages(1);
     let page_id = fixtures::get_first_page_id(&doc);
 
-    let params1 = AddTextParams::new("FIRST", vec![b'@'], "@Helvetica")
+    let params1 = AddTextParams::new("FIRST", FontData::BuiltIn("Helvetica".into()), "@Helvetica")
         .font_size(24.0)
         .position(72.0, 720.0);
-    let params2 = AddTextParams::new("SECOND", vec![b'@'], "@Courier")
+    let params2 = AddTextParams::new("SECOND", FontData::BuiltIn("Helvetica".into()), "@Courier")
         .font_size(18.0)
         .position(72.0, 600.0);
 
@@ -695,7 +696,7 @@ fn test_watermark_underline_emits_re_f() {
     let mut doc = fixtures::create_pdf_with_pages(1);
     let page_id = fixtures::get_first_page_id(&doc);
 
-    let params = AddTextParams::new("Underlined", vec![b'@'], "@Helvetica")
+    let params = AddTextParams::new("Underlined", FontData::BuiltIn("Helvetica".into()), "@Helvetica")
         .font_size(24.0)
         .position(72.0, 400.0)
         .underline(true);
@@ -724,7 +725,7 @@ fn test_watermark_strikeout_emits_re_f() {
     let mut doc = fixtures::create_pdf_with_pages(1);
     let page_id = fixtures::get_first_page_id(&doc);
 
-    let params = AddTextParams::new("Struck", vec![b'@'], "@Helvetica")
+    let params = AddTextParams::new("Struck", FontData::BuiltIn("Helvetica".into()), "@Helvetica")
         .font_size(24.0)
         .position(72.0, 400.0)
         .strikeout(true);
@@ -752,7 +753,7 @@ fn test_watermark_both_underline_and_strikeout() {
     let mut doc = fixtures::create_pdf_with_pages(1);
     let page_id = fixtures::get_first_page_id(&doc);
 
-    let params = AddTextParams::new("Both", vec![b'@'], "@Helvetica")
+    let params = AddTextParams::new("Both", FontData::BuiltIn("Helvetica".into()), "@Helvetica")
         .font_size(24.0)
         .position(72.0, 400.0)
         .underline(true)

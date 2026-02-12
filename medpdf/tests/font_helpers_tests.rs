@@ -2,12 +2,14 @@
 // Tests for the public measure_text_width function
 
 use medpdf::font_helpers;
+use medpdf::FontData;
+use std::sync::Arc;
 
 // --- measure_text_width() ---
 
 #[test]
 fn test_measure_text_width_hack_font_single_char() {
-    let font_data = &[1u8];
+    let font_data = &FontData::Hack(1);
     let font_size = 10.0;
     let text = "A";
     let width = font_helpers::measure_text_width(font_data, font_size, text).unwrap();
@@ -20,7 +22,7 @@ fn test_measure_text_width_hack_font_single_char() {
 
 #[test]
 fn test_measure_text_width_hack_font_multi_char() {
-    let font_data = &[1u8];
+    let font_data = &FontData::Hack(1);
     let font_size = 12.0;
     let text = "Hello";
     let width = font_helpers::measure_text_width(font_data, font_size, text).unwrap();
@@ -33,7 +35,7 @@ fn test_measure_text_width_hack_font_multi_char() {
 
 #[test]
 fn test_measure_text_width_builtin_font() {
-    let font_data: &[u8] = b"@";
+    let font_data = &FontData::BuiltIn("Helvetica".into());
     let font_size = 24.0;
     let text = "Test";
     let width = font_helpers::measure_text_width(font_data, font_size, text).unwrap();
@@ -46,7 +48,7 @@ fn test_measure_text_width_builtin_font() {
 
 #[test]
 fn test_measure_text_width_empty_string_hack() {
-    let font_data = &[1u8];
+    let font_data = &FontData::Hack(1);
     let font_size = 12.0;
     let width = font_helpers::measure_text_width(font_data, font_size, "").unwrap();
     assert!(
@@ -57,7 +59,7 @@ fn test_measure_text_width_empty_string_hack() {
 
 #[test]
 fn test_measure_text_width_zero_font_size_hack() {
-    let font_data = &[1u8];
+    let font_data = &FontData::Hack(1);
     let width = font_helpers::measure_text_width(font_data, 0.0, "Hello").unwrap();
     assert!(
         width.abs() < f32::EPSILON,
@@ -67,7 +69,7 @@ fn test_measure_text_width_zero_font_size_hack() {
 
 #[test]
 fn test_measure_text_width_empty_font_data_uses_estimate() {
-    let result = font_helpers::measure_text_width(&[], 12.0, "Hello");
+    let result = font_helpers::measure_text_width(&FontData::Hack(0), 12.0, "Hello");
     assert!(result.is_ok());
     let width = result.unwrap();
     let expected = 5.0 * 12.0 * 0.6;
@@ -79,13 +81,13 @@ fn test_measure_text_width_empty_font_data_uses_estimate() {
 
 #[test]
 fn test_measure_text_width_invalid_font_data_fails() {
-    let result = font_helpers::measure_text_width(&[0xFF, 0xFE, 0x00, 0x01], 12.0, "Hello");
+    let result = font_helpers::measure_text_width(&FontData::Embedded(Arc::new(vec![0xFF, 0xFE, 0x00, 0x01])), 12.0, "Hello");
     assert!(result.is_err(), "Invalid font data should fail");
 }
 
 #[test]
 fn test_measure_text_width_proportional_to_font_size() {
-    let font_data = &[1u8];
+    let font_data = &FontData::Hack(1);
     let text = "ABCDE";
     let width_12 = font_helpers::measure_text_width(font_data, 12.0, text).unwrap();
     let width_24 = font_helpers::measure_text_width(font_data, 24.0, text).unwrap();
@@ -97,7 +99,7 @@ fn test_measure_text_width_proportional_to_font_size() {
 
 #[test]
 fn test_measure_text_width_proportional_to_text_length() {
-    let font_data = &[1u8];
+    let font_data = &FontData::Hack(1);
     let font_size = 12.0;
     let width_5 = font_helpers::measure_text_width(font_data, font_size, "ABCDE").unwrap();
     let width_10 = font_helpers::measure_text_width(font_data, font_size, "ABCDEABCDE").unwrap();
@@ -109,7 +111,7 @@ fn test_measure_text_width_proportional_to_text_length() {
 
 #[test]
 fn test_measure_text_width_negative_font_size() {
-    let font_data = &[1u8];
+    let font_data = &FontData::Hack(1);
     let width = font_helpers::measure_text_width(font_data, -12.0, "Hi").unwrap();
     assert!(
         width < 0.0,

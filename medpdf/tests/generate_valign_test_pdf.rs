@@ -11,8 +11,6 @@
 ///   - Bottom:   the lowest descender touches the red line
 ///   - Center:   the x-height midpoint of the text aligns with the red line
 ///   - Top:      the top of ascenders touches the red line
-use std::sync::Arc;
-
 use lopdf::{dictionary, Document, Object};
 
 fn create_test_doc() -> Document {
@@ -62,7 +60,7 @@ fn generate_valign_test_pdf() {
     // Draw a title at the very top
     let title_params = AddTextParams::new(
         "VAlign Test \u{2014} red line = anchor y-coordinate",
-        Arc::clone(&font_data),
+        font_data.clone(),
         font_name.clone(),
     )
     .font_size(14.0)
@@ -80,7 +78,7 @@ fn generate_valign_test_pdf() {
         // Draw the label on the left (small, gray)
         let label_params = AddTextParams::new(
             format!("v_align={label}"),
-            Arc::clone(&font_data),
+            font_data.clone(),
             font_name.clone(),
         )
         .font_size(10.0)
@@ -91,7 +89,7 @@ fn generate_valign_test_pdf() {
         // Draw the sample text with this VAlign
         let text_params = AddTextParams::new(
             sample_text,
-            Arc::clone(&font_data),
+            font_data.clone(),
             font_name.clone(),
         )
         .font_size(font_size)
@@ -122,7 +120,7 @@ fn generate_valign_test_pdf() {
     let section_y = 120.0;
     let heading_params = AddTextParams::new(
         "WinAnsi 0x80\u{2013}0x9F spot-check (should be evenly spaced, no overlaps):",
-        Arc::clone(&font_data),
+        font_data.clone(),
         font_name.clone(),
     )
     .font_size(11.0)
@@ -132,7 +130,7 @@ fn generate_valign_test_pdf() {
 
     let winansi_params = AddTextParams::new(
         winansi_test,
-        Arc::clone(&font_data),
+        font_data.clone(),
         font_name.clone(),
     )
     .font_size(13.0)

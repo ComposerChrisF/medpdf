@@ -6,12 +6,13 @@ mod fixtures;
 use medpdf::pdf_copy_page::copy_page;
 use medpdf::pdf_watermark::add_text_params;
 use medpdf::types::{AddTextParams, HAlign, PdfColor, VAlign};
+use medpdf::FontData;
 
 // --- Helper ---
 
 /// Creates AddTextParams with built-in Helvetica font at a given position (layer_over=true).
 fn builtin_params(text: &str, font_name: &str, font_size: f32, x: f32, y: f32) -> AddTextParams {
-    AddTextParams::new(text, vec![b'@'], font_name)
+    AddTextParams::new(text, FontData::BuiltIn("Helvetica".into()), font_name)
         .font_size(font_size)
         .position(x, y)
 }
@@ -242,7 +243,7 @@ fn test_watermark_font_hack_mode() {
     let page_id = copy_page(&mut dest_doc, &source_doc, 1).unwrap();
 
     // Font data as single byte references font F1
-    let params = AddTextParams::new("Reuse", vec![1], "F1")
+    let params = AddTextParams::new("Reuse", FontData::Hack(1), "F1")
         .font_size(12.0)
         .position(100.0, 100.0);
     let result = add_text_params(&mut dest_doc, page_id, &params);
@@ -262,7 +263,7 @@ fn setup_page_for_text_params() -> (lopdf::Document, lopdf::ObjectId) {
 #[test]
 fn test_add_text_params_basic_defaults() {
     let (mut doc, page_id) = setup_page_for_text_params();
-    let params = AddTextParams::new("Hello", vec![b'@'], "Helvetica");
+    let params = AddTextParams::new("Hello", FontData::BuiltIn("Helvetica".into()), "Helvetica");
     let result = add_text_params(&mut doc, page_id, &params);
     assert!(result.is_ok(), "Basic add_text_params should succeed: {:?}", result.err());
 }
@@ -270,7 +271,7 @@ fn test_add_text_params_basic_defaults() {
 #[test]
 fn test_add_text_params_custom_color() {
     let (mut doc, page_id) = setup_page_for_text_params();
-    let params = AddTextParams::new("Red", vec![b'@'], "Helvetica")
+    let params = AddTextParams::new("Red", FontData::BuiltIn("Helvetica".into()), "Helvetica")
         .color(PdfColor::rgb(1.0, 0.0, 0.0))
         .position(100.0, 100.0);
     add_text_params(&mut doc, page_id, &params).unwrap();
@@ -288,7 +289,7 @@ fn test_add_text_params_custom_color() {
 #[test]
 fn test_add_text_params_rotation_produces_cm() {
     let (mut doc, page_id) = setup_page_for_text_params();
-    let params = AddTextParams::new("Rotated", vec![b'@'], "Helvetica")
+    let params = AddTextParams::new("Rotated", FontData::BuiltIn("Helvetica".into()), "Helvetica")
         .rotation(45.0)
         .position(200.0, 200.0);
     add_text_params(&mut doc, page_id, &params).unwrap();
@@ -305,7 +306,7 @@ fn test_add_text_params_rotation_produces_cm() {
 #[test]
 fn test_add_text_params_no_rotation_no_cm() {
     let (mut doc, page_id) = setup_page_for_text_params();
-    let params = AddTextParams::new("Straight", vec![b'@'], "Helvetica")
+    let params = AddTextParams::new("Straight", FontData::BuiltIn("Helvetica".into()), "Helvetica")
         .position(100.0, 100.0);
     add_text_params(&mut doc, page_id, &params).unwrap();
 
@@ -321,7 +322,7 @@ fn test_add_text_params_no_rotation_no_cm() {
 #[test]
 fn test_add_text_params_halign_center() {
     let (mut doc, page_id) = setup_page_for_text_params();
-    let params = AddTextParams::new("Centered", vec![b'@'], "Helvetica")
+    let params = AddTextParams::new("Centered", FontData::BuiltIn("Helvetica".into()), "Helvetica")
         .font_size(20.0)
         .h_align(HAlign::Center)
         .position(300.0, 400.0);
@@ -342,7 +343,7 @@ fn test_add_text_params_halign_center() {
 #[test]
 fn test_add_text_params_halign_right() {
     let (mut doc, page_id) = setup_page_for_text_params();
-    let params = AddTextParams::new("Right", vec![b'@'], "Helvetica")
+    let params = AddTextParams::new("Right", FontData::BuiltIn("Helvetica".into()), "Helvetica")
         .font_size(20.0)
         .h_align(HAlign::Right)
         .position(300.0, 400.0);
@@ -361,7 +362,7 @@ fn test_add_text_params_halign_right() {
 #[test]
 fn test_add_text_params_valign_top() {
     let (mut doc, page_id) = setup_page_for_text_params();
-    let params = AddTextParams::new("Top", vec![b'@'], "Helvetica")
+    let params = AddTextParams::new("Top", FontData::BuiltIn("Helvetica".into()), "Helvetica")
         .font_size(20.0)
         .v_align(VAlign::Top)
         .position(100.0, 400.0);
@@ -380,7 +381,7 @@ fn test_add_text_params_valign_top() {
 #[test]
 fn test_add_text_params_strikeout() {
     let (mut doc, page_id) = setup_page_for_text_params();
-    let params = AddTextParams::new("Strike", vec![b'@'], "Helvetica")
+    let params = AddTextParams::new("Strike", FontData::BuiltIn("Helvetica".into()), "Helvetica")
         .font_size(20.0)
         .strikeout(true)
         .position(100.0, 100.0);
@@ -398,7 +399,7 @@ fn test_add_text_params_strikeout() {
 #[test]
 fn test_add_text_params_underline() {
     let (mut doc, page_id) = setup_page_for_text_params();
-    let params = AddTextParams::new("Under", vec![b'@'], "Helvetica")
+    let params = AddTextParams::new("Under", FontData::BuiltIn("Helvetica".into()), "Helvetica")
         .font_size(20.0)
         .underline(true)
         .position(100.0, 100.0);
@@ -416,7 +417,7 @@ fn test_add_text_params_underline() {
 #[test]
 fn test_add_text_params_strikeout_and_underline() {
     let (mut doc, page_id) = setup_page_for_text_params();
-    let params = AddTextParams::new("Both", vec![b'@'], "Helvetica")
+    let params = AddTextParams::new("Both", FontData::BuiltIn("Helvetica".into()), "Helvetica")
         .font_size(20.0)
         .strikeout(true)
         .underline(true)
@@ -437,7 +438,7 @@ fn test_add_text_params_strikeout_and_underline() {
 #[test]
 fn test_add_text_params_layer_under() {
     let (mut doc, page_id) = setup_page_for_text_params();
-    let params = AddTextParams::new("Under", vec![b'@'], "Helvetica")
+    let params = AddTextParams::new("Under", FontData::BuiltIn("Helvetica".into()), "Helvetica")
         .layer_over(false)
         .position(100.0, 100.0);
     add_text_params(&mut doc, page_id, &params).unwrap();
@@ -454,7 +455,7 @@ fn test_add_text_params_layer_under() {
 #[test]
 fn test_add_text_params_layer_over_wraps_existing() {
     let (mut doc, page_id) = setup_page_for_text_params();
-    let params = AddTextParams::new("Over", vec![b'@'], "Helvetica")
+    let params = AddTextParams::new("Over", FontData::BuiltIn("Helvetica".into()), "Helvetica")
         .layer_over(true)
         .position(100.0, 100.0);
     add_text_params(&mut doc, page_id, &params).unwrap();
@@ -485,7 +486,7 @@ fn test_add_text_params_layer_over_wraps_existing() {
 fn test_add_text_params_alpha_opaque_no_gs() {
     let (mut doc, page_id) = setup_page_for_text_params();
     // alpha = 1.0 (default) should NOT produce a gs operator
-    let params = AddTextParams::new("Opaque", vec![b'@'], "Helvetica")
+    let params = AddTextParams::new("Opaque", FontData::BuiltIn("Helvetica".into()), "Helvetica")
         .color(PdfColor::rgb(1.0, 0.0, 0.0))
         .position(100.0, 100.0);
     add_text_params(&mut doc, page_id, &params).unwrap();
@@ -502,7 +503,7 @@ fn test_add_text_params_alpha_opaque_no_gs() {
 #[test]
 fn test_add_text_params_alpha_half_produces_gs() {
     let (mut doc, page_id) = setup_page_for_text_params();
-    let params = AddTextParams::new("Semi", vec![b'@'], "Helvetica")
+    let params = AddTextParams::new("Semi", FontData::BuiltIn("Helvetica".into()), "Helvetica")
         .color(PdfColor::rgba(0.0, 0.0, 0.0, 0.5))
         .position(100.0, 100.0);
     add_text_params(&mut doc, page_id, &params).unwrap();
@@ -534,7 +535,7 @@ fn test_add_text_params_alpha_half_produces_gs() {
 fn test_add_text_params_alpha_zero_works() {
     let (mut doc, page_id) = setup_page_for_text_params();
     // Fully transparent — should work without error
-    let params = AddTextParams::new("Ghost", vec![b'@'], "Helvetica")
+    let params = AddTextParams::new("Ghost", FontData::BuiltIn("Helvetica".into()), "Helvetica")
         .color(PdfColor::rgba(0.0, 0.0, 0.0, 0.0))
         .position(100.0, 100.0);
     let result = add_text_params(&mut doc, page_id, &params);
@@ -555,7 +556,7 @@ fn test_add_text_params_alpha_zero_works() {
 #[test]
 fn test_add_text_params_alpha_extgstate_has_correct_values() {
     let (mut doc, page_id) = setup_page_for_text_params();
-    let params = AddTextParams::new("Check", vec![b'@'], "Helvetica")
+    let params = AddTextParams::new("Check", FontData::BuiltIn("Helvetica".into()), "Helvetica")
         .color(PdfColor::rgba(1.0, 0.0, 0.0, 0.5))
         .position(100.0, 100.0);
     add_text_params(&mut doc, page_id, &params).unwrap();

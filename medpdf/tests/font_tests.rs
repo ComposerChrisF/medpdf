@@ -7,6 +7,7 @@
 use medpdf::font_helpers::measure_text_width;
 use medpdf::pdf_font::{find_font, find_font_with_style, FontCache, FontPath};
 use medpdf::types::{FontStyle, FontWeight};
+use medpdf::FontData;
 use std::path::PathBuf;
 
 // --- find_font Tests ---
@@ -203,8 +204,10 @@ fn test_font_cache_get_hack() {
     let result = cache.get_data(&font_path);
     assert!(result.is_ok());
     let data = result.unwrap();
-    assert_eq!(data.len(), 1);
-    assert_eq!(data[0], 3);
+    match data {
+        FontData::Hack(n) => assert_eq!(n, 3),
+        _ => panic!("Expected FontData::Hack"),
+    }
 }
 
 #[test]
@@ -215,8 +218,10 @@ fn test_font_cache_get_builtin() {
     let result = cache.get_data(&font_path);
     assert!(result.is_ok());
     let data = result.unwrap();
-    assert_eq!(data.len(), 1);
-    assert_eq!(data[0], b'@');
+    match data {
+        FontData::BuiltIn(name) => assert_eq!(name, "Helvetica"),
+        _ => panic!("Expected FontData::BuiltIn"),
+    }
 }
 
 #[test]
@@ -244,8 +249,8 @@ fn test_font_helpers_symbol_detection_documented() {
 
 #[test]
 fn test_measure_text_width_builtin_font_estimate() {
-    // Builtin font data is a single byte [b'@']
-    let font_data = vec![b'@'];
+    // Builtin font data uses FontData::BuiltIn
+    let font_data = FontData::BuiltIn("Helvetica".into());
     let width = measure_text_width(&font_data, 12.0, "Hello").unwrap();
     // Expected: 5 chars * 12.0 * 0.6 = 36.0
     assert!((width - 36.0).abs() < f32::EPSILON);
@@ -253,8 +258,8 @@ fn test_measure_text_width_builtin_font_estimate() {
 
 #[test]
 fn test_measure_text_width_hack_font_estimate() {
-    // Hack font data is a single byte [n] where n != b'@'
-    let font_data = vec![3];
+    // Hack font data uses FontData::Hack
+    let font_data = FontData::Hack(3);
     let width = measure_text_width(&font_data, 10.0, "Test").unwrap();
     // Expected: 4 chars * 10.0 * 0.6 = 24.0
     assert!((width - 24.0).abs() < f32::EPSILON);
@@ -262,21 +267,21 @@ fn test_measure_text_width_hack_font_estimate() {
 
 #[test]
 fn test_measure_text_width_empty_string() {
-    let font_data = vec![b'@'];
+    let font_data = FontData::BuiltIn("Helvetica".into());
     let width = measure_text_width(&font_data, 12.0, "").unwrap();
     assert!((width - 0.0).abs() < f32::EPSILON);
 }
 
 #[test]
 fn test_measure_text_width_zero_font_size() {
-    let font_data = vec![b'@'];
+    let font_data = FontData::BuiltIn("Helvetica".into());
     let width = measure_text_width(&font_data, 0.0, "Hello").unwrap();
     assert!((width - 0.0).abs() < f32::EPSILON);
 }
 
 #[test]
 fn test_measure_text_width_single_char_builtin() {
-    let font_data = vec![b'@'];
+    let font_data = FontData::BuiltIn("Helvetica".into());
     let width = measure_text_width(&font_data, 20.0, "X").unwrap();
     // Expected: 1 char * 20.0 * 0.6 = 12.0
     assert!((width - 12.0).abs() < f32::EPSILON);
