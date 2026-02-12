@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 cargo build --release            # Build optimized binaries
-cargo build --release -p pdf_merger  # Build CLI only
+cargo build --release -p pdf-merger  # Build CLI only
 cargo check --workspace          # Fast type checking
 cargo test --workspace           # Run all tests
 ```
@@ -33,7 +33,7 @@ pdf_merger/                    # Repository root (workspace)
 │       ├── pdf_blank_page.rs  # Blank page creation
 │       ├── pdf_overlay.rs     # Page overlay with resource renaming
 │       └── pdf_watermark.rs   # Text watermark rendering
-└── pdf_merger/                # CLI crate
+└── pdf-merger/                # CLI crate
     ├── Cargo.toml
     └── src/
         ├── main.rs            # CLI args (clap), orchestrates pipeline
@@ -43,9 +43,9 @@ pdf_merger/                    # Repository root (workspace)
 ## Architecture Overview
 
 **medpdf** is a reusable library providing medium-level PDF operations over lopdf.
-**pdf_merger** is a CLI tool that uses medpdf for merging, overlaying, and watermarking PDFs.
+**pdf-merger** is a CLI tool that uses medpdf for merging, overlaying, and watermarking PDFs.
 
-### 5-Phase Processing Pipeline (pdf_merger/src/main.rs)
+### 5-Phase Processing Pipeline (pdf-merger/src/main.rs)
 
 1. **Merge Pages** - Parse input file/page specs, load documents, copy selected pages
 2. **Apply Overlays** - Overlay content from other PDFs with resource renaming
@@ -66,8 +66,8 @@ pdf_merger/                    # Repository root (workspace)
 | `medpdf::pdf_blank_page` | `create_blank_page()` - add empty pages |
 | `medpdf::pdf_overlay` | `overlay_page()` - merge content with resource renaming |
 | `medpdf::pdf_watermark` | `add_text_params()` - text watermark rendering with color, alignment, rotation, alpha |
-| `pdf_merger::main` | CLI args (clap), orchestrates pipeline |
-| `pdf_merger::spec_types` | CLI spec types with FromStr for clap integration |
+| `pdf_merger::main` | CLI args (clap), orchestrates pipeline (`pdf-merger` crate) |
+| `pdf_merger::spec_types` | CLI spec types with FromStr for clap integration (`pdf-merger` crate) |
 
 ### Key Patterns
 
@@ -82,7 +82,7 @@ pdf_merger/                    # Repository root (workspace)
 ### CLI Usage
 
 ```bash
-pdf_merger -o out.pdf in1.pdf "1-3" in2.pdf "all" \
+pdf-merger -o out.pdf in1.pdf "1-3" in2.pdf "all" \
   --watermark "text=DRAFT,font=@Helvetica,size=24,x=1,y=1,units=in,color=#FF0000,alpha=0.5,rotation=45,h_align=center,pages=all" \
   --overlay "file=overlay.pdf,src_page=1,target_pages=1-5" \
   --pad-to 4

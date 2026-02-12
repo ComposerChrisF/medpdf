@@ -51,7 +51,7 @@ fn format_xmp_metadata(doc_uuid: &str) -> String {
             </dc:title>
         </rdf:Description>
         <rdf:Description rdf:about=\"\" pdf:Producer=\"lopdf\" pdf:Trapped=\"False\"/>
-        <rdf:Description rdf:about=\"\" xmp:CreatorTool=\"pdf_merger v{version}\" xmp:CreateDate=\"{now}\" xmp:ModifyDate=\"{now}\" xmp:MetadataDate=\"{now}\"/>
+        <rdf:Description rdf:about=\"\" xmp:CreatorTool=\"pdf-merger v{version}\" xmp:CreateDate=\"{now}\" xmp:ModifyDate=\"{now}\" xmp:MetadataDate=\"{now}\"/>
         <rdf:Description rdf:about=\"\" xmpMM:DocumentID=\"uuid:{doc_uuid}\" xmpMM:VersionID=\"1\" xmpMM:RenditionClass=\"default\"/>
     </rdf:RDF>
 </x:xmpmeta>

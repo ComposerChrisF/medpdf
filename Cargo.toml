@@ -1,3 +1,3 @@
 [workspace]
-members = ["medpdf", "pdf_merger"]
+members = ["medpdf", "pdf-merger"]
 resolver = "2"

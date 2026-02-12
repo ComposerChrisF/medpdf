@@ -1,19 +1,19 @@
-# pdf_merger
+# pdf-merger
 
 A command-line tool for advanced PDF manipulation: merge pages from multiple PDFs, apply overlays, add watermarks, and pad to page multiples.
 
 ## Installation
 
 ```bash
-cargo build --release -p pdf_merger
+cargo build --release -p pdf-merger
 ```
 
-The binary will be at `target/release/pdf_merger`.
+The binary will be at `target/release/pdf-merger`.
 
 ## Usage
 
 ```bash
-pdf_merger -o <OUTPUT> <FILE> <PAGES> [<FILE> <PAGES>]... [OPTIONS]
+pdf-merger -o <OUTPUT> <FILE> <PAGES> [<FILE> <PAGES>]... [OPTIONS]
 ```
 
 ### Basic Merging
@@ -22,10 +22,10 @@ Input files and page specifications come in pairs:
 
 ```bash
 # Merge all pages from two PDFs
-pdf_merger -o combined.pdf doc1.pdf "all" doc2.pdf "all"
+pdf-merger -o combined.pdf doc1.pdf "all" doc2.pdf "all"
 
 # Merge specific pages
-pdf_merger -o output.pdf report.pdf "1-5" appendix.pdf "2,4,6"
+pdf-merger -o output.pdf report.pdf "1-5" appendix.pdf "2,4,6"
 ```
 
 ### Page Specifications
@@ -133,7 +133,7 @@ Optionally use a specific page for the last padding page:
 ### Merge with page selection
 
 ```bash
-pdf_merger -o report.pdf \
+pdf-merger -o report.pdf \
   cover.pdf "1" \
   content.pdf "all" \
   appendix.pdf "1-3,7"
@@ -142,27 +142,27 @@ pdf_merger -o report.pdf \
 ### Add watermark to all pages
 
 ```bash
-pdf_merger -o draft.pdf document.pdf "all" \
+pdf-merger -o draft.pdf document.pdf "all" \
   --watermark "text=DRAFT,font=@Helvetica-Bold,size=72,x=2,y=5,units=in"
 ```
 
 ### Apply letterhead overlay
 
 ```bash
-pdf_merger -o branded.pdf document.pdf "all" \
+pdf-merger -o branded.pdf document.pdf "all" \
   --overlay "file=letterhead.pdf,src_page=1,target_pages=all"
 ```
 
 ### Prepare for booklet printing (4-page signatures)
 
 ```bash
-pdf_merger -o booklet.pdf document.pdf "all" --pad-to 4
+pdf-merger -o booklet.pdf document.pdf "all" --pad-to 4
 ```
 
 ### Complex workflow
 
 ```bash
-pdf_merger -o final.pdf \
+pdf-merger -o final.pdf \
   intro.pdf "1-2" \
   main.pdf "all" \
   appendix.pdf "5-" \
