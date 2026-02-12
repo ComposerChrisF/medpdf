@@ -157,8 +157,8 @@ fn modify_content_stream(
             content.operations.push(Operation::new("Q", vec![]));
         }
 
-        // TODO: Compress content stream!!!
         content_stream.content = content.encode()?;
+        content_stream.compress()?;
         if log::log_enabled!(log::Level::Trace) {
             for (i, op) in content_stream
                 .decode_content()?

@@ -9,15 +9,19 @@ use medpdf::{HAlign, PdfColor, Unit, VAlign};
 /// CLI wrapper for Unit that implements ValueEnum for clap
 #[derive(Debug, Clone, Copy, ValueEnum)]
 pub enum CliUnit {
+    Pt,
     In,
     Mm,
+    Cm,
 }
 
 impl From<CliUnit> for Unit {
     fn from(u: CliUnit) -> Unit {
         match u {
+            CliUnit::Pt => Unit::Pt,
             CliUnit::In => Unit::In,
             CliUnit::Mm => Unit::Mm,
+            CliUnit::Cm => Unit::Cm,
         }
     }
 }

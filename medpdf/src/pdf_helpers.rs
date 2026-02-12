@@ -49,19 +49,68 @@ fn obj_as_f32(obj: &Object) -> Option<f32> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Unit {
+    /// Points (1/72 inch) — the native PDF unit.
+    Pt,
+    /// Inches (1 inch = 72 points).
     In,
+    /// Millimeters (25.4 mm = 72 points).
     Mm,
-} // TODO: Add Pt, Cm, Percent (of page)
+    /// Centimeters (2.54 cm = 72 points).
+    Cm,
+}
 
 impl Unit {
     pub fn to_points(self, value: f32) -> f32 {
         const POINTS_PER_INCH: f32 = 72.0;
         const POINTS_PER_MM: f32 = POINTS_PER_INCH / 25.4;
+        const POINTS_PER_CM: f32 = POINTS_PER_INCH / 2.54;
         match self {
+            Unit::Pt => value,
             Unit::In => value * POINTS_PER_INCH,
             Unit::Mm => value * POINTS_PER_MM,
+            Unit::Cm => value * POINTS_PER_CM,
         }
     }
+}
+
+pub const KEY_ROTATE: &[u8] = b"Rotate";
+
+/// Gets the rotation angle of a page in degrees (0, 90, 180, or 270).
+/// Walks the page tree upward to find inherited `/Rotate` values.
+/// Returns 0 if no `/Rotate` entry is found.
+pub fn get_page_rotation(doc: &Document, page_id: ObjectId) -> u32 {
+    let mut current_id = page_id;
+    while let Ok(dict) = doc.get_dictionary(current_id) {
+        if let Ok(obj) = dict.get(KEY_ROTATE) {
+            if let Ok(val) = obj.as_i64() {
+                // Normalize to 0/90/180/270
+                return ((val % 360 + 360) % 360) as u32;
+            }
+        }
+        match dict.get(KEY_PARENT) {
+            Ok(Object::Reference(parent_id)) => current_id = *parent_id,
+            _ => break,
+        }
+    }
+    0
+}
+
+/// Sets the rotation angle on a page. Valid values: 0, 90, 180, 270.
+/// Returns an error if the angle is not a multiple of 90.
+pub fn set_page_rotation(doc: &mut Document, page_id: ObjectId, degrees: u32) -> Result<()> {
+    if !degrees.is_multiple_of(90) {
+        return Err(PdfMergeError::new(format!(
+            "Rotation must be a multiple of 90, got {degrees}"
+        )));
+    }
+    let normalized = degrees % 360;
+    let page = doc.get_object_mut(page_id)?.as_dict_mut()?;
+    if normalized == 0 {
+        page.remove(KEY_ROTATE);
+    } else {
+        page.set(KEY_ROTATE, Object::Integer(normalized as i64));
+    }
+    Ok(())
 }
 
 /// Gets the object ID of a page from a document.

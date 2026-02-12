@@ -30,6 +30,7 @@ pdf_merger/                    # Repository root (workspace)
 │       ├── pdf_font.rs        # Font discovery and caching
 │       ├── font_helpers.rs    # TTF parsing, font metrics
 │       ├── pdf_copy_page.rs   # Page copying between documents
+│       ├── pdf_delete_page.rs # Page deletion from documents
 │       ├── pdf_blank_page.rs  # Blank page creation
 │       ├── pdf_overlay.rs     # Page overlay with resource renaming
 │       └── pdf_watermark.rs   # Text watermark rendering
@@ -59,10 +60,11 @@ pdf_merger/                    # Repository root (workspace)
 |--------------|---------|
 | `medpdf::error` | Custom `PdfMergeError` enum with Display/Error traits |
 | `medpdf::parsing` | Page spec parsing with nom (`"1-3,5,7-"`, `"all"`) |
-| `medpdf::pdf_helpers` | Deep object copying, PDF key constants, Unit enum |
+| `medpdf::pdf_helpers` | Deep object copying, PDF key constants, Unit enum, page rotation |
 | `medpdf::pdf_font` | Font discovery (system/file) and caching |
 | `medpdf::font_helpers` | TTF parsing, font metrics, PDF FontDescriptor generation |
 | `medpdf::pdf_copy_page` | `copy_page()` - copy pages between documents |
+| `medpdf::pdf_delete_page` | `delete_page()` - remove pages from documents |
 | `medpdf::pdf_blank_page` | `create_blank_page()` - add empty pages |
 | `medpdf::pdf_overlay` | `overlay_page()` - merge content with resource renaming |
 | `medpdf::pdf_watermark` | `add_text_params()` - text watermark rendering with color, alignment, rotation, alpha |

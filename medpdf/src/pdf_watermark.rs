@@ -333,9 +333,8 @@ fn bbox_as_object_array(bbox: &[i16]) -> Result<Object> {
 
 /// Adds text to a page using rich parameters (color, f32 coords, rotation, alignment).
 ///
-/// **Note:** `VAlign::Bottom` currently behaves identically to `VAlign::Baseline`
-/// (both use `dy = 0.0`). True bottom alignment would require font descent metrics,
-/// which is not yet implemented.
+/// Vertical alignment uses real font metrics (ascent, descent, x-height) when
+/// font data is available, with reasonable approximations for built-in fonts.
 pub fn add_text_params(
     dest_doc: &mut Document,
     page_id: ObjectId,
@@ -361,11 +360,32 @@ pub fn add_text_params(
         crate::types::HAlign::Center => -text_width / 2.0,
         crate::types::HAlign::Right => -text_width,
     };
+    // Compute vertical metrics from font data (scaled to font_size).
+    // For built-in/hack fonts (data len <= 1), use reasonable approximations.
+    let (ascent_scaled, descent_scaled, x_height_scaled) = if params.font_data.len() > 1 {
+        if let Ok(face) = ttf_parser::Face::parse(&params.font_data, 0) {
+            let upem = face.units_per_em() as f32;
+            if upem > 0.0 {
+                let scale = params.font_size / upem;
+                (
+                    face.ascender() as f32 * scale,
+                    face.descender() as f32 * scale, // negative value
+                    face.x_height().unwrap_or((upem * 0.5) as i16) as f32 * scale,
+                )
+            } else {
+                (params.font_size * 0.7, params.font_size * -0.3, params.font_size * 0.5)
+            }
+        } else {
+            (params.font_size * 0.7, params.font_size * -0.3, params.font_size * 0.5)
+        }
+    } else {
+        (params.font_size * 0.7, params.font_size * -0.3, params.font_size * 0.5)
+    };
     let dy = match params.v_align {
         crate::types::VAlign::Baseline => 0.0,
-        crate::types::VAlign::Bottom => 0.0, // baseline ~= bottom for simple cases
-        crate::types::VAlign::Center => params.font_size * 0.35, // approximate half x-height
-        crate::types::VAlign::Top => params.font_size * 0.7, // approximate ascent fraction
+        crate::types::VAlign::Bottom => -descent_scaled, // shift up by descent (descent is negative)
+        crate::types::VAlign::Center => x_height_scaled / 2.0,
+        crate::types::VAlign::Top => ascent_scaled,
     };
 
     let encoded_text = utf8_to_winansi(&params.text);
