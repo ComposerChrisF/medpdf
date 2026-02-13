@@ -8,12 +8,13 @@ pub(crate) const KEY_PAGES: &[u8] = b"Pages";
 pub(crate) const KEY_PAGE: &[u8] = b"Page";
 pub(crate) const KEY_KIDS: &[u8] = b"Kids";
 pub(crate) const KEY_COUNT: &[u8] = b"Count";
-pub(crate) const KEY_RESOURCES: &[u8] = b"Resources";
-pub(crate) const KEY_CONTENTS: &[u8] = b"Contents";
+pub const KEY_RESOURCES: &[u8] = b"Resources";
+pub const KEY_CONTENTS: &[u8] = b"Contents";
 pub(crate) const KEY_FONT: &[u8] = b"Font";
 pub(crate) const KEY_FONT_DESCRIPTOR: &[u8] = b"FontDescriptor";
 pub(crate) const KEY_MEDIA_BOX: &[u8] = b"MediaBox";
-pub(crate) const KEY_EXTGSTATE: &[u8] = b"ExtGState";
+pub const KEY_EXTGSTATE: &[u8] = b"ExtGState";
+pub const KEY_XOBJECT: &[u8] = b"XObject";
 
 /// Walk the page tree to find the inherited MediaBox for a page.
 /// Returns `[x0, y0, x1, y1]` if found on the page or any ancestor node.

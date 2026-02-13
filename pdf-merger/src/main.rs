@@ -7,7 +7,8 @@ mod spec_types;
 
 use medpdf::{parse_page_spec, AddTextParams, DrawRectParams, DrawLineParams, PdfMergeError};
 use medpdf::pdf_font::{find_font, FontCache};
-use spec_types::{WatermarkSpec, OverlaySpec, PadToSpec, PadFileSpec, DrawRectSpec, DrawLineSpec, BlankPageSpec};
+use medpdf_image::DrawImageParams;
+use spec_types::{WatermarkSpec, OverlaySpec, PadToSpec, PadFileSpec, DrawRectSpec, DrawLineSpec, DrawImageSpec, BlankPageSpec};
 
 
 /// A command-line tool for advanced manipulation of PDF documents.
@@ -26,6 +27,8 @@ struct Args {
     draw_rect: Vec<DrawRectSpec>,
     #[arg(long, action = clap::ArgAction::Append)]
     draw_line: Vec<DrawLineSpec>,
+    #[arg(long, action = clap::ArgAction::Append)]
+    draw_image: Vec<DrawImageSpec>,
     #[arg(long, action = clap::ArgAction::Append)]
     overlay: Vec<OverlaySpec>,
     #[arg(long)]
@@ -176,6 +179,35 @@ fn main() -> Result<(), PdfMergeError> {
                 let page_id = *dest_page_ids.get((page_index - 1) as usize)
                     .ok_or_else(|| PdfMergeError::new(format!("draw-line target page index {} out of range", page_index)))?;
                 medpdf::add_line(&mut dest_doc, page_id, &params)?;
+            }
+        }
+
+        // Images
+        for spec in args.draw_image.iter().filter(|s| s.layer_over == layer_over) {
+            let target_page_indices = parse_page_spec(&spec.pages, dest_page_ids.len() as u32)?;
+            let image_data = medpdf_image::load_image(&spec.file)?;
+
+            // Compute output dimensions from spec w/h and image aspect ratio
+            let img_w = image_data.pixel_width() as f32;
+            let img_h = image_data.pixel_height() as f32;
+            let (out_w, out_h) = match (spec.w, spec.h) {
+                (Some(w), Some(h)) => (w, h),
+                (Some(w), None) => (w, w * (img_h / img_w)),
+                (None, Some(h)) => (h * (img_w / img_h), h),
+                (None, None) => unreachable!("validated in FromStr"),
+            };
+
+            println!("Drawing image ({layer_name}) '{}' to pages '{target_page_indices:?}'", spec.file.display());
+            for page_index in &target_page_indices {
+                let page_id = *dest_page_ids.get((*page_index - 1) as usize)
+                    .ok_or_else(|| PdfMergeError::new(format!("draw-image target page index {} out of range", page_index)))?;
+                let params = DrawImageParams::new(image_data.clone(), spec.x, spec.y, out_w, out_h)
+                    .fit(spec.fit)
+                    .max_dpi(spec.max_dpi)
+                    .alpha(spec.alpha)
+                    .rotation(spec.rotation)
+                    .layer_over(layer_over);
+                medpdf_image::add_image(&mut dest_doc, page_id, params)?;
             }
         }
 

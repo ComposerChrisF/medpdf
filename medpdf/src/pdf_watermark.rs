@@ -225,7 +225,7 @@ fn handle_fonts_in_resources(
 
 /// Registers an ExtGState object in the page's resources and returns the gs key.
 /// Mirrors the three-tier pattern of `register_font_in_page_resources()`.
-fn register_extgstate_in_page_resources(
+pub fn register_extgstate_in_page_resources(
     dest_doc: &mut Document,
     page_id: ObjectId,
     gs_id: ObjectId,
@@ -529,7 +529,7 @@ pub fn add_text_params(
 ///
 /// When `layer_over` is true, existing content is wrapped in q/Q and new content appended.
 /// When `layer_over` is false, new content is prepended before existing content.
-fn insert_content_stream(
+pub fn insert_content_stream(
     dest_doc: &mut Document,
     page_id: ObjectId,
     content_id: ObjectId,

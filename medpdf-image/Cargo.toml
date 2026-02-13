@@ -1,0 +1,13 @@
+[package]
+name = "medpdf-image"
+version = "0.1.0"
+edition = "2021"
+description = "Image embedding companion for medpdf"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+medpdf = { path = "../medpdf" }
+lopdf = "0.39.0"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "bmp", "tiff", "webp", "rayon"] }
+flate2 = "1"
+log = "0.4"

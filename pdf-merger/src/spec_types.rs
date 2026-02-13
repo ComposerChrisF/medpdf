@@ -2,6 +2,7 @@
 // CLI argument spec types moved from main.rs for testability
 
 use clap::ValueEnum;
+use medpdf_image::ImageFit;
 use std::path::PathBuf;
 use std::str::FromStr;
 use medpdf::{HAlign, PdfColor, Unit, VAlign};
@@ -530,6 +531,88 @@ impl FromStr for DrawLineSpec {
             color: final_color,
             pages: pages.unwrap_or_else(|| "all".to_string()),
             layer_over: layer.unwrap_or(true),
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct DrawImageSpec {
+    pub file: PathBuf,
+    pub x: f32,
+    pub y: f32,
+    pub w: Option<f32>,
+    pub h: Option<f32>,
+    pub fit: ImageFit,
+    pub max_dpi: f32,
+    pub pages: String,
+    pub layer_over: bool,
+    pub alpha: f32,
+    pub rotation: f32,
+}
+
+impl FromStr for DrawImageSpec {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut file = None;
+        let mut x = None;
+        let mut y = None;
+        let mut w = None;
+        let mut h = None;
+        let mut fit = None;
+        let mut max_dpi = None;
+        let mut pages = None;
+        let mut units = None;
+        let mut layer = None;
+        let mut alpha = None;
+        let mut rotation = None;
+        for part in split_escaped_commas(s) {
+            let (key, value) = part.split_once('=')
+                .ok_or_else(|| format!("Invalid key-value pair: '{}'. Expected 'key=value'.", part))?;
+            let key = key.trim();
+            let value = value.trim();
+            match key {
+                "file" => file = Some(PathBuf::from(value)),
+                "x" => x = Some(value.parse::<f32>().map_err(|_| format!("Invalid x value: '{}'", value))?),
+                "y" => y = Some(value.parse::<f32>().map_err(|_| format!("Invalid y value: '{}'", value))?),
+                "w" => w = Some(value.parse::<f32>().map_err(|_| format!("Invalid w value: '{}'", value))?),
+                "h" => h = Some(value.parse::<f32>().map_err(|_| format!("Invalid h value: '{}'", value))?),
+                "fit" => fit = Some(match value {
+                    "stretch" => ImageFit::Stretch,
+                    "contain" => ImageFit::Contain,
+                    "cover" => ImageFit::Cover,
+                    _ => return Err(format!("Invalid fit value: '{}'. Use stretch, contain, or cover.", value)),
+                }),
+                "max_dpi" => max_dpi = Some(value.parse::<f32>().map_err(|_| format!("Invalid max_dpi value: '{}'", value))?),
+                "pages" => pages = Some(value.to_string()),
+                "units" => units = Some(CliUnit::from_str(value, true).map_err(|e| e.to_string())?),
+                "layer" => layer = Some(match value {
+                    "over" => true,
+                    "under" => false,
+                    _ => return Err(format!("Invalid layer value: '{}'. Use over or under.", value)),
+                }),
+                "alpha" => alpha = Some(value.parse::<f32>().map_err(|_| format!("Invalid alpha value: '{}'", value))?),
+                "rotation" => rotation = Some(value.parse::<f32>().map_err(|_| format!("Invalid rotation value: '{}'", value))?),
+                _ => return Err(format!("Unknown draw-image key: '{}'", key)),
+            }
+        }
+
+        if w.is_none() && h.is_none() {
+            return Err("draw-image requires at least one of 'w' or 'h'".to_string());
+        }
+
+        let unit = units.map(Unit::from).unwrap_or(Unit::Pt);
+        Ok(DrawImageSpec {
+            file: file.ok_or("draw-image 'file' is required")?,
+            x: unit.to_points(x.ok_or("draw-image 'x' is required")?),
+            y: unit.to_points(y.ok_or("draw-image 'y' is required")?),
+            w: w.map(|v| unit.to_points(v)),
+            h: h.map(|v| unit.to_points(v)),
+            fit: fit.unwrap_or(ImageFit::Contain),
+            max_dpi: max_dpi.unwrap_or(300.0),
+            pages: pages.unwrap_or_else(|| "all".to_string()),
+            layer_over: layer.unwrap_or(true),
+            alpha: alpha.unwrap_or(1.0),
+            rotation: rotation.unwrap_or(0.0),
         })
     }
 }
@@ -1347,5 +1430,117 @@ mod tests {
     fn test_watermark_spec_quoted_plus_unicode() {
         let spec = WatermarkSpec::from_str(r#"text="curly: \u201C\u201D",font=@Helvetica,x=1,y=1"#).unwrap();
         assert_eq!(spec.text, "curly: \u{201C}\u{201D}");
+    }
+
+    // --- DrawImageSpec ---
+
+    #[test]
+    fn test_draw_image_spec_minimal_w_only() {
+        let spec = DrawImageSpec::from_str("file=logo.png,x=100,y=200,w=150").unwrap();
+        assert_eq!(spec.file, PathBuf::from("logo.png"));
+        assert!((spec.x - 100.0).abs() < f32::EPSILON);
+        assert!((spec.y - 200.0).abs() < f32::EPSILON);
+        assert!((spec.w.unwrap() - 150.0).abs() < f32::EPSILON);
+        assert!(spec.h.is_none());
+        assert_eq!(spec.fit, ImageFit::Contain);
+        assert!((spec.max_dpi - 300.0).abs() < f32::EPSILON);
+        assert_eq!(spec.pages, "all");
+        assert!(spec.layer_over);
+        assert!((spec.alpha - 1.0).abs() < f32::EPSILON);
+        assert!((spec.rotation - 0.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_draw_image_spec_h_only() {
+        let spec = DrawImageSpec::from_str("file=logo.png,x=0,y=0,h=200").unwrap();
+        assert!(spec.w.is_none());
+        assert!((spec.h.unwrap() - 200.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_draw_image_spec_full() {
+        let spec = DrawImageSpec::from_str(
+            "file=photo.jpg,x=1,y=2,w=3,h=4,fit=cover,max_dpi=150,pages=1-3,layer=under,alpha=0.5,rotation=45,units=in"
+        ).unwrap();
+        assert_eq!(spec.file, PathBuf::from("photo.jpg"));
+        assert!((spec.x - 72.0).abs() < f32::EPSILON);
+        assert!((spec.y - 144.0).abs() < f32::EPSILON);
+        assert!((spec.w.unwrap() - 216.0).abs() < f32::EPSILON);
+        assert!((spec.h.unwrap() - 288.0).abs() < f32::EPSILON);
+        assert_eq!(spec.fit, ImageFit::Cover);
+        assert!((spec.max_dpi - 150.0).abs() < f32::EPSILON);
+        assert_eq!(spec.pages, "1-3");
+        assert!(!spec.layer_over);
+        assert!((spec.alpha - 0.5).abs() < f32::EPSILON);
+        assert!((spec.rotation - 45.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_draw_image_spec_missing_w_and_h() {
+        let result = DrawImageSpec::from_str("file=logo.png,x=0,y=0");
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("w") || err.contains("h"));
+    }
+
+    #[test]
+    fn test_draw_image_spec_missing_file() {
+        let result = DrawImageSpec::from_str("x=0,y=0,w=100");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("file"));
+    }
+
+    #[test]
+    fn test_draw_image_spec_missing_x() {
+        let result = DrawImageSpec::from_str("file=logo.png,y=0,w=100");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("x"));
+    }
+
+    #[test]
+    fn test_draw_image_spec_missing_y() {
+        let result = DrawImageSpec::from_str("file=logo.png,x=0,w=100");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("y"));
+    }
+
+    #[test]
+    fn test_draw_image_spec_unknown_key() {
+        let result = DrawImageSpec::from_str("file=logo.png,x=0,y=0,w=100,bogus=val");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("bogus"));
+    }
+
+    #[test]
+    fn test_draw_image_spec_invalid_fit() {
+        let result = DrawImageSpec::from_str("file=logo.png,x=0,y=0,w=100,fit=zoom");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("fit"));
+    }
+
+    #[test]
+    fn test_draw_image_spec_max_dpi_zero() {
+        let spec = DrawImageSpec::from_str("file=logo.png,x=0,y=0,w=100,max_dpi=0").unwrap();
+        assert!((spec.max_dpi - 0.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_draw_image_spec_fit_stretch() {
+        let spec = DrawImageSpec::from_str("file=logo.png,x=0,y=0,w=100,h=100,fit=stretch").unwrap();
+        assert_eq!(spec.fit, ImageFit::Stretch);
+    }
+
+    #[test]
+    fn test_draw_image_spec_fit_contain() {
+        let spec = DrawImageSpec::from_str("file=logo.png,x=0,y=0,w=100,h=100,fit=contain").unwrap();
+        assert_eq!(spec.fit, ImageFit::Contain);
+    }
+
+    #[test]
+    fn test_draw_image_spec_with_units() {
+        let spec = DrawImageSpec::from_str("file=logo.png,x=1,y=1,w=2,units=in").unwrap();
+        assert!((spec.x - 72.0).abs() < f32::EPSILON);
+        assert!((spec.y - 72.0).abs() < f32::EPSILON);
+        assert!((spec.w.unwrap() - 144.0).abs() < f32::EPSILON);
     }
 }

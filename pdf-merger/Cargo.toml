@@ -1,6 +1,6 @@
 [package]
 name = "pdf-merger"
-version = "0.4.2"
+version = "0.5.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 
@@ -10,6 +10,7 @@ path = "src/main.rs"
 
 [dependencies]
 medpdf = { path = "../medpdf" }
+medpdf-image = { path = "../medpdf-image" }
 lopdf = "0.39.0"
 clap = { version = "4.5.44", features = ["derive", "string"] }
 chrono = "0.4"
