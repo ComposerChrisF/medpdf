@@ -1,5 +1,5 @@
 use crate::error::{PdfMergeError, Result};
-use lopdf::{Dictionary, Document, Object, ObjectId, Stream};
+use lopdf::{dictionary, Dictionary, Document, Object, ObjectId, Stream};
 use std::collections::BTreeMap;
 
 pub(crate) const KEY_TYPE: &[u8] = b"Type";
@@ -234,6 +234,92 @@ pub(crate) fn deep_copy_object(
     };
 
     Ok(new_obj)
+}
+
+/// Registers an object reference in a page's Resources sub-dictionary.
+///
+/// Handles the three-tier pattern: Page dict -> Resources (inline or ref) -> sub-dict (inline or ref).
+/// `resource_key` selects the sub-dictionary (e.g. `KEY_FONT`, `KEY_EXTGSTATE`, `KEY_XOBJECT`).
+/// `entry_key` is the name under which the reference is stored (e.g. `b"F7"`, `b"GS7"`, `b"Img1"`).
+pub fn register_in_page_resources(
+    doc: &mut Document,
+    page_id: ObjectId,
+    resource_key: &[u8],
+    entry_key: &[u8],
+    obj_id: ObjectId,
+) -> Result<()> {
+    // First pass: handle page's Resources (may be inline dict or reference)
+    let page_dict = doc
+        .get_object_mut(page_id)?
+        .as_dict_mut()
+        .map_err(|_| PdfMergeError::new("Page object is not a dictionary"))?;
+
+    let resources_obj = page_dict.get_mut(KEY_RESOURCES);
+    let (mut subdict_ref_id, resources_dict_id) = match resources_obj {
+        Ok(Object::Reference(id)) => (None, Some(*id)),
+        Ok(Object::Dictionary(dict)) => {
+            let r = handle_subdict_in_resources(dict, resource_key, entry_key, obj_id)?;
+            (r, None)
+        }
+        Ok(_) => {
+            return Err(PdfMergeError::new(
+                "/Resources key of page not a Reference nor a Dictionary!",
+            ))
+        }
+        Err(_) => {
+            let mut dict = dictionary! {};
+            let r = handle_subdict_in_resources(&mut dict, resource_key, entry_key, obj_id)?;
+            page_dict.set(KEY_RESOURCES, Object::Dictionary(dict));
+            (r, None)
+        }
+    };
+
+    if subdict_ref_id.is_some() && resources_dict_id.is_some() {
+        return Err(PdfMergeError::new(
+            "Internal error: both sub-dict ref and Resources ref are set!",
+        ));
+    }
+
+    // Second pass: if Resources was a reference, handle it now
+    if let Some(res_id) = resources_dict_id {
+        let res_dict = doc.get_object_mut(res_id)?.as_dict_mut()?;
+        subdict_ref_id = handle_subdict_in_resources(res_dict, resource_key, entry_key, obj_id)?;
+    }
+
+    // Third pass: if the sub-dictionary was a reference, add entry directly
+    if let Some(subdict_id) = subdict_ref_id {
+        let subdict = doc.get_object_mut(subdict_id)?.as_dict_mut()?;
+        subdict.set(entry_key.to_vec(), Object::Reference(obj_id));
+    }
+
+    Ok(())
+}
+
+/// Handles adding an entry to a Resources sub-dictionary.
+/// Returns `Some(ObjectId)` if the sub-dictionary is a reference that needs separate handling.
+fn handle_subdict_in_resources(
+    resources_dict: &mut Dictionary,
+    resource_key: &[u8],
+    entry_key: &[u8],
+    obj_id: ObjectId,
+) -> Result<Option<ObjectId>> {
+    match resources_dict.get_mut(resource_key) {
+        Ok(Object::Reference(id)) => Ok(Some(*id)),
+        Ok(Object::Dictionary(dict)) => {
+            dict.set(entry_key.to_vec(), Object::Reference(obj_id));
+            Ok(None)
+        }
+        Ok(_) => Err(PdfMergeError::new(format!(
+            "/{} key of Resources not a Reference nor a Dictionary!",
+            String::from_utf8_lossy(resource_key)
+        ))),
+        Err(_) => {
+            let mut dict = dictionary! {};
+            dict.set(entry_key.to_vec(), Object::Reference(obj_id));
+            resources_dict.set(resource_key.to_vec(), Object::Dictionary(dict));
+            Ok(None)
+        }
+    }
 }
 
 #[cfg(test)]

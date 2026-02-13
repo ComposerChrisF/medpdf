@@ -60,48 +60,48 @@ fn format_xmp_metadata(doc_uuid: &str) -> String {
 <?xpacket end=\"w\"?>")
 }
 
-fn main() -> Result<(), PdfMergeError> {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
-    let args = Args::parse();
-    if !args.inputs.is_empty() && args.inputs.len() % 2 != 0 {
-        return Err("Input arguments must be in pairs of file paths and page specifications.".into());
-    }
-
-    let mut dest_doc = Document::with_version("1.7");
+fn init_document() -> Document {
+    let mut doc = Document::with_version("1.7");
     let doc_uuid = Uuid::new_v4().to_string();
-    let pages_id = dest_doc.new_object_id();
+    let pages_id = doc.new_object_id();
     let pages = dictionary! {
         "Type" => "Pages",
         "Kids" => vec![],
         "Count" => 0,
     };
-    dest_doc.objects.insert(pages_id, lopdf::Object::Dictionary(pages));
-    let metadata_id = dest_doc.new_object_id();
+    doc.objects.insert(pages_id, Object::Dictionary(pages));
+    let metadata_id = doc.new_object_id();
     let metadata = dictionary! {
         "Type" => "Metadata",
         "Subtype" => "XML",
     };
-    dest_doc.objects.insert(metadata_id, lopdf::Object::Stream(Stream {
+    doc.objects.insert(metadata_id, Object::Stream(Stream {
         dict: metadata,
         content: format_xmp_metadata(&doc_uuid).into_bytes(),
         allows_compression: true,
         start_position: None,
     }));
-    let catalog_id = dest_doc.add_object(dictionary! {
+    let catalog_id = doc.add_object(dictionary! {
         "Type" => "Catalog",
         "Pages" => pages_id,
         "Metadata" => metadata_id,
     });
-    dest_doc.trailer.set("Root", catalog_id);
-    dest_doc.trailer.set("ID", Object::Array(vec![
+    doc.trailer.set("Root", catalog_id);
+    doc.trailer.set("ID", Object::Array(vec![
         Object::String(doc_uuid.clone().into_bytes(), StringFormat::Literal),
-        Object::String(doc_uuid.into_bytes(), StringFormat::Literal)
+        Object::String(doc_uuid.into_bytes(), StringFormat::Literal),
     ]));
-    let mut dest_page_ids: Vec<lopdf::ObjectId> = vec![];
+    doc
+}
 
-    // --- Phase 1: Merge Pages ---
+fn merge_pages(
+    doc: &mut Document,
+    page_ids: &mut Vec<lopdf::ObjectId>,
+    inputs: &[String],
+    blank_pages: &[BlankPageSpec],
+) -> Result<(), PdfMergeError> {
     println!("\n--- Merging Pages ---");
-    for input_chunk in args.inputs.chunks(2) {
+    for input_chunk in inputs.chunks(2) {
         let source_path = &input_chunk[0];
         let page_spec = &input_chunk[1];
         println!("Processing '{}' with pages '{}'...", source_path, page_spec);
@@ -113,81 +113,90 @@ fn main() -> Result<(), PdfMergeError> {
         let mut copy_cache = std::collections::BTreeMap::new();
         for page_num in page_numbers_to_import {
             println!("Copying page: {page_num} from {source_path}");
-            let new_page_id = medpdf::copy_page_with_cache(&mut dest_doc, &source_doc, page_num, &mut copy_cache)?;
-            dest_page_ids.push(new_page_id);
+            let new_page_id = medpdf::copy_page_with_cache(doc, &source_doc, page_num, &mut copy_cache)?;
+            page_ids.push(new_page_id);
         }
     }
 
-    // Process blank pages
-    for spec in &args.blank_page {
-        println!("Adding {} blank page(s) ({}×{} pt)", spec.count, spec.width, spec.height);
+    for spec in blank_pages {
+        println!("Adding {} blank page(s) ({}x{} pt)", spec.count, spec.width, spec.height);
         for _ in 0..spec.count {
-            let page_id = medpdf::create_blank_page(&mut dest_doc, spec.width, spec.height)?;
-            dest_page_ids.push(page_id);
+            let page_id = medpdf::create_blank_page(doc, spec.width, spec.height)?;
+            page_ids.push(page_id);
         }
     }
 
-    if dest_page_ids.is_empty() {
+    if page_ids.is_empty() {
         return Err("No pages to output. Provide input files or use --blank-page.".into());
     }
+    Ok(())
+}
 
-    // --- Phase 2: Apply Overlays ---
+fn apply_overlays(
+    doc: &mut Document,
+    page_ids: &[lopdf::ObjectId],
+    overlays: &[OverlaySpec],
+) -> Result<(), PdfMergeError> {
     println!("\n--- Applying Overlays ---");
-    for spec in args.overlay.iter() {
+    for spec in overlays {
         println!("Applying overlay from {}", spec.file.display());
         let overlay_doc = Document::load(&spec.file)?;
-        let target_page_indices = parse_page_spec(&spec.target_pages, dest_page_ids.len() as u32)?;
+        let target_page_indices = parse_page_spec(&spec.target_pages, page_ids.len() as u32)?;
         for page_index in target_page_indices {
-            let dest_page_id = *dest_page_ids.get((page_index - 1) as usize)
+            let dest_page_id = *page_ids.get((page_index - 1) as usize)
                 .ok_or_else(|| PdfMergeError::new(format!("Overlay target page index {} out of range", page_index)))?;
-            medpdf::overlay_page(&mut dest_doc, dest_page_id, &overlay_doc, spec.src_page)?;
+            medpdf::overlay_page(doc, dest_page_id, &overlay_doc, spec.src_page)?;
         }
     }
+    Ok(())
+}
 
-    // --- Phase 3: Apply Drawing Commands ---
+fn apply_drawing_commands(
+    doc: &mut Document,
+    page_ids: &[lopdf::ObjectId],
+    rects: &[DrawRectSpec],
+    lines: &[DrawLineSpec],
+    images: &[DrawImageSpec],
+    watermarks: &[WatermarkSpec],
+) -> Result<(), PdfMergeError> {
     println!("\n--- Applying Drawing Commands ---");
     let mut font_cache = FontCache::new();
+    let num_pages = page_ids.len() as u32;
 
-    // Process each layer: under first, then over.
-    // Within each layer: rects, then lines, then watermarks.
     for layer_over in [false, true] {
         let layer_name = if layer_over { "over" } else { "under" };
 
-        // Rects
-        for spec in args.draw_rect.iter().filter(|s| s.layer_over == layer_over) {
-            let target_page_indices = parse_page_spec(&spec.pages, dest_page_ids.len() as u32)?;
+        for spec in rects.iter().filter(|s| s.layer_over == layer_over) {
+            let target_page_indices = parse_page_spec(&spec.pages, num_pages)?;
             let params = DrawRectParams::new(spec.x, spec.y, spec.w, spec.h)
                 .color(spec.color)
                 .layer_over(layer_over);
             println!("Drawing rect ({layer_name}) to pages '{target_page_indices:?}'");
             for page_index in target_page_indices {
-                let page_id = *dest_page_ids.get((page_index - 1) as usize)
+                let page_id = *page_ids.get((page_index - 1) as usize)
                     .ok_or_else(|| PdfMergeError::new(format!("draw-rect target page index {} out of range", page_index)))?;
-                medpdf::add_rect(&mut dest_doc, page_id, &params)?;
+                medpdf::add_rect(doc, page_id, &params)?;
             }
         }
 
-        // Lines
-        for spec in args.draw_line.iter().filter(|s| s.layer_over == layer_over) {
-            let target_page_indices = parse_page_spec(&spec.pages, dest_page_ids.len() as u32)?;
+        for spec in lines.iter().filter(|s| s.layer_over == layer_over) {
+            let target_page_indices = parse_page_spec(&spec.pages, num_pages)?;
             let params = DrawLineParams::new(spec.x1, spec.y1, spec.x2, spec.y2)
                 .line_width(spec.width)
                 .color(spec.color)
                 .layer_over(layer_over);
             println!("Drawing line ({layer_name}) to pages '{target_page_indices:?}'");
             for page_index in target_page_indices {
-                let page_id = *dest_page_ids.get((page_index - 1) as usize)
+                let page_id = *page_ids.get((page_index - 1) as usize)
                     .ok_or_else(|| PdfMergeError::new(format!("draw-line target page index {} out of range", page_index)))?;
-                medpdf::add_line(&mut dest_doc, page_id, &params)?;
+                medpdf::add_line(doc, page_id, &params)?;
             }
         }
 
-        // Images
-        for spec in args.draw_image.iter().filter(|s| s.layer_over == layer_over) {
-            let target_page_indices = parse_page_spec(&spec.pages, dest_page_ids.len() as u32)?;
+        for spec in images.iter().filter(|s| s.layer_over == layer_over) {
+            let target_page_indices = parse_page_spec(&spec.pages, num_pages)?;
             let image_data = medpdf_image::load_image(&spec.file)?;
 
-            // Compute output dimensions from spec w/h and image aspect ratio
             let img_w = image_data.pixel_width() as f32;
             let img_h = image_data.pixel_height() as f32;
             let (out_w, out_h) = match (spec.w, spec.h) {
@@ -199,7 +208,7 @@ fn main() -> Result<(), PdfMergeError> {
 
             println!("Drawing image ({layer_name}) '{}' to pages '{target_page_indices:?}'", spec.file.display());
             for page_index in &target_page_indices {
-                let page_id = *dest_page_ids.get((*page_index - 1) as usize)
+                let page_id = *page_ids.get((*page_index - 1) as usize)
                     .ok_or_else(|| PdfMergeError::new(format!("draw-image target page index {} out of range", page_index)))?;
                 let params = DrawImageParams::new(image_data.clone(), spec.x, spec.y, out_w, out_h)
                     .fit(spec.fit)
@@ -207,16 +216,15 @@ fn main() -> Result<(), PdfMergeError> {
                     .alpha(spec.alpha)
                     .rotation(spec.rotation)
                     .layer_over(layer_over);
-                medpdf_image::add_image(&mut dest_doc, page_id, params)?;
+                medpdf_image::add_image(doc, page_id, params)?;
             }
         }
 
-        // Watermarks
-        for spec in args.watermark.iter().filter(|s| s.layer_over == layer_over) {
+        for spec in watermarks.iter().filter(|s| s.layer_over == layer_over) {
             let font_path = find_font(&spec.font)?;
             let font_data = font_cache.get_data(&font_path)?;
             let font_name = font_path.get_name();
-            let target_page_indices = parse_page_spec(&spec.pages, dest_page_ids.len() as u32)?;
+            let target_page_indices = parse_page_spec(&spec.pages, num_pages)?;
             let x_points = spec.units.to_points(spec.x);
             let y_points = spec.units.to_points(spec.y);
 
@@ -233,56 +241,87 @@ fn main() -> Result<(), PdfMergeError> {
 
             println!("Applying watermark ({layer_name}) '{}' to pages '{target_page_indices:?}'", spec.text);
             for page_index in target_page_indices {
-                let page_id = *dest_page_ids.get((page_index - 1) as usize)
+                let page_id = *page_ids.get((page_index - 1) as usize)
                     .ok_or_else(|| PdfMergeError::new(format!("Watermark target page index {} out of range", page_index)))?;
-                medpdf::add_text_params(&mut dest_doc, page_id, &params)?;
+                medpdf::add_text_params(doc, page_id, &params)?;
             }
         }
     }
+    Ok(())
+}
 
-    // --- Phase 4: Padding ---
+fn apply_padding(
+    doc: &mut Document,
+    page_ids: &mut Vec<lopdf::ObjectId>,
+    pad_to: &Option<PadToSpec>,
+    pad_file: &Option<PadFileSpec>,
+) -> Result<(), PdfMergeError> {
     println!("\n--- Checking for Padding ---");
-    let current_page_count = dest_doc.get_pages().len();
+    let current_page_count = doc.get_pages().len();
 
-    if let Some(spec) = &args.pad_to {
+    if let Some(spec) = pad_to {
         let pages = spec.pages as usize;
         if current_page_count > 0 {
             let pages_to_add = (pages - (current_page_count % pages)) % pages;
             if pages_to_add > 0 {
                 println!("   -> Padding with {pages_to_add} page(s) to reach a multiple of {pages}.");
-                let last_page_id = *dest_page_ids.last()
+                let last_page_id = *page_ids.last()
                     .ok_or_else(|| PdfMergeError::new("No pages in document to pad"))?;
-                let media_box = medpdf::get_page_media_box(&dest_doc, last_page_id)
+                let media_box = medpdf::get_page_media_box(doc, last_page_id)
                     .ok_or_else(|| PdfMergeError::new("Could not determine MediaBox for last page"))?;
                 let width = media_box[2] - media_box[0];
                 let height = media_box[3] - media_box[1];
 
                 for _ in 0..(pages_to_add - 1) {
-                    let page_id = medpdf::create_blank_page(&mut dest_doc, width, height)?;
-                    dest_page_ids.push(page_id);
+                    let page_id = medpdf::create_blank_page(doc, width, height)?;
+                    page_ids.push(page_id);
                 }
-                if let Some(spec) = &args.pad_last_page_file {
+                if let Some(spec) = pad_file {
                     let pad_doc = Document::load(&spec.file)?;
-                    let page_id = medpdf::copy_page(&mut dest_doc, &pad_doc, spec.page)?;
-                    dest_page_ids.push(page_id);
+                    let page_id = medpdf::copy_page(doc, &pad_doc, spec.page)?;
+                    page_ids.push(page_id);
                 } else {
-                    let page_id = medpdf::create_blank_page(&mut dest_doc, width, height)?;
-                    dest_page_ids.push(page_id);
+                    let page_id = medpdf::create_blank_page(doc, width, height)?;
+                    page_ids.push(page_id);
                 }
             }
         }
     }
+    Ok(())
+}
 
-    // --- Phase 5: Saving ---
-    println!("\nSaving file to {}", args.output.display());
-    dest_doc.change_producer("PDF Merger Command-Line Tool");
-    dest_doc.compress();
-    if args.broad_compatibility {
-        dest_doc.save(&args.output)?;
+fn save_document(
+    doc: &mut Document,
+    output: &PathBuf,
+    broad_compat: bool,
+) -> Result<(), PdfMergeError> {
+    println!("\nSaving file to {}", output.display());
+    doc.change_producer("PDF Merger Command-Line Tool");
+    doc.compress();
+    if broad_compat {
+        doc.save(output)?;
     } else {
-        let mut file = std::fs::File::create(&args.output)?;
-        dest_doc.save_modern(&mut file)?;
+        let mut file = std::fs::File::create(output)?;
+        doc.save_modern(&mut file)?;
     }
+    Ok(())
+}
+
+fn main() -> Result<(), PdfMergeError> {
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
+    let args = Args::parse();
+    if !args.inputs.is_empty() && args.inputs.len() % 2 != 0 {
+        return Err("Input arguments must be in pairs of file paths and page specifications.".into());
+    }
+
+    let mut doc = init_document();
+    let mut page_ids = Vec::new();
+
+    merge_pages(&mut doc, &mut page_ids, &args.inputs, &args.blank_page)?;
+    apply_overlays(&mut doc, &page_ids, &args.overlay)?;
+    apply_drawing_commands(&mut doc, &page_ids, &args.draw_rect, &args.draw_line, &args.draw_image, &args.watermark)?;
+    apply_padding(&mut doc, &mut page_ids, &args.pad_to, &args.pad_last_page_file)?;
+    save_document(&mut doc, &args.output, args.broad_compatibility)?;
 
     println!("Operation successful!");
     Ok(())

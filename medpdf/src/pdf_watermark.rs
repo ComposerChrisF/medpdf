@@ -1,8 +1,8 @@
 use crate::error::{PdfMergeError, Result};
 use crate::font_helpers;
-use crate::pdf_helpers::{KEY_CONTENTS, KEY_EXTGSTATE, KEY_FONT, KEY_FONT_DESCRIPTOR, KEY_RESOURCES};
+use crate::pdf_helpers::{KEY_CONTENTS, KEY_EXTGSTATE, KEY_FONT, KEY_FONT_DESCRIPTOR};
 use lopdf::content::{Content, Operation};
-use lopdf::{dictionary, Dictionary, Document, Object, ObjectId, Stream, StringFormat};
+use lopdf::{dictionary, Document, Object, ObjectId, Stream, StringFormat};
 
 /// Counts the net q/Q balance across content streams.
 /// Returns the number of unclosed 'q' operations (positive means more q's than Q's).
@@ -132,181 +132,29 @@ fn add_font_objects(
 }
 
 /// Registers a font object in the page's resources and returns the font key.
-/// This handles the complex logic of navigating/creating the Resources -> Font hierarchy.
 fn register_font_in_page_resources(
     dest_doc: &mut Document,
     page_id: ObjectId,
     font_id: ObjectId,
 ) -> Result<String> {
     let font_key = format!("F{}", font_id.0);
-    let font_key_bytes = font_key.as_bytes().to_vec();
-
-    // Helper to add font reference to a fonts dictionary
-    let add_font_to_dict = |dict: &mut Dictionary, key: &[u8], id: ObjectId| {
-        dict.set(key.to_vec(), Object::Reference(id));
-    };
-
-    // First pass: handle page's Resources (may be inline dict or reference)
-    let page_dict = dest_doc
-        .get_object_mut(page_id)?
-        .as_dict_mut()
-        .map_err(|_| PdfMergeError::new("Page object is not a dictionary"))?;
-
-    let resources_obj = page_dict.get_mut(KEY_RESOURCES);
-    let (mut fonts_id, resources_dict_id) = match resources_obj {
-        Ok(Object::Reference(id_resources)) => (None, Some(*id_resources)),
-        Ok(Object::Dictionary(dict_resources)) => {
-            let fonts_id = handle_fonts_in_resources(dict_resources, &font_key_bytes, font_id)?;
-            (fonts_id, None)
-        }
-        Ok(_) => {
-            return Err(PdfMergeError::new(
-                "/Resource key of page not a Reference nor a Dictionary!",
-            ))
-        }
-        Err(_) => {
-            // No resources yet - create inline
-            let mut dict_resources = dictionary! {};
-            let fonts_id =
-                handle_fonts_in_resources(&mut dict_resources, &font_key_bytes, font_id)?;
-            page_dict.set(KEY_RESOURCES, Object::Dictionary(dict_resources));
-            (fonts_id, None)
-        }
-    };
-
-    // Only one of these two is ever set, but both can be None
-    // Was: assert!(fonts_id.is_none() || resources_dict_id.is_none());
-    if fonts_id.is_some() && resources_dict_id.is_some() {
-        return Err(PdfMergeError::new(
-            "Internal error: both Fonts and Resources are set!",
-        ));
-    }
-
-    // Second pass: if Resources was a reference, handle it now
-    if let Some(resources_dict_id) = resources_dict_id {
-        let resources_dict = dest_doc.get_object_mut(resources_dict_id)?.as_dict_mut()?;
-        fonts_id = handle_fonts_in_resources(resources_dict, &font_key_bytes, font_id)?;
-    }
-
-    // Third pass: if Fonts was a reference, handle it now
-    if let Some(fonts_id) = fonts_id {
-        let fonts_dict = dest_doc.get_object_mut(fonts_id)?.as_dict_mut()?;
-        add_font_to_dict(fonts_dict, &font_key_bytes, font_id);
-    }
-
+    crate::pdf_helpers::register_in_page_resources(
+        dest_doc, page_id, KEY_FONT, font_key.as_bytes(), font_id,
+    )?;
     Ok(font_key)
 }
 
-/// Handles adding a font to a Resources dictionary's Font entry.
-/// Returns Some(ObjectId) if the Font entry is a reference that needs separate handling.
-fn handle_fonts_in_resources(
-    resources_dict: &mut Dictionary,
-    font_key: &[u8],
-    font_id: ObjectId,
-) -> Result<Option<ObjectId>> {
-    match resources_dict.get_mut(KEY_FONT) {
-        Ok(Object::Reference(id_fonts)) => Ok(Some(*id_fonts)),
-        Ok(Object::Dictionary(dict_fonts)) => {
-            dict_fonts.set(font_key.to_vec(), Object::Reference(font_id));
-            Ok(None)
-        }
-        Ok(_) => Err(PdfMergeError::new(
-            "/Font key of Resource not a Reference nor a Dictionary!",
-        )),
-        Err(_) => {
-            // No Font dict yet - create inline
-            let mut dict_fonts = dictionary! {};
-            dict_fonts.set(font_key.to_vec(), Object::Reference(font_id));
-            resources_dict.set(KEY_FONT, Object::Dictionary(dict_fonts));
-            Ok(None)
-        }
-    }
-}
-
 /// Registers an ExtGState object in the page's resources and returns the gs key.
-/// Mirrors the three-tier pattern of `register_font_in_page_resources()`.
 pub fn register_extgstate_in_page_resources(
     dest_doc: &mut Document,
     page_id: ObjectId,
     gs_id: ObjectId,
 ) -> Result<String> {
     let gs_key = format!("GS{}", gs_id.0);
-    let gs_key_bytes = gs_key.as_bytes().to_vec();
-
-    // First pass: handle page's Resources (may be inline dict or reference)
-    let page_dict = dest_doc
-        .get_object_mut(page_id)?
-        .as_dict_mut()
-        .map_err(|_| PdfMergeError::new("Page object is not a dictionary"))?;
-
-    let resources_obj = page_dict.get_mut(KEY_RESOURCES);
-    let (mut extgstate_ref_id, resources_dict_id) = match resources_obj {
-        Ok(Object::Reference(id_resources)) => (None, Some(*id_resources)),
-        Ok(Object::Dictionary(dict_resources)) => {
-            let extgstate_ref =
-                handle_extgstate_in_resources(dict_resources, &gs_key_bytes, gs_id)?;
-            (extgstate_ref, None)
-        }
-        Ok(_) => {
-            return Err(PdfMergeError::new(
-                "/Resource key of page not a Reference nor a Dictionary!",
-            ))
-        }
-        Err(_) => {
-            // No resources yet - create inline
-            let mut dict_resources = dictionary! {};
-            let extgstate_ref =
-                handle_extgstate_in_resources(&mut dict_resources, &gs_key_bytes, gs_id)?;
-            page_dict.set(KEY_RESOURCES, Object::Dictionary(dict_resources));
-            (extgstate_ref, None)
-        }
-    };
-
-    if extgstate_ref_id.is_some() && resources_dict_id.is_some() {
-        return Err(PdfMergeError::new(
-            "Internal error: both ExtGState and Resources are set!",
-        ));
-    }
-
-    // Second pass: if Resources was a reference, handle it now
-    if let Some(resources_dict_id) = resources_dict_id {
-        let resources_dict = dest_doc.get_object_mut(resources_dict_id)?.as_dict_mut()?;
-        extgstate_ref_id = handle_extgstate_in_resources(resources_dict, &gs_key_bytes, gs_id)?;
-    }
-
-    // Third pass: if ExtGState was a reference, handle it now
-    if let Some(extgstate_id) = extgstate_ref_id {
-        let extgstate_dict = dest_doc.get_object_mut(extgstate_id)?.as_dict_mut()?;
-        extgstate_dict.set(gs_key_bytes, Object::Reference(gs_id));
-    }
-
+    crate::pdf_helpers::register_in_page_resources(
+        dest_doc, page_id, KEY_EXTGSTATE, gs_key.as_bytes(), gs_id,
+    )?;
     Ok(gs_key)
-}
-
-/// Handles adding an ExtGState entry to a Resources dictionary's ExtGState sub-dictionary.
-/// Returns Some(ObjectId) if the ExtGState entry is a reference that needs separate handling.
-fn handle_extgstate_in_resources(
-    resources_dict: &mut Dictionary,
-    gs_key: &[u8],
-    gs_id: ObjectId,
-) -> Result<Option<ObjectId>> {
-    match resources_dict.get_mut(KEY_EXTGSTATE) {
-        Ok(Object::Reference(id)) => Ok(Some(*id)),
-        Ok(Object::Dictionary(dict)) => {
-            dict.set(gs_key.to_vec(), Object::Reference(gs_id));
-            Ok(None)
-        }
-        Ok(_) => Err(PdfMergeError::new(
-            "/ExtGState key of Resource not a Reference nor a Dictionary!",
-        )),
-        Err(_) => {
-            // No ExtGState dict yet - create inline
-            let mut dict = dictionary! {};
-            dict.set(gs_key.to_vec(), Object::Reference(gs_id));
-            resources_dict.set(KEY_EXTGSTATE, Object::Dictionary(dict));
-            Ok(None)
-        }
-    }
 }
 
 fn add_known_named_font(
@@ -340,23 +188,18 @@ fn bbox_as_object_array(bbox: &[i16]) -> Result<Object> {
     ]))
 }
 
-/// Adds text to a page using rich parameters (color, f32 coords, rotation, alignment).
-///
-/// Vertical alignment uses real font metrics (ascent, descent, x-height) when
-/// font data is available, with reasonable approximations for built-in fonts.
-pub fn add_text_params(
-    dest_doc: &mut Document,
-    page_id: ObjectId,
-    params: &crate::types::AddTextParams,
-) -> Result<()> {
-    let font_key = add_font_objects(dest_doc, page_id, &params.font_data, &params.font_name)?;
+struct TextMetrics {
+    text_width: f32,
+    dx: f32,
+    dy: f32,
+}
 
-    // Measure text width for alignment and/or strikeout/underline
+/// Computes text width and alignment offsets from font metrics.
+fn compute_text_metrics(params: &crate::types::AddTextParams) -> TextMetrics {
     let needs_width = params.h_align != crate::types::HAlign::Left
         || params.v_align != crate::types::VAlign::Baseline
         || params.strikeout
         || params.underline;
-    // Parse the font face once for both width measurement and metrics extraction
     let face_opt = params.font_data.embedded_bytes()
         .and_then(|bytes| ttf_parser::Face::parse(bytes, 0).ok());
 
@@ -369,26 +212,26 @@ pub fn add_text_params(
         0.0
     };
 
-    // Compute alignment offsets
     let dx = match params.h_align {
         crate::types::HAlign::Left => 0.0,
         crate::types::HAlign::Center => -text_width / 2.0,
         crate::types::HAlign::Right => -text_width,
     };
+
     // Compute vertical metrics from font data (scaled to font_size).
-    // For built-in/hack fonts (data len <= 1), use reasonable approximations.
+    // For built-in/hack fonts, use reasonable approximations.
     let approx = (params.font_size * 0.7, params.font_size * -0.3, params.font_size * 0.5, params.font_size * 0.7, params.font_size * -0.3);
-    let (ascent_scaled, descent_scaled, x_height_scaled, cap_height_scaled, bbox_bottom_scaled) =
+    let (ascent, descent, x_height, cap_height, bbox_bottom) =
         if let Some(face) = &face_opt {
             let upem = face.units_per_em() as f32;
             if upem > 0.0 {
                 let scale = params.font_size / upem;
                 (
                     face.ascender() as f32 * scale,
-                    face.descender() as f32 * scale, // negative value
+                    face.descender() as f32 * scale,
                     face.x_height().unwrap_or((upem * 0.5) as i16) as f32 * scale,
                     face.capital_height().unwrap_or(face.ascender()) as f32 * scale,
-                    face.global_bounding_box().y_min as f32 * scale, // negative value
+                    face.global_bounding_box().y_min as f32 * scale,
                 )
             } else {
                 approx
@@ -398,18 +241,26 @@ pub fn add_text_params(
         };
     let dy = match params.v_align {
         crate::types::VAlign::Baseline => 0.0,
-        crate::types::VAlign::DescentBottom => -descent_scaled, // shift up by |descent| (typographic descent line)
-        crate::types::VAlign::Bottom => -bbox_bottom_scaled, // shift up by |bbox.y_min| (clears all glyphs)
-        crate::types::VAlign::Center => -x_height_scaled / 2.0, // shift down so x-height center lands at y
-        crate::types::VAlign::Top => -ascent_scaled, // shift down so typographic top lands at y
-        crate::types::VAlign::CapTop => -cap_height_scaled, // shift down so cap height lands at y
+        crate::types::VAlign::DescentBottom => -descent,
+        crate::types::VAlign::Bottom => -bbox_bottom,
+        crate::types::VAlign::Center => -x_height / 2.0,
+        crate::types::VAlign::Top => -ascent,
+        crate::types::VAlign::CapTop => -cap_height,
     };
 
+    TextMetrics { text_width, dx, dy }
+}
+
+/// Builds the PDF operations for text rendering (color, alpha, rotation, text placement).
+fn build_text_ops(
+    dest_doc: &mut Document,
+    page_id: ObjectId,
+    params: &crate::types::AddTextParams,
+    font_key: &str,
+    metrics: &TextMetrics,
+) -> Result<Vec<Operation>> {
     let encoded_text = utf8_to_winansi(&params.text);
-
     let mut ops = vec![Operation::new("q", vec![])];
-
-    // Clamp color to valid PDF range [0.0, 1.0]
     let color = params.color.clamped();
 
     // Apply alpha via ExtGState when not fully opaque
@@ -428,49 +279,33 @@ pub fn add_text_params(
         ));
     }
 
-    // Set color
     ops.push(Operation::new(
         "rg",
         vec![color.r.into(), color.g.into(), color.b.into()],
     ));
 
-    // Apply rotation + translation via cm (concat matrix)
     if params.rotation.abs() > 0.001 {
         let angle = params.rotation.to_radians();
         let cos = angle.cos();
         let sin = angle.sin();
         ops.push(Operation::new(
             "cm",
-            vec![
-                cos.into(),
-                sin.into(),
-                (-sin).into(),
-                cos.into(),
-                params.x.into(),
-                params.y.into(),
-            ],
+            vec![cos.into(), sin.into(), (-sin).into(), cos.into(), params.x.into(), params.y.into()],
         ));
-        // After cm, text position is relative to the transformed origin
         ops.push(Operation::new("BT", vec![]));
         ops.push(Operation::new(
             "Tf",
-            vec![
-                Object::Name(font_key.as_bytes().to_vec()),
-                params.font_size.into(),
-            ],
+            vec![Object::Name(font_key.as_bytes().to_vec()), params.font_size.into()],
         ));
-        ops.push(Operation::new("Td", vec![dx.into(), dy.into()]));
+        ops.push(Operation::new("Td", vec![metrics.dx.into(), metrics.dy.into()]));
     } else {
         ops.push(Operation::new("BT", vec![]));
         ops.push(Operation::new(
             "Tf",
-            vec![
-                Object::Name(font_key.as_bytes().to_vec()),
-                params.font_size.into(),
-            ],
+            vec![Object::Name(font_key.as_bytes().to_vec()), params.font_size.into()],
         ));
-        let final_x = params.x + dx;
-        let final_y = params.y + dy;
+        let final_x = params.x + metrics.dx;
+        let final_y = params.y + metrics.dy;
         ops.push(Operation::new("Td", vec![final_x.into(), final_y.into()]));
     }
 
@@ -480,48 +315,61 @@ pub fn add_text_params(
     ));
     ops.push(Operation::new("ET", vec![]));
 
-    // Draw underline/strikeout rectangles
+    Ok(ops)
+}
+
+/// Builds underline/strikeout rectangle operations.
+fn build_decoration_ops(
+    params: &crate::types::AddTextParams,
+    metrics: &TextMetrics,
+) -> Vec<Operation> {
+    let mut ops = Vec::new();
+    if !params.underline && !params.strikeout {
+        return ops;
+    }
     // In rotated mode, cm is active so we use (dx, dy) offsets.
     // In non-rotated mode, we use absolute (params.x + dx, params.y + dy) coords.
-    if params.underline || params.strikeout {
-        let has_rotation = params.rotation.abs() > 0.001;
-        let rect_x = if has_rotation { dx } else { params.x + dx };
-        let rect_base_y = if has_rotation { dy } else { params.y + dy };
-        let line_height = params.font_size * 0.05;
-        if params.underline {
-            let line_y = rect_base_y - params.font_size * 0.15;
-            ops.push(Operation::new(
-                "re",
-                vec![
-                    rect_x.into(),
-                    line_y.into(),
-                    text_width.into(),
-                    line_height.into(),
-                ],
-            ));
-            ops.push(Operation::new("f", vec![]));
-        }
-        if params.strikeout {
-            let line_y = rect_base_y + params.font_size * 0.3;
-            ops.push(Operation::new(
-                "re",
-                vec![
-                    rect_x.into(),
-                    line_y.into(),
-                    text_width.into(),
-                    line_height.into(),
-                ],
-            ));
-            ops.push(Operation::new("f", vec![]));
-        }
+    let has_rotation = params.rotation.abs() > 0.001;
+    let rect_x = if has_rotation { metrics.dx } else { params.x + metrics.dx };
+    let rect_base_y = if has_rotation { metrics.dy } else { params.y + metrics.dy };
+    let line_height = params.font_size * 0.05;
+    if params.underline {
+        let line_y = rect_base_y - params.font_size * 0.15;
+        ops.push(Operation::new(
+            "re",
+            vec![rect_x.into(), line_y.into(), metrics.text_width.into(), line_height.into()],
+        ));
+        ops.push(Operation::new("f", vec![]));
     }
+    if params.strikeout {
+        let line_y = rect_base_y + params.font_size * 0.3;
+        ops.push(Operation::new(
+            "re",
+            vec![rect_x.into(), line_y.into(), metrics.text_width.into(), line_height.into()],
+        ));
+        ops.push(Operation::new("f", vec![]));
+    }
+    ops
+}
 
+/// Adds text to a page using rich parameters (color, f32 coords, rotation, alignment).
+///
+/// Vertical alignment uses real font metrics (ascent, descent, x-height) when
+/// font data is available, with reasonable approximations for built-in fonts.
+pub fn add_text_params(
+    dest_doc: &mut Document,
+    page_id: ObjectId,
+    params: &crate::types::AddTextParams,
+) -> Result<()> {
+    let font_key = add_font_objects(dest_doc, page_id, &params.font_data, &params.font_name)?;
+    let metrics = compute_text_metrics(params);
+    let mut ops = build_text_ops(dest_doc, page_id, params, &font_key, &metrics)?;
+    ops.extend(build_decoration_ops(params, &metrics));
     ops.push(Operation::new("Q", vec![]));
-
-    let content = Content { operations: ops };
-    let content_stream = Stream::new(dictionary! {}, content.encode()?);
-    let content_id = dest_doc.add_object(content_stream);
-
+    let content_id = dest_doc.add_object(Stream::new(
+        dictionary! {},
+        Content { operations: ops }.encode()?,
+    ));
     insert_content_stream(dest_doc, page_id, content_id, params.layer_over)
 }
 

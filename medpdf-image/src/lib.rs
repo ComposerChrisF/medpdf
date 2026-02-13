@@ -1,7 +1,7 @@
-use lopdf::{dictionary, Dictionary, Document, Object, ObjectId, Stream};
+use lopdf::{dictionary, Document, Object, ObjectId, Stream};
 use medpdf::{
     insert_content_stream, register_extgstate_in_page_resources, PdfMergeError, Result,
-    KEY_RESOURCES, KEY_XOBJECT,
+    KEY_XOBJECT,
 };
 use std::path::Path;
 
@@ -339,84 +339,14 @@ fn maybe_downsample(image_data: ImageData, output_w_pts: f32, output_h_pts: f32,
 // XObject registration
 // ---------------------------------------------------------------------------
 
-/// Registers an XObject in the page's Resources, following the same three-tier
-/// pattern as medpdf's `register_extgstate_in_page_resources()`.
+/// Registers an XObject in the page's Resources.
 fn register_xobject_in_page_resources(
     doc: &mut Document,
     page_id: ObjectId,
     xobj_id: ObjectId,
     xobj_name: &str,
 ) -> Result<()> {
-    let xobj_key = xobj_name.as_bytes().to_vec();
-
-    // First pass: page Resources (inline dict or reference)
-    let page_dict = doc
-        .get_object_mut(page_id)?
-        .as_dict_mut()
-        .map_err(|_| PdfMergeError::new("Page object is not a dictionary"))?;
-
-    let resources_obj = page_dict.get_mut(KEY_RESOURCES);
-    let (mut xobject_ref_id, resources_dict_id) = match resources_obj {
-        Ok(Object::Reference(id)) => (None, Some(*id)),
-        Ok(Object::Dictionary(dict)) => {
-            let r = handle_xobject_in_resources(dict, &xobj_key, xobj_id)?;
-            (r, None)
-        }
-        Ok(_) => {
-            return Err(PdfMergeError::new(
-                "/Resources key of page not a Reference nor a Dictionary!",
-            ))
-        }
-        Err(_) => {
-            let mut dict = dictionary! {};
-            let r = handle_xobject_in_resources(&mut dict, &xobj_key, xobj_id)?;
-            page_dict.set(KEY_RESOURCES, Object::Dictionary(dict));
-            (r, None)
-        }
-    };
-
-    if xobject_ref_id.is_some() && resources_dict_id.is_some() {
-        return Err(PdfMergeError::new(
-            "Internal error: both XObject and Resources are set!",
-        ));
-    }
-
-    // Second pass: if Resources was a reference
-    if let Some(res_id) = resources_dict_id {
-        let res_dict = doc.get_object_mut(res_id)?.as_dict_mut()?;
-        xobject_ref_id = handle_xobject_in_resources(res_dict, &xobj_key, xobj_id)?;
-    }
-
-    // Third pass: if XObject dict was a reference
-    if let Some(xobj_dict_id) = xobject_ref_id {
-        let xobj_dict = doc.get_object_mut(xobj_dict_id)?.as_dict_mut()?;
-        xobj_dict.set(xobj_key, Object::Reference(xobj_id));
-    }
-
-    Ok(())
-}
-
-fn handle_xobject_in_resources(
-    resources_dict: &mut Dictionary,
-    xobj_key: &[u8],
-    xobj_id: ObjectId,
-) -> Result<Option<ObjectId>> {
-    match resources_dict.get_mut(KEY_XOBJECT) {
-        Ok(Object::Reference(id)) => Ok(Some(*id)),
-        Ok(Object::Dictionary(dict)) => {
-            dict.set(xobj_key.to_vec(), Object::Reference(xobj_id));
-            Ok(None)
-        }
-        Ok(_) => Err(PdfMergeError::new(
-            "/XObject key of Resources not a Reference nor a Dictionary!",
-        )),
-        Err(_) => {
-            let mut dict = dictionary! {};
-            dict.set(xobj_key.to_vec(), Object::Reference(xobj_id));
-            resources_dict.set(KEY_XOBJECT, Object::Dictionary(dict));
-            Ok(None)
-        }
-    }
+    medpdf::register_in_page_resources(doc, page_id, KEY_XOBJECT, xobj_name.as_bytes(), xobj_id)
 }
 
 // ---------------------------------------------------------------------------
@@ -846,7 +776,7 @@ mod tests {
 
         // Verify it was registered
         let page_dict = doc.get_dictionary(page_id).unwrap();
-        let res_id = page_dict.get(KEY_RESOURCES).unwrap().as_reference().unwrap();
+        let res_id = page_dict.get(medpdf::KEY_RESOURCES).unwrap().as_reference().unwrap();
         let res_dict = doc.get_dictionary(res_id).unwrap();
         let xobj_dict = res_dict.get(KEY_XOBJECT).unwrap().as_dict().unwrap();
         let ref_obj = xobj_dict.get(b"Img1").unwrap();
@@ -886,7 +816,7 @@ mod tests {
 
         // Verify XObject was registered in resources
         let page_dict = doc.get_dictionary(page_id).unwrap();
-        let res_id = page_dict.get(KEY_RESOURCES).unwrap().as_reference().unwrap();
+        let res_id = page_dict.get(medpdf::KEY_RESOURCES).unwrap().as_reference().unwrap();
         let res_dict = doc.get_dictionary(res_id).unwrap();
         let xobj_dict = res_dict.get(KEY_XOBJECT).unwrap().as_dict().unwrap();
         // Find the image XObject
@@ -908,7 +838,7 @@ mod tests {
 
         // Verify ExtGState was created for alpha
         let page_dict = doc.get_dictionary(page_id).unwrap();
-        let res_id = page_dict.get(KEY_RESOURCES).unwrap().as_reference().unwrap();
+        let res_id = page_dict.get(medpdf::KEY_RESOURCES).unwrap().as_reference().unwrap();
         let res_dict = doc.get_dictionary(res_id).unwrap();
         assert!(res_dict.get(medpdf::KEY_EXTGSTATE).is_ok(), "Should have ExtGState for alpha");
     }
