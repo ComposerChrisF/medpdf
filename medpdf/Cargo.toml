@@ -1,6 +1,6 @@
 [package]
 name = "medpdf"
-version = "0.5.0"
+version = "0.5.1"
 edition = "2021"
 description = "Medium-level PDF API over lopdf"
 license = "MIT OR Apache-2.0"

@@ -131,7 +131,10 @@ fn modify_content_stream(
     contents_arr: &[Object],
     key_mapping: Option<&HashMap<Vec<u8>, Vec<u8>>>,
 ) -> Result<()> {
-    for content_ref_obj in contents_arr.iter() {
+    let len = contents_arr.len();
+    let mut cumulative_q_balance = 0_isize;
+
+    for (idx, content_ref_obj) in contents_arr.iter().enumerate() {
         let content_stream = dest_doc
             .get_object_mut(content_ref_obj.as_reference()?)?
             .as_stream_mut()?;
@@ -139,11 +142,10 @@ fn modify_content_stream(
             content_stream.decompress()?;
         }
         let mut content = content_stream.decode_content()?;
-        let mut count_q = 0_isize;
         for operation in content.operations.iter_mut() {
             match &operation.operator[..] {
-                "q" => count_q += 1,
-                "Q" => count_q -= 1,
+                "q" => cumulative_q_balance += 1,
+                "Q" => cumulative_q_balance -= 1,
                 _ => {}
             }
             if let Some(key_mapping) = key_mapping {
@@ -158,17 +160,23 @@ fn modify_content_stream(
                 }
             }
         }
-        // Add bracketing q/Q pair to contain graphics state changes
-        content.operations.insert(0, Operation::new("q", vec![]));
-        content.operations.push(Operation::new("Q", vec![]));
-        // We count q/Q pairs to make sure they are balanced, so that we can add extra "Q" if necessary.
-        if count_q < 0 {
-            warn!("Content stream has {} more Q than q operators (negative balance)", -count_q);
+        // Wrap the entire sequence of content streams in a single q/Q pair,
+        // rather than wrapping each stream individually. Multiple content streams
+        // for one page are concatenated — graphics state must carry across them.
+        if idx == 0 {
+            content.operations.insert(0, Operation::new("q", vec![]));
         }
-        trace!("count_q = {count_q}");
-        for _ in 0..count_q {
-            warn!("Unbalanced q/Q pairs, adding 'Q'");
+        if idx == len - 1 {
             content.operations.push(Operation::new("Q", vec![]));
+            // Balance any unmatched q operators across all streams
+            if cumulative_q_balance < 0 {
+                warn!("Content streams have {} more Q than q operators (negative balance)", -cumulative_q_balance);
+            }
+            trace!("cumulative_q_balance = {cumulative_q_balance}");
+            for _ in 0..cumulative_q_balance {
+                warn!("Unbalanced q/Q pairs, adding 'Q'");
+                content.operations.push(Operation::new("Q", vec![]));
+            }
         }
 
         content_stream.content = content.encode()?;
