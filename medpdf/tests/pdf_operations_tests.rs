@@ -539,3 +539,186 @@ fn test_delete_page_returns_correct_id() {
     let removed_id = delete_page(&mut doc, 1).unwrap();
     assert_eq!(removed_id, page1_id);
 }
+
+// --- delete_page edge cases ---
+
+#[test]
+fn test_delete_page_sequential_from_front() {
+    // Always delete page 1, which shifts remaining pages down
+    let source = fixtures::create_pdf_with_pages(4);
+    let mut doc = fixtures::create_empty_pdf();
+    for p in 1..=4 {
+        copy_page(&mut doc, &source, p).unwrap();
+    }
+
+    delete_page(&mut doc, 1).unwrap();
+    assert_eq!(doc.get_pages().len(), 3);
+    delete_page(&mut doc, 1).unwrap();
+    assert_eq!(doc.get_pages().len(), 2);
+    delete_page(&mut doc, 1).unwrap();
+    assert_eq!(doc.get_pages().len(), 1);
+    delete_page(&mut doc, 1).unwrap();
+    assert_eq!(doc.get_pages().len(), 0);
+}
+
+#[test]
+fn test_delete_then_add_pages() {
+    let source = fixtures::create_pdf_with_pages(2);
+    let mut doc = fixtures::create_empty_pdf();
+    copy_page(&mut doc, &source, 1).unwrap();
+    copy_page(&mut doc, &source, 2).unwrap();
+    assert_eq!(doc.get_pages().len(), 2);
+
+    // Delete all pages
+    delete_page(&mut doc, 2).unwrap();
+    delete_page(&mut doc, 1).unwrap();
+    assert_eq!(doc.get_pages().len(), 0);
+
+    // Add pages back
+    copy_page(&mut doc, &source, 1).unwrap();
+    assert_eq!(doc.get_pages().len(), 1);
+    copy_page(&mut doc, &source, 2).unwrap();
+    assert_eq!(doc.get_pages().len(), 2);
+}
+
+#[test]
+fn test_delete_page_double_delete_same_position_fails() {
+    let source = fixtures::create_pdf_with_pages(1);
+    let mut doc = fixtures::create_empty_pdf();
+    copy_page(&mut doc, &source, 1).unwrap();
+
+    delete_page(&mut doc, 1).unwrap();
+    assert_eq!(doc.get_pages().len(), 0);
+
+    // Deleting from empty doc should fail
+    let result = delete_page(&mut doc, 1);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_delete_interleaved_with_blank_pages() {
+    let mut doc = fixtures::create_empty_pdf();
+    medpdf::pdf_blank_page::create_blank_page(&mut doc, 612.0, 792.0).unwrap();
+    medpdf::pdf_blank_page::create_blank_page(&mut doc, 612.0, 792.0).unwrap();
+    medpdf::pdf_blank_page::create_blank_page(&mut doc, 612.0, 792.0).unwrap();
+    assert_eq!(doc.get_pages().len(), 3);
+
+    delete_page(&mut doc, 2).unwrap();
+    assert_eq!(doc.get_pages().len(), 2);
+
+    // Add another blank page after deletion
+    medpdf::pdf_blank_page::create_blank_page(&mut doc, 400.0, 300.0).unwrap();
+    assert_eq!(doc.get_pages().len(), 3);
+}
+
+// --- copy_page edge cases ---
+
+#[test]
+fn test_copy_page_from_multiple_sources() {
+    let source_a = fixtures::create_pdf_with_pages_and_size(2, 612.0, 792.0);
+    let source_b = fixtures::create_pdf_with_pages_and_size(2, 595.0, 842.0);
+    let mut dest = fixtures::create_empty_pdf();
+
+    let page_a1 = copy_page(&mut dest, &source_a, 1).unwrap();
+    let page_b1 = copy_page(&mut dest, &source_b, 1).unwrap();
+    let page_a2 = copy_page(&mut dest, &source_a, 2).unwrap();
+    let page_b2 = copy_page(&mut dest, &source_b, 2).unwrap();
+
+    assert_eq!(dest.get_pages().len(), 4);
+    // All page IDs should be unique
+    let ids = vec![page_a1, page_b1, page_a2, page_b2];
+    let unique: std::collections::HashSet<_> = ids.iter().collect();
+    assert_eq!(unique.len(), 4, "All page IDs should be unique");
+
+    // Verify source A pages have Letter dimensions
+    let mb_a = medpdf::get_page_media_box(&dest, page_a1).unwrap();
+    assert!((mb_a[2] - 612.0).abs() < 0.1);
+
+    // Verify source B pages have A4 dimensions
+    let mb_b = medpdf::get_page_media_box(&dest, page_b1).unwrap();
+    assert!((mb_b[2] - 595.0).abs() < 0.1);
+}
+
+#[test]
+fn test_copy_same_page_multiple_times_without_cache() {
+    // Copying the same page with fresh caches creates distinct copies
+    let source = fixtures::create_pdf_with_shared_font(1);
+    let mut dest = fixtures::create_empty_pdf();
+
+    let mut ids = Vec::new();
+    for _ in 0..3 {
+        let id = copy_page(&mut dest, &source, 1).unwrap();
+        ids.push(id);
+    }
+    assert_eq!(dest.get_pages().len(), 3);
+
+    let unique: std::collections::HashSet<_> = ids.iter().collect();
+    assert_eq!(unique.len(), 3, "Each copy should have a unique ObjectId");
+}
+
+#[test]
+fn test_copy_same_page_with_cache_returns_cached_id() {
+    // When the same source page is copied twice with the same cache,
+    // deep_copy returns the cached ObjectId (resource deduplication).
+    let source = fixtures::create_pdf_with_shared_font(1);
+    let mut dest = fixtures::create_empty_pdf();
+    let mut cache = BTreeMap::new();
+
+    let id1 = copy_page_with_cache(&mut dest, &source, 1, &mut cache).unwrap();
+    let id2 = copy_page_with_cache(&mut dest, &source, 1, &mut cache).unwrap();
+
+    // Cache returns the same ObjectId for the same source object
+    assert_eq!(
+        id1, id2,
+        "Cache should return same destination ID for same source page"
+    );
+}
+
+#[test]
+fn test_copy_page_large_page_number() {
+    let source = fixtures::create_pdf_with_pages(100);
+    let mut dest = fixtures::create_empty_pdf();
+
+    let result = copy_page(&mut dest, &source, 100);
+    assert!(result.is_ok());
+    assert_eq!(dest.get_pages().len(), 1);
+}
+
+#[test]
+fn test_copy_page_and_verify_parent_is_dest_pages() {
+    let source = fixtures::create_pdf_with_pages(1);
+    let mut dest = fixtures::create_empty_pdf();
+
+    let dest_pages_id = dest
+        .catalog()
+        .unwrap()
+        .get(b"Pages")
+        .unwrap()
+        .as_reference()
+        .unwrap();
+
+    let new_page_id = copy_page(&mut dest, &source, 1).unwrap();
+    let page_dict = dest.get_dictionary(new_page_id).unwrap();
+    let parent_ref = page_dict.get(b"Parent").unwrap().as_reference().unwrap();
+
+    assert_eq!(
+        parent_ref, dest_pages_id,
+        "Copied page's Parent should point to dest doc's Pages node"
+    );
+}
+
+#[test]
+fn test_copy_page_with_content() {
+    let source = fixtures::create_pdf_with_content(b"q 1 0 0 rg 100 100 200 200 re f Q");
+    let mut dest = fixtures::create_empty_pdf();
+
+    let new_page_id = copy_page(&mut dest, &source, 1).unwrap();
+    assert_eq!(dest.get_pages().len(), 1);
+
+    // The copied page should have Contents
+    let page_dict = dest.get_dictionary(new_page_id).unwrap();
+    assert!(
+        page_dict.get(b"Contents").is_ok(),
+        "Copied page should have Contents"
+    );
+}
