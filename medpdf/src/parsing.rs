@@ -60,13 +60,10 @@ pub fn parse_page_spec(spec: &str, max_pages: u32) -> Result<Vec<u32>> {
                         if num == 0 {
                             return Err(PdfMergeError::new("Page numbers must be 1 or greater."));
                         }
-                        if max_pages > 0 && num > max_pages {
-                            return Err(PdfMergeError::new(format!(
-                                "Invalid page: page {} is out of bounds (max pages: {}).",
-                                num, max_pages
-                            )));
+                        // Skip pages beyond the document — acts as a filter
+                        if num <= max_pages {
+                            pages.insert(num);
                         }
-                        pages.insert(num);
                     }
                     PageItem::Range(start_opt, end_opt) => {
                         if max_pages == 0 && (start_opt.is_none() || end_opt.is_none()) {
@@ -79,26 +76,19 @@ pub fn parse_page_spec(spec: &str, max_pages: u32) -> Result<Vec<u32>> {
                         if start == 0 || end == 0 {
                             return Err(PdfMergeError::new("Page numbers must be 1 or greater."));
                         }
-                        if max_pages > 0 && start > max_pages {
-                            return Err(PdfMergeError::new(format!(
-                                "Invalid range: start page {} is out of bounds (max pages: {}).",
-                                start, max_pages
-                            )));
-                        }
-                        if max_pages > 0 && end > max_pages {
-                            return Err(PdfMergeError::new(format!(
-                                "Invalid range: end page {} is out of bounds (max pages: {}).",
-                                end, max_pages
-                            )));
-                        }
-                        if start > end {
+                        // Only error on inverted range when both bounds are explicit
+                        if start_opt.is_some() && end_opt.is_some() && start > end {
                             return Err(PdfMergeError::new(format!(
                                 "Invalid range: start ({}) is greater than end ({}).",
                                 start, end
                             )));
                         }
-                        for i in start..=end {
-                            pages.insert(i);
+                        // Clamp to actual page count — out-of-bounds pages are silently skipped
+                        let clamped_end = end.min(max_pages);
+                        if start <= clamped_end {
+                            for i in start..=clamped_end {
+                                pages.insert(i);
+                            }
                         }
                     }
                 }
