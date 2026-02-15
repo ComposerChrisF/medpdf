@@ -67,7 +67,7 @@ pdf_merger/                    # Repository root (workspace)
 | `medpdf::pdf_delete_page` | `delete_page()` - remove pages from documents |
 | `medpdf::pdf_blank_page` | `create_blank_page()` - add empty pages |
 | `medpdf::pdf_overlay` | `overlay_page()` - merge content with resource renaming |
-| `medpdf::pdf_watermark` | `add_text_params()` - text watermark rendering with color, alignment, rotation, alpha |
+| `medpdf::pdf_watermark` | `add_text_params()` - text watermark rendering with color, alignment, rotation, alpha; `EmbeddedFontCache` for deduplicating embedded font objects across pages |
 | `pdf_merger::main` | CLI args (clap), orchestrates pipeline (`pdf-merger` crate) |
 | `pdf_merger::spec_types` | CLI spec types with FromStr for clap integration (`pdf-merger` crate) |
 
@@ -78,6 +78,8 @@ pdf_merger/                    # Repository root (workspace)
 **Deep Copy with Reference Tracking**: `deep_copy_object()` recursively clones PDF objects using a `BTreeMap<ObjectId, ObjectId>` to maintain reference integrity and skip Parent references.
 
 **Font Discovery Pipeline**: Numeric handle → built-in (@Helvetica, @Courier, etc.) → system search via font-kit → direct file path
+
+**Embedded Font Caching**: Two-level caching prevents redundant work. `FontCache` caches font file reads as `Arc<Vec<u8>>` (keyed by path). `EmbeddedFontCache` caches the resulting PDF font objects (keyed by `Arc` pointer identity), so the same embedded font is only added to the document once even when applied to many pages. Embedded font streams are compressed (deflate) before insertion.
 
 **Spec Parsing**: `WatermarkSpec`, `OverlaySpec`, `PadToSpec`, `PadFileSpec` all implement `FromStr` for clap integration.
 

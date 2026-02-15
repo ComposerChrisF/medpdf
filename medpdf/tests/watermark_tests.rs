@@ -6,7 +6,7 @@ mod fixtures;
 use medpdf::pdf_copy_page::copy_page;
 use medpdf::pdf_watermark::add_text_params;
 use medpdf::types::{AddTextParams, HAlign, PdfColor, VAlign};
-use medpdf::FontData;
+use medpdf::{EmbeddedFontCache, FontData};
 
 // --- Helper ---
 
@@ -26,7 +26,7 @@ fn test_watermark_with_builtin_font() {
     let page_id = copy_page(&mut dest_doc, &source_doc, 1).unwrap();
 
     let params = builtin_params("DRAFT", "Helvetica", 24.0, 72.0, 72.0);
-    let result = add_text_params(&mut dest_doc, page_id, &params);
+    let result = add_text_params(&mut dest_doc, page_id, &params, &mut EmbeddedFontCache::new());
     assert!(
         result.is_ok(),
         "Watermark with built-in font should succeed: {:?}",
@@ -50,7 +50,7 @@ fn test_watermark_adds_content() {
     };
 
     let params = builtin_params("TEST", "Helvetica", 12.0, 100.0, 100.0);
-    add_text_params(&mut dest_doc, page_id, &params).unwrap();
+    add_text_params(&mut dest_doc, page_id, &params, &mut EmbeddedFontCache::new()).unwrap();
 
     // Get contents after
     let page_after = dest_doc.get_dictionary(page_id).unwrap();
@@ -74,7 +74,7 @@ fn test_watermark_registers_font() {
     let page_id = copy_page(&mut dest_doc, &source_doc, 1).unwrap();
 
     let params = builtin_params("TEST", "Courier", 12.0, 100.0, 100.0);
-    add_text_params(&mut dest_doc, page_id, &params).unwrap();
+    add_text_params(&mut dest_doc, page_id, &params, &mut EmbeddedFontCache::new()).unwrap();
 
     // Check that Resources/Font exists
     let page = dest_doc.get_dictionary(page_id).unwrap();
@@ -101,9 +101,9 @@ fn test_watermark_different_positions() {
     let page_id = copy_page(&mut dest_doc, &source_doc, 1).unwrap();
 
     // Test various positions
-    add_text_params(&mut dest_doc, page_id, &builtin_params("Top-Left", "Helvetica", 12.0, 0.0, 700.0)).unwrap();
-    add_text_params(&mut dest_doc, page_id, &builtin_params("Bottom-Right", "Helvetica", 12.0, 500.0, 50.0)).unwrap();
-    add_text_params(&mut dest_doc, page_id, &builtin_params("Center", "Helvetica", 12.0, 250.0, 400.0)).unwrap();
+    add_text_params(&mut dest_doc, page_id, &builtin_params("Top-Left", "Helvetica", 12.0, 0.0, 700.0), &mut EmbeddedFontCache::new()).unwrap();
+    add_text_params(&mut dest_doc, page_id, &builtin_params("Bottom-Right", "Helvetica", 12.0, 500.0, 50.0), &mut EmbeddedFontCache::new()).unwrap();
+    add_text_params(&mut dest_doc, page_id, &builtin_params("Center", "Helvetica", 12.0, 250.0, 400.0), &mut EmbeddedFontCache::new()).unwrap();
 
     // Page should still be valid
     let page = dest_doc.get_dictionary(page_id).unwrap();
@@ -118,7 +118,7 @@ fn test_watermark_negative_position() {
 
     // Negative positions are valid (off-page)
     let params = builtin_params("Off-page", "Helvetica", 12.0, -100.0, -100.0);
-    let result = add_text_params(&mut dest_doc, page_id, &params);
+    let result = add_text_params(&mut dest_doc, page_id, &params, &mut EmbeddedFontCache::new());
     assert!(result.is_ok());
 }
 
@@ -130,7 +130,7 @@ fn test_watermark_large_position() {
 
     // Large positions (off-page) are valid
     let params = builtin_params("Far away", "Helvetica", 12.0, 10000.0, 10000.0);
-    let result = add_text_params(&mut dest_doc, page_id, &params);
+    let result = add_text_params(&mut dest_doc, page_id, &params, &mut EmbeddedFontCache::new());
     assert!(result.is_ok());
 }
 
@@ -142,7 +142,7 @@ fn test_watermark_zero_font_size() {
 
     // Zero font size - valid but invisible
     let params = builtin_params("Invisible", "Helvetica", 0.0, 100.0, 100.0);
-    let result = add_text_params(&mut dest_doc, page_id, &params);
+    let result = add_text_params(&mut dest_doc, page_id, &params, &mut EmbeddedFontCache::new());
     assert!(result.is_ok());
 }
 
@@ -154,7 +154,7 @@ fn test_watermark_large_font_size() {
 
     // Large font size
     let params = builtin_params("BIG", "Helvetica", 500.0, 100.0, 100.0);
-    let result = add_text_params(&mut dest_doc, page_id, &params);
+    let result = add_text_params(&mut dest_doc, page_id, &params, &mut EmbeddedFontCache::new());
     assert!(result.is_ok());
 }
 
@@ -166,7 +166,7 @@ fn test_watermark_empty_text() {
 
     // Empty text is valid
     let params = builtin_params("", "Helvetica", 12.0, 100.0, 100.0);
-    let result = add_text_params(&mut dest_doc, page_id, &params);
+    let result = add_text_params(&mut dest_doc, page_id, &params, &mut EmbeddedFontCache::new());
     assert!(result.is_ok());
 }
 
@@ -178,7 +178,7 @@ fn test_watermark_special_characters() {
 
     // Text with special characters
     let params = builtin_params("Test (with) [brackets] & symbols!", "Helvetica", 12.0, 100.0, 100.0);
-    let result = add_text_params(&mut dest_doc, page_id, &params);
+    let result = add_text_params(&mut dest_doc, page_id, &params, &mut EmbeddedFontCache::new());
     assert!(result.is_ok());
 }
 
@@ -191,7 +191,7 @@ fn test_watermark_unicode_text() {
     // Note: Built-in fonts may not support all unicode characters properly
     // This test just verifies it doesn't crash
     let params = builtin_params("Test with accents: cafe", "Helvetica", 12.0, 100.0, 100.0);
-    let result = add_text_params(&mut dest_doc, page_id, &params);
+    let result = add_text_params(&mut dest_doc, page_id, &params, &mut EmbeddedFontCache::new());
     assert!(result.is_ok());
 }
 
@@ -202,9 +202,9 @@ fn test_multiple_watermarks_same_page() {
     let page_id = copy_page(&mut dest_doc, &source_doc, 1).unwrap();
 
     // Add multiple watermarks
-    add_text_params(&mut dest_doc, page_id, &builtin_params("First", "Helvetica", 12.0, 100.0, 100.0)).unwrap();
-    add_text_params(&mut dest_doc, page_id, &builtin_params("Second", "Helvetica", 14.0, 200.0, 200.0)).unwrap();
-    add_text_params(&mut dest_doc, page_id, &builtin_params("Third", "Helvetica", 16.0, 300.0, 300.0)).unwrap();
+    add_text_params(&mut dest_doc, page_id, &builtin_params("First", "Helvetica", 12.0, 100.0, 100.0), &mut EmbeddedFontCache::new()).unwrap();
+    add_text_params(&mut dest_doc, page_id, &builtin_params("Second", "Helvetica", 14.0, 200.0, 200.0), &mut EmbeddedFontCache::new()).unwrap();
+    add_text_params(&mut dest_doc, page_id, &builtin_params("Third", "Helvetica", 16.0, 300.0, 300.0), &mut EmbeddedFontCache::new()).unwrap();
 
     // Page should have multiple content entries
     let page = dest_doc.get_dictionary(page_id).unwrap();
@@ -225,9 +225,9 @@ fn test_watermark_different_builtin_fonts() {
     let page_id = copy_page(&mut dest_doc, &source_doc, 1).unwrap();
 
     // Test various built-in fonts
-    add_text_params(&mut dest_doc, page_id, &builtin_params("Helvetica", "Helvetica", 12.0, 100.0, 700.0)).unwrap();
-    add_text_params(&mut dest_doc, page_id, &builtin_params("Courier", "Courier", 12.0, 100.0, 600.0)).unwrap();
-    add_text_params(&mut dest_doc, page_id, &builtin_params("Times-Roman", "Times-Roman", 12.0, 100.0, 500.0)).unwrap();
+    add_text_params(&mut dest_doc, page_id, &builtin_params("Helvetica", "Helvetica", 12.0, 100.0, 700.0), &mut EmbeddedFontCache::new()).unwrap();
+    add_text_params(&mut dest_doc, page_id, &builtin_params("Courier", "Courier", 12.0, 100.0, 600.0), &mut EmbeddedFontCache::new()).unwrap();
+    add_text_params(&mut dest_doc, page_id, &builtin_params("Times-Roman", "Times-Roman", 12.0, 100.0, 500.0), &mut EmbeddedFontCache::new()).unwrap();
 
     assert_eq!(dest_doc.get_pages().len(), 1);
 }
@@ -246,7 +246,7 @@ fn test_watermark_font_hack_mode() {
     let params = AddTextParams::new("Reuse", FontData::Hack(1), "F1")
         .font_size(12.0)
         .position(100.0, 100.0);
-    let result = add_text_params(&mut dest_doc, page_id, &params);
+    let result = add_text_params(&mut dest_doc, page_id, &params, &mut EmbeddedFontCache::new());
     assert!(result.is_ok());
 }
 
@@ -264,7 +264,7 @@ fn setup_page_for_text_params() -> (lopdf::Document, lopdf::ObjectId) {
 fn test_add_text_params_basic_defaults() {
     let (mut doc, page_id) = setup_page_for_text_params();
     let params = AddTextParams::new("Hello", FontData::BuiltIn("Helvetica".into()), "Helvetica");
-    let result = add_text_params(&mut doc, page_id, &params);
+    let result = add_text_params(&mut doc, page_id, &params, &mut EmbeddedFontCache::new());
     assert!(result.is_ok(), "Basic add_text_params should succeed: {:?}", result.err());
 }
 
@@ -274,7 +274,7 @@ fn test_add_text_params_custom_color() {
     let params = AddTextParams::new("Red", FontData::BuiltIn("Helvetica".into()), "Helvetica")
         .color(PdfColor::rgb(1.0, 0.0, 0.0))
         .position(100.0, 100.0);
-    add_text_params(&mut doc, page_id, &params).unwrap();
+    add_text_params(&mut doc, page_id, &params, &mut EmbeddedFontCache::new()).unwrap();
 
     // Verify the content stream contains the rg operator with red color
     let content = fixtures::get_page_content_bytes(&doc, page_id);
@@ -292,7 +292,7 @@ fn test_add_text_params_rotation_produces_cm() {
     let params = AddTextParams::new("Rotated", FontData::BuiltIn("Helvetica".into()), "Helvetica")
         .rotation(45.0)
         .position(200.0, 200.0);
-    add_text_params(&mut doc, page_id, &params).unwrap();
+    add_text_params(&mut doc, page_id, &params, &mut EmbeddedFontCache::new()).unwrap();
 
     let content = fixtures::get_page_content_bytes(&doc, page_id);
     let content_str = String::from_utf8_lossy(&content);
@@ -308,7 +308,7 @@ fn test_add_text_params_no_rotation_no_cm() {
     let (mut doc, page_id) = setup_page_for_text_params();
     let params = AddTextParams::new("Straight", FontData::BuiltIn("Helvetica".into()), "Helvetica")
         .position(100.0, 100.0);
-    add_text_params(&mut doc, page_id, &params).unwrap();
+    add_text_params(&mut doc, page_id, &params, &mut EmbeddedFontCache::new()).unwrap();
 
     let content = fixtures::get_page_content_bytes(&doc, page_id);
     let content_str = String::from_utf8_lossy(&content);
@@ -326,7 +326,7 @@ fn test_add_text_params_halign_center() {
         .font_size(20.0)
         .h_align(HAlign::Center)
         .position(300.0, 400.0);
-    add_text_params(&mut doc, page_id, &params).unwrap();
+    add_text_params(&mut doc, page_id, &params, &mut EmbeddedFontCache::new()).unwrap();
 
     // The Td x value should be less than 300.0 (shifted left by half text width)
     let content = fixtures::get_page_content_bytes(&doc, page_id);
@@ -347,7 +347,7 @@ fn test_add_text_params_halign_right() {
         .font_size(20.0)
         .h_align(HAlign::Right)
         .position(300.0, 400.0);
-    add_text_params(&mut doc, page_id, &params).unwrap();
+    add_text_params(&mut doc, page_id, &params, &mut EmbeddedFontCache::new()).unwrap();
 
     let content = fixtures::get_page_content_bytes(&doc, page_id);
     let content_str = String::from_utf8_lossy(&content);
@@ -366,7 +366,7 @@ fn test_add_text_params_valign_top() {
         .font_size(20.0)
         .v_align(VAlign::Top)
         .position(100.0, 400.0);
-    add_text_params(&mut doc, page_id, &params).unwrap();
+    add_text_params(&mut doc, page_id, &params, &mut EmbeddedFontCache::new()).unwrap();
 
     let content = fixtures::get_page_content_bytes(&doc, page_id);
     let content_str = String::from_utf8_lossy(&content);
@@ -385,7 +385,7 @@ fn test_add_text_params_strikeout() {
         .font_size(20.0)
         .strikeout(true)
         .position(100.0, 100.0);
-    add_text_params(&mut doc, page_id, &params).unwrap();
+    add_text_params(&mut doc, page_id, &params, &mut EmbeddedFontCache::new()).unwrap();
 
     let content = fixtures::get_page_content_bytes(&doc, page_id);
     let content_str = String::from_utf8_lossy(&content);
@@ -403,7 +403,7 @@ fn test_add_text_params_underline() {
         .font_size(20.0)
         .underline(true)
         .position(100.0, 100.0);
-    add_text_params(&mut doc, page_id, &params).unwrap();
+    add_text_params(&mut doc, page_id, &params, &mut EmbeddedFontCache::new()).unwrap();
 
     let content = fixtures::get_page_content_bytes(&doc, page_id);
     let content_str = String::from_utf8_lossy(&content);
@@ -422,7 +422,7 @@ fn test_add_text_params_strikeout_and_underline() {
         .strikeout(true)
         .underline(true)
         .position(100.0, 100.0);
-    add_text_params(&mut doc, page_id, &params).unwrap();
+    add_text_params(&mut doc, page_id, &params, &mut EmbeddedFontCache::new()).unwrap();
 
     let content = fixtures::get_page_content_bytes(&doc, page_id);
     let content_str = String::from_utf8_lossy(&content);
@@ -441,7 +441,7 @@ fn test_add_text_params_layer_under() {
     let params = AddTextParams::new("Under", FontData::BuiltIn("Helvetica".into()), "Helvetica")
         .layer_over(false)
         .position(100.0, 100.0);
-    add_text_params(&mut doc, page_id, &params).unwrap();
+    add_text_params(&mut doc, page_id, &params, &mut EmbeddedFontCache::new()).unwrap();
 
     // When layer_over is false, the new content should be prepended (first in array)
     let page = doc.get_dictionary(page_id).unwrap();
@@ -458,7 +458,7 @@ fn test_add_text_params_layer_over_wraps_existing() {
     let params = AddTextParams::new("Over", FontData::BuiltIn("Helvetica".into()), "Helvetica")
         .layer_over(true)
         .position(100.0, 100.0);
-    add_text_params(&mut doc, page_id, &params).unwrap();
+    add_text_params(&mut doc, page_id, &params, &mut EmbeddedFontCache::new()).unwrap();
 
     // When layer_over is true, existing content gets wrapped with q/Q
     let page = doc.get_dictionary(page_id).unwrap();
@@ -489,7 +489,7 @@ fn test_add_text_params_alpha_opaque_no_gs() {
     let params = AddTextParams::new("Opaque", FontData::BuiltIn("Helvetica".into()), "Helvetica")
         .color(PdfColor::rgb(1.0, 0.0, 0.0))
         .position(100.0, 100.0);
-    add_text_params(&mut doc, page_id, &params).unwrap();
+    add_text_params(&mut doc, page_id, &params, &mut EmbeddedFontCache::new()).unwrap();
 
     let content = fixtures::get_page_content_bytes(&doc, page_id);
     let content_str = String::from_utf8_lossy(&content);
@@ -506,7 +506,7 @@ fn test_add_text_params_alpha_half_produces_gs() {
     let params = AddTextParams::new("Semi", FontData::BuiltIn("Helvetica".into()), "Helvetica")
         .color(PdfColor::rgba(0.0, 0.0, 0.0, 0.5))
         .position(100.0, 100.0);
-    add_text_params(&mut doc, page_id, &params).unwrap();
+    add_text_params(&mut doc, page_id, &params, &mut EmbeddedFontCache::new()).unwrap();
 
     let content = fixtures::get_page_content_bytes(&doc, page_id);
     let content_str = String::from_utf8_lossy(&content);
@@ -538,7 +538,7 @@ fn test_add_text_params_alpha_zero_works() {
     let params = AddTextParams::new("Ghost", FontData::BuiltIn("Helvetica".into()), "Helvetica")
         .color(PdfColor::rgba(0.0, 0.0, 0.0, 0.0))
         .position(100.0, 100.0);
-    let result = add_text_params(&mut doc, page_id, &params);
+    let result = add_text_params(&mut doc, page_id, &params, &mut EmbeddedFontCache::new());
     assert!(
         result.is_ok(),
         "Fully transparent text (alpha=0.0) should succeed: {:?}",
@@ -559,7 +559,7 @@ fn test_add_text_params_alpha_extgstate_has_correct_values() {
     let params = AddTextParams::new("Check", FontData::BuiltIn("Helvetica".into()), "Helvetica")
         .color(PdfColor::rgba(1.0, 0.0, 0.0, 0.5))
         .position(100.0, 100.0);
-    add_text_params(&mut doc, page_id, &params).unwrap();
+    add_text_params(&mut doc, page_id, &params, &mut EmbeddedFontCache::new()).unwrap();
 
     // Find the ExtGState dictionary in Resources and verify ca/CA values
     let page = doc.get_dictionary(page_id).unwrap();

@@ -24,5 +24,5 @@ pub use pdf_delete_page::delete_page;
 pub use pdf_font::{find_font, find_font_with_style, FontCache, FontPath};
 pub use pdf_helpers::{get_page_media_box, get_page_rotation, register_in_page_resources, set_page_rotation, Unit, KEY_CONTENTS, KEY_EXTGSTATE, KEY_RESOURCES, KEY_XOBJECT};
 pub use pdf_overlay::overlay_page;
-pub use pdf_watermark::{add_line, add_rect, add_text_params, insert_content_stream, register_extgstate_in_page_resources};
+pub use pdf_watermark::{add_line, add_rect, add_text_params, insert_content_stream, register_extgstate_in_page_resources, EmbeddedFontCache};
 pub use types::{AddTextParams, DrawLineParams, DrawRectParams, FontStyle, FontWeight, HAlign, PdfColor, VAlign};

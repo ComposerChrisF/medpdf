@@ -161,6 +161,7 @@ fn apply_drawing_commands(
 ) -> Result<(), PdfMergeError> {
     println!("\n--- Applying Drawing Commands ---");
     let mut font_cache = FontCache::new();
+    let mut font_object_cache = medpdf::EmbeddedFontCache::new();
     let num_pages = page_ids.len() as u32;
 
     for layer_over in [false, true] {
@@ -243,7 +244,7 @@ fn apply_drawing_commands(
             for page_index in target_page_indices {
                 let page_id = *page_ids.get((page_index - 1) as usize)
                     .ok_or_else(|| PdfMergeError::new(format!("Watermark target page index {} out of range", page_index)))?;
-                medpdf::add_text_params(doc, page_id, &params)?;
+                medpdf::add_text_params(doc, page_id, &params, &mut font_object_cache)?;
             }
         }
     }

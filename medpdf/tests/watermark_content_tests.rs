@@ -5,7 +5,7 @@
 mod fixtures;
 
 use medpdf::types::{AddTextParams, DrawLineParams, DrawRectParams, HAlign, PdfColor, VAlign};
-use medpdf::{add_line, add_rect, add_text_params};
+use medpdf::{add_line, add_rect, add_text_params, EmbeddedFontCache};
 use medpdf::FontData;
 
 /// Helper: extract all content stream bytes from the first page.
@@ -26,7 +26,7 @@ fn test_watermark_contains_q_and_big_q() {
     let params = AddTextParams::new("Test", FontData::BuiltIn("Helvetica".into()), "@Helvetica")
         .font_size(12.0)
         .position(72.0, 72.0);
-    add_text_params(&mut doc, page_id, &params).unwrap();
+    add_text_params(&mut doc, page_id, &params, &mut EmbeddedFontCache::new()).unwrap();
 
     let content = get_first_page_content(&doc);
     let (q_count, big_q_count) = fixtures::count_q_operators(content.as_bytes());
@@ -43,7 +43,7 @@ fn test_watermark_contains_bt_et() {
     let params = AddTextParams::new("Hello", FontData::BuiltIn("Helvetica".into()), "@Helvetica")
         .font_size(24.0)
         .position(100.0, 200.0);
-    add_text_params(&mut doc, page_id, &params).unwrap();
+    add_text_params(&mut doc, page_id, &params, &mut EmbeddedFontCache::new()).unwrap();
 
     let content = get_first_page_content(&doc);
     assert!(content.contains("BT"), "Should contain BT (begin text)");
@@ -59,7 +59,7 @@ fn test_watermark_contains_tf_operator() {
     let params = AddTextParams::new("Font test", FontData::BuiltIn("Helvetica".into()), "@Helvetica")
         .font_size(36.0)
         .position(72.0, 72.0);
-    add_text_params(&mut doc, page_id, &params).unwrap();
+    add_text_params(&mut doc, page_id, &params, &mut EmbeddedFontCache::new()).unwrap();
 
     let content = get_first_page_content(&doc);
     assert!(content.contains("Tf"), "Should contain Tf (set font)");
@@ -75,7 +75,7 @@ fn test_watermark_contains_tj_with_text() {
     let params = AddTextParams::new("SAMPLE", FontData::BuiltIn("Helvetica".into()), "@Helvetica")
         .font_size(12.0)
         .position(0.0, 0.0);
-    add_text_params(&mut doc, page_id, &params).unwrap();
+    add_text_params(&mut doc, page_id, &params, &mut EmbeddedFontCache::new()).unwrap();
 
     let content = get_first_page_content(&doc);
     assert!(content.contains("Tj"), "Should contain Tj (show text)");
@@ -93,7 +93,7 @@ fn test_watermark_contains_td_position() {
     let params = AddTextParams::new("Positioned", FontData::BuiltIn("Helvetica".into()), "@Helvetica")
         .font_size(12.0)
         .position(x, y);
-    add_text_params(&mut doc, page_id, &params).unwrap();
+    add_text_params(&mut doc, page_id, &params, &mut EmbeddedFontCache::new()).unwrap();
 
     let content = get_first_page_content(&doc);
     assert!(content.contains("Td"), "Should contain Td (text position)");
@@ -112,7 +112,7 @@ fn test_watermark_color_rg_operator() {
         .font_size(12.0)
         .position(72.0, 72.0)
         .color(PdfColor::RED);
-    add_text_params(&mut doc, page_id, &params).unwrap();
+    add_text_params(&mut doc, page_id, &params, &mut EmbeddedFontCache::new()).unwrap();
 
     let content = get_first_page_content(&doc);
     assert!(content.contains("rg"), "Should contain 'rg' (set fill color)");
@@ -130,7 +130,7 @@ fn test_watermark_custom_color() {
         .font_size(12.0)
         .position(72.0, 72.0)
         .color(PdfColor::rgb(0.0, 1.0, 0.0)); // Green
-    add_text_params(&mut doc, page_id, &params).unwrap();
+    add_text_params(&mut doc, page_id, &params, &mut EmbeddedFontCache::new()).unwrap();
 
     let content = get_first_page_content(&doc);
     assert!(content.contains("0 1 0 rg"), "Should contain '0 1 0 rg' for green color");
@@ -147,7 +147,7 @@ fn test_watermark_alpha_emits_gs_operator() {
         .font_size(12.0)
         .position(72.0, 72.0)
         .color(PdfColor::rgba(0.0, 0.0, 0.0, 0.5));
-    add_text_params(&mut doc, page_id, &params).unwrap();
+    add_text_params(&mut doc, page_id, &params, &mut EmbeddedFontCache::new()).unwrap();
 
     let content = get_first_page_content(&doc);
     assert!(content.contains("gs"), "Should contain 'gs' operator for alpha < 1.0");
@@ -163,7 +163,7 @@ fn test_watermark_full_alpha_no_gs_operator() {
         .font_size(12.0)
         .position(72.0, 72.0)
         .color(PdfColor::rgba(0.0, 0.0, 0.0, 1.0));
-    add_text_params(&mut doc, page_id, &params).unwrap();
+    add_text_params(&mut doc, page_id, &params, &mut EmbeddedFontCache::new()).unwrap();
 
     // Check the watermark stream specifically (last content stream added)
     let page_dict = doc.get_dictionary(page_id).unwrap();
@@ -186,7 +186,7 @@ fn test_watermark_rotation_emits_cm_operator() {
         .font_size(24.0)
         .position(100.0, 200.0)
         .rotation(45.0);
-    add_text_params(&mut doc, page_id, &params).unwrap();
+    add_text_params(&mut doc, page_id, &params, &mut EmbeddedFontCache::new()).unwrap();
 
     let content = get_first_page_content(&doc);
     assert!(content.contains("cm"), "Rotated text should contain 'cm' (concat matrix)");
@@ -204,7 +204,7 @@ fn test_watermark_rotation_matrix_values() {
         .font_size(12.0)
         .position(x, y)
         .rotation(45.0);
-    add_text_params(&mut doc, page_id, &params).unwrap();
+    add_text_params(&mut doc, page_id, &params, &mut EmbeddedFontCache::new()).unwrap();
 
     // Extract the watermark content stream (last one added)
     let page_dict = doc.get_dictionary(page_id).unwrap();
@@ -231,7 +231,7 @@ fn test_watermark_no_rotation_no_cm() {
         .font_size(12.0)
         .position(72.0, 72.0)
         .rotation(0.0);
-    add_text_params(&mut doc, page_id, &params).unwrap();
+    add_text_params(&mut doc, page_id, &params, &mut EmbeddedFontCache::new()).unwrap();
 
     // Check the watermark stream specifically
     let page_dict = doc.get_dictionary(page_id).unwrap();
@@ -255,7 +255,7 @@ fn test_watermark_center_align_offsets_position() {
         .font_size(24.0)
         .position(x, 400.0)
         .h_align(HAlign::Center);
-    add_text_params(&mut doc, page_id, &params).unwrap();
+    add_text_params(&mut doc, page_id, &params, &mut EmbeddedFontCache::new()).unwrap();
 
     // The Td x-coordinate should be less than 300 (shifted left by half text width)
     let page_dict = doc.get_dictionary(page_id).unwrap();
@@ -291,7 +291,7 @@ fn test_watermark_right_align_offsets_position() {
         .font_size(24.0)
         .position(x, 400.0)
         .h_align(HAlign::Right);
-    add_text_params(&mut doc, page_id, &params).unwrap();
+    add_text_params(&mut doc, page_id, &params, &mut EmbeddedFontCache::new()).unwrap();
 
     let page_dict = doc.get_dictionary(page_id).unwrap();
     let contents = page_dict.get(b"Contents").unwrap().as_array().unwrap();
@@ -326,7 +326,7 @@ fn test_watermark_left_align_exact_position() {
         .position(x, y)
         .h_align(HAlign::Left)
         .v_align(VAlign::Baseline);
-    add_text_params(&mut doc, page_id, &params).unwrap();
+    add_text_params(&mut doc, page_id, &params, &mut EmbeddedFontCache::new()).unwrap();
 
     let page_dict = doc.get_dictionary(page_id).unwrap();
     let contents = page_dict.get(b"Contents").unwrap().as_array().unwrap();
@@ -367,7 +367,7 @@ fn test_watermark_valign_top_shifts_down() {
         .font_size(24.0)
         .position(72.0, y)
         .v_align(VAlign::Top);
-    add_text_params(&mut doc, page_id, &params).unwrap();
+    add_text_params(&mut doc, page_id, &params, &mut EmbeddedFontCache::new()).unwrap();
 
     let page_dict = doc.get_dictionary(page_id).unwrap();
     let contents = page_dict.get(b"Contents").unwrap().as_array().unwrap();
@@ -401,7 +401,7 @@ fn test_watermark_valign_center_adjusts_y() {
         .font_size(24.0)
         .position(72.0, y)
         .v_align(VAlign::Center);
-    add_text_params(&mut doc, page_id, &params).unwrap();
+    add_text_params(&mut doc, page_id, &params, &mut EmbeddedFontCache::new()).unwrap();
 
     let page_dict = doc.get_dictionary(page_id).unwrap();
     let contents = page_dict.get(b"Contents").unwrap().as_array().unwrap();
@@ -636,7 +636,7 @@ fn test_watermark_layer_over_appends() {
         .font_size(12.0)
         .position(72.0, 72.0)
         .layer_over(true);
-    add_text_params(&mut doc, page_id, &params).unwrap();
+    add_text_params(&mut doc, page_id, &params, &mut EmbeddedFontCache::new()).unwrap();
 
     let page_dict = doc.get_dictionary(page_id).unwrap();
     let contents = page_dict.get(b"Contents").unwrap().as_array().unwrap();
@@ -656,7 +656,7 @@ fn test_watermark_layer_under_prepends() {
         .font_size(12.0)
         .position(72.0, 72.0)
         .layer_over(false);
-    add_text_params(&mut doc, page_id, &params).unwrap();
+    add_text_params(&mut doc, page_id, &params, &mut EmbeddedFontCache::new()).unwrap();
 
     let page_dict = doc.get_dictionary(page_id).unwrap();
     let contents = page_dict.get(b"Contents").unwrap().as_array().unwrap();
@@ -681,8 +681,8 @@ fn test_multiple_watermarks_on_same_page() {
         .font_size(18.0)
         .position(72.0, 600.0);
 
-    add_text_params(&mut doc, page_id, &params1).unwrap();
-    add_text_params(&mut doc, page_id, &params2).unwrap();
+    add_text_params(&mut doc, page_id, &params1, &mut EmbeddedFontCache::new()).unwrap();
+    add_text_params(&mut doc, page_id, &params2, &mut EmbeddedFontCache::new()).unwrap();
 
     let content = get_first_page_content(&doc);
     assert!(content.contains("FIRST"), "Should contain first watermark");
@@ -700,7 +700,7 @@ fn test_watermark_underline_emits_re_f() {
         .font_size(24.0)
         .position(72.0, 400.0)
         .underline(true);
-    add_text_params(&mut doc, page_id, &params).unwrap();
+    add_text_params(&mut doc, page_id, &params, &mut EmbeddedFontCache::new()).unwrap();
 
     // The watermark stream should contain re + f for the underline rectangle
     let page_dict = doc.get_dictionary(page_id).unwrap();
@@ -729,7 +729,7 @@ fn test_watermark_strikeout_emits_re_f() {
         .font_size(24.0)
         .position(72.0, 400.0)
         .strikeout(true);
-    add_text_params(&mut doc, page_id, &params).unwrap();
+    add_text_params(&mut doc, page_id, &params, &mut EmbeddedFontCache::new()).unwrap();
 
     let page_dict = doc.get_dictionary(page_id).unwrap();
     let contents = page_dict.get(b"Contents").unwrap().as_array().unwrap();
@@ -758,7 +758,7 @@ fn test_watermark_both_underline_and_strikeout() {
         .position(72.0, 400.0)
         .underline(true)
         .strikeout(true);
-    add_text_params(&mut doc, page_id, &params).unwrap();
+    add_text_params(&mut doc, page_id, &params, &mut EmbeddedFontCache::new()).unwrap();
 
     let page_dict = doc.get_dictionary(page_id).unwrap();
     let contents = page_dict.get(b"Contents").unwrap().as_array().unwrap();

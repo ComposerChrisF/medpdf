@@ -32,7 +32,7 @@ fn create_test_doc() -> Document {
 
 #[test]
 fn generate_valign_test_pdf() {
-    use medpdf::{AddTextParams, HAlign, PdfColor, VAlign};
+    use medpdf::{AddTextParams, EmbeddedFontCache, HAlign, PdfColor, VAlign};
 
     let mut doc = create_test_doc();
 
@@ -66,7 +66,7 @@ fn generate_valign_test_pdf() {
     .font_size(14.0)
     .position(50.0, 750.0)
     .color(PdfColor::rgb(0.3, 0.3, 0.3));
-    medpdf::add_text_params(&mut doc, page_id, &title_params).unwrap();
+    medpdf::add_text_params(&mut doc, page_id, &title_params, &mut EmbeddedFontCache::new()).unwrap();
 
     for (valign, label, y) in &alignments {
         // Draw a red horizontal reference line via add_rect()
@@ -84,7 +84,7 @@ fn generate_valign_test_pdf() {
         .font_size(10.0)
         .position(35.0, *y + 20.0)
         .color(PdfColor::rgb(0.5, 0.5, 0.5));
-        medpdf::add_text_params(&mut doc, page_id, &label_params).unwrap();
+        medpdf::add_text_params(&mut doc, page_id, &label_params, &mut EmbeddedFontCache::new()).unwrap();
 
         // Draw the sample text with this VAlign
         let text_params = AddTextParams::new(
@@ -97,7 +97,7 @@ fn generate_valign_test_pdf() {
         .color(PdfColor::BLACK)
         .h_align(HAlign::Left)
         .v_align(*valign);
-        medpdf::add_text_params(&mut doc, page_id, &text_params).unwrap();
+        medpdf::add_text_params(&mut doc, page_id, &text_params, &mut EmbeddedFontCache::new()).unwrap();
     }
 
     // --- WinAnsi encoding spot-check ---
@@ -126,7 +126,7 @@ fn generate_valign_test_pdf() {
     .font_size(11.0)
     .position(50.0, section_y + 30.0)
     .color(PdfColor::rgb(0.3, 0.3, 0.3));
-    medpdf::add_text_params(&mut doc, page_id, &heading_params).unwrap();
+    medpdf::add_text_params(&mut doc, page_id, &heading_params, &mut EmbeddedFontCache::new()).unwrap();
 
     let winansi_params = AddTextParams::new(
         winansi_test,
@@ -136,7 +136,7 @@ fn generate_valign_test_pdf() {
     .font_size(13.0)
     .position(50.0, section_y)
     .color(PdfColor::BLACK);
-    medpdf::add_text_params(&mut doc, page_id, &winansi_params).unwrap();
+    medpdf::add_text_params(&mut doc, page_id, &winansi_params, &mut EmbeddedFontCache::new()).unwrap();
 
     // Save to a known location
     let output_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))

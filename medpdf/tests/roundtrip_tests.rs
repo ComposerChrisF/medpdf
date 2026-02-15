@@ -5,7 +5,7 @@ mod fixtures;
 
 use medpdf::pdf_helpers::get_page_media_box;
 use medpdf::types::{AddTextParams, PdfColor};
-use medpdf::{add_text_params, copy_page, create_blank_page, delete_page, FontData};
+use medpdf::{add_text_params, copy_page, create_blank_page, delete_page, EmbeddedFontCache, FontData};
 use tempfile::NamedTempFile;
 
 /// Helper: saves a Document to a temp file and reloads it.
@@ -151,7 +151,7 @@ fn test_roundtrip_watermark_with_builtin_font() {
         .position(100.0, 400.0)
         .color(PdfColor::RED);
 
-    add_text_params(&mut doc, page_id, &params).unwrap();
+    add_text_params(&mut doc, page_id, &params, &mut EmbeddedFontCache::new()).unwrap();
 
     let reloaded = save_and_reload(&mut doc);
     assert_eq!(reloaded.get_pages().len(), 1);
@@ -176,7 +176,7 @@ fn test_roundtrip_watermark_with_alpha() {
         .position(72.0, 72.0)
         .color(PdfColor::rgba(0.5, 0.5, 0.5, 0.3));
 
-    add_text_params(&mut doc, page_id, &params).unwrap();
+    add_text_params(&mut doc, page_id, &params, &mut EmbeddedFontCache::new()).unwrap();
 
     let reloaded = save_and_reload(&mut doc);
 
@@ -242,7 +242,7 @@ fn test_roundtrip_complex_pipeline() {
     let params = AddTextParams::new("PAGE 1", FontData::BuiltIn("Helvetica".into()), "@Helvetica")
         .font_size(24.0)
         .position(72.0, 720.0);
-    add_text_params(&mut doc, page_id, &params).unwrap();
+    add_text_params(&mut doc, page_id, &params, &mut EmbeddedFontCache::new()).unwrap();
 
     // Delete page 2
     delete_page(&mut doc, 2).unwrap();

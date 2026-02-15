@@ -6,7 +6,7 @@ mod fixtures;
 
 use lopdf::{dictionary, Object, Stream};
 use medpdf::{
-    insert_content_stream, overlay_page, register_extgstate_in_page_resources,
+    insert_content_stream, overlay_page, register_extgstate_in_page_resources, EmbeddedFontCache,
 };
 
 // ---------------------------------------------------------------------------
@@ -248,7 +248,7 @@ fn test_overlay_then_watermark() {
     )
     .font_size(36.0)
     .position(100.0, 400.0);
-    medpdf::add_text_params(&mut dest, dest_page_id, &params).unwrap();
+    medpdf::add_text_params(&mut dest, dest_page_id, &params, &mut EmbeddedFontCache::new()).unwrap();
 
     // Verify both operations are reflected in content
     let content = fixtures::get_page_content_bytes(&dest, dest_page_id);
