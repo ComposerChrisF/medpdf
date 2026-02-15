@@ -5,7 +5,7 @@ use clap::ValueEnum;
 use medpdf_image::ImageFit;
 use std::path::PathBuf;
 use std::str::FromStr;
-use medpdf::{HAlign, PdfColor, Unit, VAlign};
+use medpdf::{FontStyle, FontWeight, HAlign, PdfColor, Unit, VAlign};
 
 /// CLI wrapper for Unit that implements ValueEnum for clap
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -43,6 +43,8 @@ pub struct WatermarkSpec {
     pub strikeout: bool,
     pub underline: bool,
     pub layer_over: bool,
+    pub weight: FontWeight,
+    pub style: FontStyle,
 }
 
 /// Parses a color string into a `PdfColor`.
@@ -184,6 +186,38 @@ fn unescape_text(s: &str) -> Result<String, String> {
     Ok(result)
 }
 
+fn parse_font_weight(s: &str) -> Result<FontWeight, String> {
+    match s.to_lowercase().as_str() {
+        "thin" => Ok(FontWeight::THIN),
+        "extra_light" | "extralight" => Ok(FontWeight::EXTRA_LIGHT),
+        "light" => Ok(FontWeight::LIGHT),
+        "normal" | "regular" => Ok(FontWeight::NORMAL),
+        "medium" => Ok(FontWeight::MEDIUM),
+        "semi_bold" | "semibold" => Ok(FontWeight::SEMI_BOLD),
+        "bold" => Ok(FontWeight::BOLD),
+        "extra_bold" | "extrabold" => Ok(FontWeight::EXTRA_BOLD),
+        "black" => Ok(FontWeight::BLACK),
+        _ => {
+            let n: u16 = s.parse().map_err(|_| {
+                format!("Invalid weight value: '{s}'. Use a name (thin, light, normal, medium, semibold, bold, extrabold, black) or a number (100-900).")
+            })?;
+            if !(1..=1000).contains(&n) {
+                return Err(format!("Weight {n} out of range. Use 1-1000."));
+            }
+            Ok(FontWeight(n))
+        }
+    }
+}
+
+fn parse_font_style(s: &str) -> Result<FontStyle, String> {
+    match s.to_lowercase().as_str() {
+        "normal" => Ok(FontStyle::Normal),
+        "italic" => Ok(FontStyle::Italic),
+        "oblique" => Ok(FontStyle::Oblique(14.0)),
+        _ => Err(format!("Invalid style value: '{s}'. Use normal, italic, or oblique.")),
+    }
+}
+
 impl FromStr for WatermarkSpec {
     type Err = String;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -202,6 +236,8 @@ impl FromStr for WatermarkSpec {
         let mut strikeout = None;
         let mut underline = None;
         let mut layer = None;
+        let mut weight = None;
+        let mut style = None;
         for part in split_escaped_commas(s) {
             let (key, value) = part.split_once('=')
                 .ok_or_else(|| format!("Invalid key-value pair: '{}'. Expected 'key=value'.", part))?;
@@ -245,6 +281,8 @@ impl FromStr for WatermarkSpec {
                     "under" => false,
                     _ => return Err(format!("Invalid layer value: '{}'. Use over or under.", value)),
                 }),
+                "weight" => weight = Some(parse_font_weight(value)?),
+                "style" => style = Some(parse_font_style(value)?),
                 _ => return Err(format!("Unknown watermark key: '{}'", key)),
             }
         }
@@ -270,6 +308,8 @@ impl FromStr for WatermarkSpec {
             strikeout: strikeout.unwrap_or(false),
             underline: underline.unwrap_or(false),
             layer_over: layer.unwrap_or(true),
+            weight: weight.unwrap_or_default(),
+            style: style.unwrap_or_default(),
         })
     }
 }
@@ -1542,5 +1582,109 @@ mod tests {
         assert!((spec.x - 72.0).abs() < f32::EPSILON);
         assert!((spec.y - 72.0).abs() < f32::EPSILON);
         assert!((spec.w.unwrap() - 144.0).abs() < f32::EPSILON);
+    }
+
+    // --- Weight and Style parsing ---
+
+    #[test]
+    fn test_watermark_spec_default_weight_style() {
+        let spec = WatermarkSpec::from_str("text=X,font=@H,x=0,y=0").unwrap();
+        assert_eq!(spec.weight, FontWeight::NORMAL);
+        assert_eq!(spec.style, FontStyle::Normal);
+    }
+
+    #[test]
+    fn test_watermark_spec_weight_named() {
+        let spec = WatermarkSpec::from_str("text=X,font=@H,x=0,y=0,weight=bold").unwrap();
+        assert_eq!(spec.weight, FontWeight::BOLD);
+    }
+
+    #[test]
+    fn test_watermark_spec_weight_named_variants() {
+        for (name, expected) in [
+            ("thin", FontWeight::THIN),
+            ("light", FontWeight::LIGHT),
+            ("normal", FontWeight::NORMAL),
+            ("regular", FontWeight::NORMAL),
+            ("medium", FontWeight::MEDIUM),
+            ("semi_bold", FontWeight::SEMI_BOLD),
+            ("semibold", FontWeight::SEMI_BOLD),
+            ("bold", FontWeight::BOLD),
+            ("extra_bold", FontWeight::EXTRA_BOLD),
+            ("extrabold", FontWeight::EXTRA_BOLD),
+            ("black", FontWeight::BLACK),
+        ] {
+            let spec = WatermarkSpec::from_str(&format!("text=X,font=@H,x=0,y=0,weight={name}")).unwrap();
+            assert_eq!(spec.weight, expected, "weight={name}");
+        }
+    }
+
+    #[test]
+    fn test_watermark_spec_weight_numeric() {
+        let spec = WatermarkSpec::from_str("text=X,font=@H,x=0,y=0,weight=700").unwrap();
+        assert_eq!(spec.weight, FontWeight::BOLD);
+    }
+
+    #[test]
+    fn test_watermark_spec_weight_numeric_custom() {
+        let spec = WatermarkSpec::from_str("text=X,font=@H,x=0,y=0,weight=450").unwrap();
+        assert_eq!(spec.weight, FontWeight(450));
+    }
+
+    #[test]
+    fn test_watermark_spec_weight_invalid() {
+        let result = WatermarkSpec::from_str("text=X,font=@H,x=0,y=0,weight=superduper");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("weight"));
+    }
+
+    #[test]
+    fn test_watermark_spec_weight_out_of_range() {
+        let result = WatermarkSpec::from_str("text=X,font=@H,x=0,y=0,weight=5000");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_watermark_spec_style_italic() {
+        let spec = WatermarkSpec::from_str("text=X,font=@H,x=0,y=0,style=italic").unwrap();
+        assert_eq!(spec.style, FontStyle::Italic);
+    }
+
+    #[test]
+    fn test_watermark_spec_style_oblique() {
+        let spec = WatermarkSpec::from_str("text=X,font=@H,x=0,y=0,style=oblique").unwrap();
+        assert!(matches!(spec.style, FontStyle::Oblique(_)));
+    }
+
+    #[test]
+    fn test_watermark_spec_style_normal() {
+        let spec = WatermarkSpec::from_str("text=X,font=@H,x=0,y=0,style=normal").unwrap();
+        assert_eq!(spec.style, FontStyle::Normal);
+    }
+
+    #[test]
+    fn test_watermark_spec_style_invalid() {
+        let result = WatermarkSpec::from_str("text=X,font=@H,x=0,y=0,style=cursive");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("style"));
+    }
+
+    #[test]
+    fn test_watermark_spec_weight_and_style_combined() {
+        let spec = WatermarkSpec::from_str("text=X,font=@H,x=0,y=0,weight=bold,style=italic").unwrap();
+        assert_eq!(spec.weight, FontWeight::BOLD);
+        assert_eq!(spec.style, FontStyle::Italic);
+    }
+
+    #[test]
+    fn test_watermark_spec_weight_case_insensitive() {
+        let spec = WatermarkSpec::from_str("text=X,font=@H,x=0,y=0,weight=BOLD").unwrap();
+        assert_eq!(spec.weight, FontWeight::BOLD);
+    }
+
+    #[test]
+    fn test_watermark_spec_style_case_insensitive() {
+        let spec = WatermarkSpec::from_str("text=X,font=@H,x=0,y=0,style=ITALIC").unwrap();
+        assert_eq!(spec.style, FontStyle::Italic);
     }
 }

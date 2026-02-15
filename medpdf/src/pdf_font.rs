@@ -13,6 +13,7 @@ pub enum FontPath {
     Hack(u8),
     BuiltIn(String),
     Path(PathBuf),
+    Memory(Arc<Vec<u8>>, String),
 }
 
 impl FontPath {
@@ -25,6 +26,7 @@ impl FontPath {
                 .and_then(|s| s.to_str())
                 .unwrap_or("unknown_font")
                 .into(),
+            FontPath::Memory(_, name) => name.clone(),
         }
     }
 }
@@ -52,6 +54,7 @@ impl FontCache {
                 self.hash.insert(path.clone(), Arc::clone(&data));
                 Ok(FontData::Embedded(data))
             }
+            FontPath::Memory(data, _) => Ok(FontData::Embedded(Arc::clone(data))),
         }
     }
 }
@@ -118,8 +121,8 @@ pub fn find_font_with_style(
         )],
         &properties,
     ) {
-        Ok(font_kit::handle::Handle::Path { path, .. }) => Ok(FontPath::Path(path)),
-        Ok(_) => Err(format!("Font {font_path:?} not found as path handle").into()),
+        Ok(handle) => handle_to_font_path(handle)
+            .ok_or_else(|| format!("Font {font_path:?} not found").into()),
         Err(_) => {
             // Fall back to default properties, reusing the existing SystemSource
             find_font_with_source(font_path, &source)
@@ -135,6 +138,26 @@ pub fn find_font(font_path: &Path) -> Result<FontPath> {
     find_font_with_source(font_path, &source)
 }
 
+/// Extracts the PostScript name from raw font bytes using ttf_parser.
+/// Falls back to "EmbeddedFont" if parsing fails.
+fn extract_font_name(data: &[u8]) -> String {
+    ttf_parser::Face::parse(data, 0)
+        .ok()
+        .map(|face| crate::font_helpers::get_name(&face, ttf_parser::name_id::POST_SCRIPT_NAME))
+        .filter(|name| name != "<none>")
+        .unwrap_or_else(|| "EmbeddedFont".to_string())
+}
+
+fn handle_to_font_path(handle: font_kit::handle::Handle) -> Option<FontPath> {
+    match handle {
+        font_kit::handle::Handle::Path { path, .. } => Some(FontPath::Path(path)),
+        font_kit::handle::Handle::Memory { bytes, .. } => {
+            let name = extract_font_name(&bytes);
+            Some(FontPath::Memory(bytes, name))
+        }
+    }
+}
+
 fn find_font_with_source(font_path: &Path, source: &SystemSource) -> Result<FontPath> {
     let family_name = font_path
         .file_stem()
@@ -148,9 +171,6 @@ fn find_font_with_source(font_path: &Path, source: &SystemSource) -> Result<Font
         &properties,
     )?;
 
-    if let font_kit::handle::Handle::Path { path, .. } = handle {
-        Ok(FontPath::Path(path))
-    } else {
-        Err(format!("Font {font_path:?} not found").into())
-    }
+    handle_to_font_path(handle)
+        .ok_or_else(|| format!("Font {font_path:?} not found").into())
 }

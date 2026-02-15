@@ -6,7 +6,7 @@ use uuid::Uuid;
 mod spec_types;
 
 use medpdf::{parse_page_spec, AddTextParams, DrawRectParams, DrawLineParams, PdfMergeError};
-use medpdf::pdf_font::{find_font, FontCache};
+use medpdf::pdf_font::{find_font_with_style, FontCache};
 use medpdf_image::DrawImageParams;
 use spec_types::{WatermarkSpec, OverlaySpec, PadToSpec, PadFileSpec, DrawRectSpec, DrawLineSpec, DrawImageSpec, BlankPageSpec};
 
@@ -222,7 +222,7 @@ fn apply_drawing_commands(
         }
 
         for spec in watermarks.iter().filter(|s| s.layer_over == layer_over) {
-            let font_path = find_font(&spec.font)?;
+            let font_path = find_font_with_style(&spec.font, spec.weight, spec.style)?;
             let font_data = font_cache.get_data(&font_path)?;
             let font_name = font_path.get_name();
             let target_page_indices = parse_page_spec(&spec.pages, num_pages)?;

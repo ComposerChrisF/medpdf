@@ -9,6 +9,7 @@ use medpdf::pdf_font::{find_font, find_font_with_style, FontCache, FontPath};
 use medpdf::types::{FontStyle, FontWeight};
 use medpdf::FontData;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 // --- find_font Tests ---
 
@@ -343,4 +344,93 @@ fn test_find_font_with_style_numeric_zero() {
     } else {
         panic!("Expected FontPath::Hack");
     }
+}
+
+// --- FontPath::Memory Tests ---
+
+#[test]
+fn test_font_path_memory_get_name() {
+    let data = Arc::new(vec![0u8; 10]);
+    let path = FontPath::Memory(data, "TestFont-Bold".to_string());
+    assert_eq!(path.get_name(), "TestFont-Bold");
+}
+
+#[test]
+fn test_font_cache_get_data_memory() {
+    let data = Arc::new(vec![1u8, 2, 3, 4]);
+    let path = FontPath::Memory(Arc::clone(&data), "TestFont".to_string());
+    let mut cache = FontCache::new();
+    let result = cache.get_data(&path).unwrap();
+    match result {
+        FontData::Embedded(bytes) => assert_eq!(*bytes, vec![1u8, 2, 3, 4]),
+        _ => panic!("Expected FontData::Embedded"),
+    }
+}
+
+#[test]
+fn test_font_cache_memory_preserves_arc_identity() {
+    let data = Arc::new(vec![10u8; 100]);
+    let path = FontPath::Memory(Arc::clone(&data), "MyFont".to_string());
+    let mut cache = FontCache::new();
+    let result = cache.get_data(&path).unwrap();
+    if let FontData::Embedded(returned) = result {
+        assert!(Arc::ptr_eq(&data, &returned));
+    } else {
+        panic!("Expected FontData::Embedded");
+    }
+}
+
+// --- System font by name (macOS Handle::Memory resolution) ---
+
+#[test]
+fn test_find_font_by_family_name_system() {
+    // On macOS, font-kit often returns Handle::Memory for system fonts.
+    // With the Memory variant support, name-based lookup should now succeed.
+    let font_candidates: &[&str] = if cfg!(target_os = "macos") {
+        &["Helvetica", "Times New Roman", "Courier"]
+    } else if cfg!(target_os = "windows") {
+        &["Arial", "Times New Roman", "Courier New"]
+    } else {
+        &["DejaVu Sans", "Liberation Sans", "FreeSans"]
+    };
+
+    let mut found = false;
+    for name in font_candidates {
+        if let Ok(path) = find_font(&PathBuf::from(name)) {
+            match &path {
+                FontPath::Path(_) | FontPath::Memory(_, _) => {
+                    println!("Found font '{}' as {:?}", name, path.get_name());
+                    found = true;
+                    break;
+                }
+                _ => {}
+            }
+        }
+    }
+    assert!(found, "No system font found by name. Tried: {:?}", font_candidates);
+}
+
+#[test]
+fn test_find_font_with_style_bold_system() {
+    let font_candidates: &[&str] = if cfg!(target_os = "macos") {
+        &["Helvetica"]
+    } else if cfg!(target_os = "windows") {
+        &["Arial"]
+    } else {
+        &["DejaVu Sans", "Liberation Sans"]
+    };
+
+    for name in font_candidates {
+        if let Ok(path) = find_font_with_style(
+            &PathBuf::from(name),
+            FontWeight::BOLD,
+            FontStyle::Normal,
+        ) {
+            let font_name = path.get_name();
+            println!("Found bold variant of '{}': {}", name, font_name);
+            return;
+        }
+    }
+    // Not a hard failure -- font availability varies
+    println!("No bold system font found (not a fatal error)");
 }
