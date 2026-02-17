@@ -6,6 +6,7 @@ use uuid::Uuid;
 mod spec_types;
 
 use medpdf::{parse_page_spec, AddTextParams, DrawRectParams, DrawLineParams, PdfMergeError};
+use medpdf::{EncryptionAlgorithm, EncryptionParams};
 use medpdf::pdf_font::{find_font_with_style, FontCache};
 use medpdf_image::DrawImageParams;
 use spec_types::{WatermarkSpec, OverlaySpec, PadToSpec, PadFileSpec, DrawRectSpec, DrawLineSpec, DrawImageSpec, BlankPageSpec};
@@ -37,6 +38,14 @@ struct Args {
     pad_last_page_file: Option<PadFileSpec>,
     #[arg(long, help = "Use traditional PDF format for maximum compatibility with older tools")]
     broad_compatibility: bool,
+    #[arg(long, help = "Password required to open the document")]
+    user_password: Option<String>,
+    #[arg(long, help = "Password required to change permissions/restrictions")]
+    owner_password: Option<String>,
+    #[arg(long, default_value = "aes256", help = "Encryption algorithm: aes256, aes128")]
+    encryption_algorithm: String,
+    #[arg(long, value_delimiter = ',', help = "Comma-separated permissions: print,modify,copy,annotate,fill,accessibility,assemble,print_hq,all,none")]
+    permissions: Vec<String>,
 }
 
 fn format_xmp_metadata(doc_uuid: &str) -> String {
@@ -291,14 +300,29 @@ fn apply_padding(
     Ok(())
 }
 
+fn parse_encryption_algorithm(s: &str) -> Result<EncryptionAlgorithm, PdfMergeError> {
+    match s.to_ascii_lowercase().as_str() {
+        "aes256" | "aes-256" => Ok(EncryptionAlgorithm::Aes256),
+        "aes128" | "aes-128" => Ok(EncryptionAlgorithm::Aes128),
+        _ => Err(PdfMergeError::new(format!(
+            "Unknown encryption algorithm: '{s}'. Valid values: aes256, aes128"
+        ))),
+    }
+}
+
 fn save_document(
     doc: &mut Document,
     output: &PathBuf,
     broad_compat: bool,
+    encryption: Option<EncryptionParams>,
 ) -> Result<(), PdfMergeError> {
     println!("\nSaving file to {}", output.display());
     doc.change_producer("PDF Merger Command-Line Tool");
     doc.compress();
+    if let Some(params) = &encryption {
+        println!("Encrypting with {:?}...", params.algorithm);
+        medpdf::encrypt_document(doc, params)?;
+    }
     if broad_compat {
         doc.save(output)?;
     } else {
@@ -322,7 +346,30 @@ fn main() -> Result<(), PdfMergeError> {
     apply_overlays(&mut doc, &page_ids, &args.overlay)?;
     apply_drawing_commands(&mut doc, &page_ids, &args.draw_rect, &args.draw_line, &args.draw_image, &args.watermark)?;
     apply_padding(&mut doc, &mut page_ids, &args.pad_to, &args.pad_last_page_file)?;
-    save_document(&mut doc, &args.output, args.broad_compatibility)?;
+
+    let encryption = match (&args.user_password, &args.owner_password) {
+        (Some(user), Some(owner)) => {
+            let algo = parse_encryption_algorithm(&args.encryption_algorithm)?;
+            let perms = medpdf::parse_permissions(&args.permissions)
+                .map_err(PdfMergeError::new)?;
+            Some(EncryptionParams::new(user, owner).algorithm(algo).permissions(perms))
+        }
+        (Some(user), None) => {
+            let algo = parse_encryption_algorithm(&args.encryption_algorithm)?;
+            let perms = medpdf::parse_permissions(&args.permissions)
+                .map_err(PdfMergeError::new)?;
+            Some(EncryptionParams::new(user, user).algorithm(algo).permissions(perms))
+        }
+        (None, Some(owner)) => {
+            let algo = parse_encryption_algorithm(&args.encryption_algorithm)?;
+            let perms = medpdf::parse_permissions(&args.permissions)
+                .map_err(PdfMergeError::new)?;
+            Some(EncryptionParams::new("", owner).algorithm(algo).permissions(perms))
+        }
+        (None, None) => None,
+    };
+
+    save_document(&mut doc, &args.output, args.broad_compatibility, encryption)?;
 
     println!("Operation successful!");
     Ok(())

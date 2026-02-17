@@ -32,6 +32,7 @@ pdf_merger/                    # Repository root (workspace)
 │       ├── pdf_copy_page.rs   # Page copying between documents
 │       ├── pdf_delete_page.rs # Page deletion from documents
 │       ├── pdf_blank_page.rs  # Blank page creation
+│       ├── pdf_encryption.rs   # Document encryption (AES-256/AES-128)
 │       ├── pdf_overlay.rs     # Page overlay with resource renaming
 │       └── pdf_watermark.rs   # Text watermark rendering
 └── pdf-merger/                # CLI crate
@@ -65,6 +66,7 @@ pdf_merger/                    # Repository root (workspace)
 | `medpdf::font_helpers` | TTF parsing, font metrics, PDF FontDescriptor generation |
 | `medpdf::pdf_copy_page` | `copy_page()` - copy pages between documents |
 | `medpdf::pdf_delete_page` | `delete_page()` - remove pages from documents |
+| `medpdf::pdf_encryption` | `encrypt_document()` - AES-256/AES-128 encryption with permission controls |
 | `medpdf::pdf_blank_page` | `create_blank_page()` - add empty pages |
 | `medpdf::pdf_overlay` | `overlay_page()` - merge content with resource renaming |
 | `medpdf::pdf_watermark` | `add_text_params()` - text watermark rendering with color, alignment, rotation, alpha; `EmbeddedFontCache` for deduplicating embedded font objects across pages |
