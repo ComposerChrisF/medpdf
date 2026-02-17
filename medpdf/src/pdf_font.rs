@@ -11,7 +11,7 @@ use std::{
     sync::Arc,
 };
 
-use crate::error::{PdfMergeError, Result};
+use crate::error::{MedpdfError, Result};
 use crate::font_data::FontData;
 
 /// A resolved font location.
@@ -118,7 +118,7 @@ pub fn find_font_with_style(
     let family_name = font_path
         .file_stem()
         .and_then(|s| s.to_str())
-        .ok_or_else(|| PdfMergeError::new(format!("Invalid font path: {:?}", font_path)))?;
+        .ok_or_else(|| MedpdfError::new(format!("Invalid font path: {:?}", font_path)))?;
 
     let mut properties = font_kit::properties::Properties::new();
     properties.weight = font_kit::properties::Weight(weight.0 as f32);
@@ -157,8 +157,7 @@ pub fn find_font(font_path: &Path) -> Result<FontPath> {
 fn extract_font_name(data: &[u8]) -> String {
     ttf_parser::Face::parse(data, 0)
         .ok()
-        .map(|face| crate::font_helpers::get_name(&face, ttf_parser::name_id::POST_SCRIPT_NAME))
-        .filter(|name| name != "<none>")
+        .and_then(|face| crate::font_helpers::get_name(&face, ttf_parser::name_id::POST_SCRIPT_NAME))
         .unwrap_or_else(|| "EmbeddedFont".to_string())
 }
 
@@ -176,7 +175,7 @@ fn find_font_with_source(font_path: &Path, source: &SystemSource) -> Result<Font
     let family_name = font_path
         .file_stem()
         .and_then(|s| s.to_str())
-        .ok_or_else(|| PdfMergeError::new(format!("Invalid font path: {:?}", font_path)))?;
+        .ok_or_else(|| MedpdfError::new(format!("Invalid font path: {:?}", font_path)))?;
     let properties = font_kit::properties::Properties::new();
     let handle = source.select_best_match(
         &[font_kit::family_name::FamilyName::Title(

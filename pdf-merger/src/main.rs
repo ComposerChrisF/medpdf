@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 mod spec_types;
 
-use medpdf::{parse_page_spec, AddTextParams, DrawRectParams, DrawLineParams, PdfMergeError};
+use medpdf::{parse_page_spec, AddTextParams, DrawRectParams, DrawLineParams, MedpdfError};
 use medpdf::{EncryptionAlgorithm, EncryptionParams};
 use medpdf::pdf_font::{find_font_with_style, FontCache};
 use medpdf_image::DrawImageParams;
@@ -108,7 +108,7 @@ fn merge_pages(
     page_ids: &mut Vec<lopdf::ObjectId>,
     inputs: &[String],
     blank_pages: &[BlankPageSpec],
-) -> Result<(), PdfMergeError> {
+) -> Result<(), MedpdfError> {
     println!("\n--- Merging Pages ---");
     for input_chunk in inputs.chunks(2) {
         let source_path = &input_chunk[0];
@@ -145,7 +145,7 @@ fn apply_overlays(
     doc: &mut Document,
     page_ids: &[lopdf::ObjectId],
     overlays: &[OverlaySpec],
-) -> Result<(), PdfMergeError> {
+) -> Result<(), MedpdfError> {
     println!("\n--- Applying Overlays ---");
     for spec in overlays {
         println!("Applying overlay from {}", spec.file.display());
@@ -153,7 +153,7 @@ fn apply_overlays(
         let target_page_indices = parse_page_spec(&spec.target_pages, page_ids.len() as u32)?;
         for page_index in target_page_indices {
             let dest_page_id = *page_ids.get((page_index - 1) as usize)
-                .ok_or_else(|| PdfMergeError::new(format!("Overlay target page index {} out of range", page_index)))?;
+                .ok_or_else(|| MedpdfError::new(format!("Overlay target page index {} out of range", page_index)))?;
             medpdf::overlay_page(doc, dest_page_id, &overlay_doc, spec.src_page)?;
         }
     }
@@ -167,7 +167,7 @@ fn apply_drawing_commands(
     lines: &[DrawLineSpec],
     images: &[DrawImageSpec],
     watermarks: &[WatermarkSpec],
-) -> Result<(), PdfMergeError> {
+) -> Result<(), MedpdfError> {
     println!("\n--- Applying Drawing Commands ---");
     let mut font_cache = FontCache::new();
     let mut font_object_cache = medpdf::EmbeddedFontCache::new();
@@ -184,7 +184,7 @@ fn apply_drawing_commands(
             println!("Drawing rect ({layer_name}) to pages '{target_page_indices:?}'");
             for page_index in target_page_indices {
                 let page_id = *page_ids.get((page_index - 1) as usize)
-                    .ok_or_else(|| PdfMergeError::new(format!("draw-rect target page index {} out of range", page_index)))?;
+                    .ok_or_else(|| MedpdfError::new(format!("draw-rect target page index {} out of range", page_index)))?;
                 medpdf::add_rect(doc, page_id, &params)?;
             }
         }
@@ -198,7 +198,7 @@ fn apply_drawing_commands(
             println!("Drawing line ({layer_name}) to pages '{target_page_indices:?}'");
             for page_index in target_page_indices {
                 let page_id = *page_ids.get((page_index - 1) as usize)
-                    .ok_or_else(|| PdfMergeError::new(format!("draw-line target page index {} out of range", page_index)))?;
+                    .ok_or_else(|| MedpdfError::new(format!("draw-line target page index {} out of range", page_index)))?;
                 medpdf::add_line(doc, page_id, &params)?;
             }
         }
@@ -219,7 +219,7 @@ fn apply_drawing_commands(
             println!("Drawing image ({layer_name}) '{}' to pages '{target_page_indices:?}'", spec.file.display());
             for page_index in &target_page_indices {
                 let page_id = *page_ids.get((*page_index - 1) as usize)
-                    .ok_or_else(|| PdfMergeError::new(format!("draw-image target page index {} out of range", page_index)))?;
+                    .ok_or_else(|| MedpdfError::new(format!("draw-image target page index {} out of range", page_index)))?;
                 let params = DrawImageParams::new(image_data.clone(), spec.x, spec.y, out_w, out_h)
                     .fit(spec.fit)
                     .max_dpi(spec.max_dpi)
@@ -252,7 +252,7 @@ fn apply_drawing_commands(
             println!("Applying watermark ({layer_name}) '{}' to pages '{target_page_indices:?}'", spec.text);
             for page_index in target_page_indices {
                 let page_id = *page_ids.get((page_index - 1) as usize)
-                    .ok_or_else(|| PdfMergeError::new(format!("Watermark target page index {} out of range", page_index)))?;
+                    .ok_or_else(|| MedpdfError::new(format!("Watermark target page index {} out of range", page_index)))?;
                 medpdf::add_text_params(doc, page_id, &params, &mut font_object_cache)?;
             }
         }
@@ -265,7 +265,7 @@ fn apply_padding(
     page_ids: &mut Vec<lopdf::ObjectId>,
     pad_to: &Option<PadToSpec>,
     pad_file: &Option<PadFileSpec>,
-) -> Result<(), PdfMergeError> {
+) -> Result<(), MedpdfError> {
     println!("\n--- Checking for Padding ---");
     let current_page_count = doc.get_pages().len();
 
@@ -276,9 +276,9 @@ fn apply_padding(
             if pages_to_add > 0 {
                 println!("   -> Padding with {pages_to_add} page(s) to reach a multiple of {pages}.");
                 let last_page_id = *page_ids.last()
-                    .ok_or_else(|| PdfMergeError::new("No pages in document to pad"))?;
+                    .ok_or_else(|| MedpdfError::new("No pages in document to pad"))?;
                 let media_box = medpdf::get_page_media_box(doc, last_page_id)
-                    .ok_or_else(|| PdfMergeError::new("Could not determine MediaBox for last page"))?;
+                    .ok_or_else(|| MedpdfError::new("Could not determine MediaBox for last page"))?;
                 let width = media_box[2] - media_box[0];
                 let height = media_box[3] - media_box[1];
 
@@ -300,11 +300,11 @@ fn apply_padding(
     Ok(())
 }
 
-fn parse_encryption_algorithm(s: &str) -> Result<EncryptionAlgorithm, PdfMergeError> {
+fn parse_encryption_algorithm(s: &str) -> Result<EncryptionAlgorithm, MedpdfError> {
     match s.to_ascii_lowercase().as_str() {
         "aes256" | "aes-256" => Ok(EncryptionAlgorithm::Aes256),
         "aes128" | "aes-128" => Ok(EncryptionAlgorithm::Aes128),
-        _ => Err(PdfMergeError::new(format!(
+        _ => Err(MedpdfError::new(format!(
             "Unknown encryption algorithm: '{s}'. Valid values: aes256, aes128"
         ))),
     }
@@ -315,7 +315,7 @@ fn save_document(
     output: &PathBuf,
     broad_compat: bool,
     encryption: Option<EncryptionParams>,
-) -> Result<(), PdfMergeError> {
+) -> Result<(), MedpdfError> {
     println!("\nSaving file to {}", output.display());
     doc.change_producer("PDF Merger Command-Line Tool");
     doc.compress();
@@ -332,7 +332,7 @@ fn save_document(
     Ok(())
 }
 
-fn main() -> Result<(), PdfMergeError> {
+fn main() -> Result<(), MedpdfError> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
     let args = Args::parse();
     if !args.inputs.is_empty() && args.inputs.len() % 2 != 0 {
@@ -351,19 +351,19 @@ fn main() -> Result<(), PdfMergeError> {
         (Some(user), Some(owner)) => {
             let algo = parse_encryption_algorithm(&args.encryption_algorithm)?;
             let perms = medpdf::parse_permissions(&args.permissions)
-                .map_err(PdfMergeError::new)?;
+                .map_err(MedpdfError::new)?;
             Some(EncryptionParams::new(user, owner).algorithm(algo).permissions(perms))
         }
         (Some(user), None) => {
             let algo = parse_encryption_algorithm(&args.encryption_algorithm)?;
             let perms = medpdf::parse_permissions(&args.permissions)
-                .map_err(PdfMergeError::new)?;
+                .map_err(MedpdfError::new)?;
             Some(EncryptionParams::new(user, user).algorithm(algo).permissions(perms))
         }
         (None, Some(owner)) => {
             let algo = parse_encryption_algorithm(&args.encryption_algorithm)?;
             let perms = medpdf::parse_permissions(&args.permissions)
-                .map_err(PdfMergeError::new)?;
+                .map_err(MedpdfError::new)?;
             Some(EncryptionParams::new("", owner).algorithm(algo).permissions(perms))
         }
         (None, None) => None,

@@ -10,7 +10,7 @@ use nom::{
 };
 use std::collections::BTreeSet;
 
-use crate::error::{PdfMergeError, Result};
+use crate::error::{MedpdfError, Result};
 
 #[derive(Debug, Clone, Copy)]
 enum PageItem {
@@ -58,7 +58,7 @@ pub fn parse_page_spec(spec: &str, max_pages: u32) -> Result<Vec<u32>> {
                 match item {
                     PageItem::Single(num) => {
                         if num == 0 {
-                            return Err(PdfMergeError::new("Page numbers must be 1 or greater."));
+                            return Err(MedpdfError::new("Page numbers must be 1 or greater."));
                         }
                         // Skip pages beyond the document — acts as a filter
                         if num <= max_pages {
@@ -67,18 +67,18 @@ pub fn parse_page_spec(spec: &str, max_pages: u32) -> Result<Vec<u32>> {
                     }
                     PageItem::Range(start_opt, end_opt) => {
                         if max_pages == 0 && (start_opt.is_none() || end_opt.is_none()) {
-                            return Err(PdfMergeError::new(
+                            return Err(MedpdfError::new(
                                 "Cannot use open ranges on a document with no pages."
                             ));
                         }
                         let start = start_opt.unwrap_or(1);
                         let end = end_opt.unwrap_or(max_pages);
                         if start == 0 || end == 0 {
-                            return Err(PdfMergeError::new("Page numbers must be 1 or greater."));
+                            return Err(MedpdfError::new("Page numbers must be 1 or greater."));
                         }
                         // Only error on inverted range when both bounds are explicit
                         if start_opt.is_some() && end_opt.is_some() && start > end {
-                            return Err(PdfMergeError::new(format!(
+                            return Err(MedpdfError::new(format!(
                                 "Invalid range: start ({}) is greater than end ({}).",
                                 start, end
                             )));
@@ -95,7 +95,7 @@ pub fn parse_page_spec(spec: &str, max_pages: u32) -> Result<Vec<u32>> {
             }
         }
         Err(e) => {
-            return Err(PdfMergeError::new(format!(
+            return Err(MedpdfError::new(format!(
                 "Failed to parse page specification '{}': {}",
                 spec, e
             )))

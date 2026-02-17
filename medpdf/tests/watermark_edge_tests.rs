@@ -663,7 +663,7 @@ fn test_embedded_font_cache_separate_entries_for_different_fonts() {
     ];
     let font_arc2 = candidates.iter()
         .filter_map(|p| std::fs::read(p).ok())
-        .map(|data| std::sync::Arc::new(data))
+        .map(std::sync::Arc::new)
         .next();
     let font_arc2 = match font_arc2 {
         Some(f) => f,

@@ -101,7 +101,7 @@ fn test_insert_content_stream_multiple_layers() {
         assert!(
             contents
                 .iter()
-                .any(|obj| obj.as_reference().map_or(false, |r| r == *id)),
+                .any(|obj| obj.as_reference().is_ok_and(|r| r == *id)),
             "Content stream {:?} should be in contents array",
             id
         );

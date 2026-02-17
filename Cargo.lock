@@ -1138,9 +1138,10 @@ dependencies = [
 
 [[package]]
 name = "medpdf"
-version = "0.8.0"
+version = "0.8.2"
 dependencies = [
  "font-kit",
+ "itoa",
  "log",
  "lopdf",
  "nom 7.1.3",
@@ -1342,7 +1343,7 @@ dependencies = [
 
 [[package]]
 name = "pdf-merger"
-version = "0.8.0"
+version = "0.8.2"
 dependencies = [
  "chrono",
  "clap",

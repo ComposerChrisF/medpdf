@@ -91,7 +91,7 @@ fn test_parse_permissions_multiple() {
 
 #[test]
 fn test_parse_permissions_empty_returns_all() {
-    let perms = parse_permissions(&[]).unwrap();
+    let perms = parse_permissions(&[] as &[&str]).unwrap();
     assert_eq!(perms, Permissions::all());
 }
 

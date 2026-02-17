@@ -2,7 +2,7 @@
 
 use ttf_parser::{name_id, Face};
 
-use crate::error::PdfMergeError;
+use crate::error::MedpdfError;
 
 #[derive(Debug, Clone)]
 pub(crate) struct FontPdfInfo {
@@ -26,17 +26,47 @@ pub(crate) struct FontDescriptorPdfInfo {
     pub x_height: i16,
     pub stem_v: u16,
     pub cap_height: i16,
-    pub font_file_key: String, // "FontFile" for Type1 or MMType1; "FontFile2" for TrueType; others for compated formats
-                               //pub embedded_font_subtype: String, // "Type1" or "Type1C" or "TrueType" or "CIDFontType0" or "CIDFontType2"
+    pub font_file_key: String, // "FontFile" for Type1/MMType1; "FontFile2" for TrueType; "FontFile3" for CFF/OpenType
 }
 
-pub(crate) fn get_name(face: &Face, name_id: u16) -> String {
+pub(crate) fn get_name(face: &Face, name_id: u16) -> Option<String> {
     face.names()
         .into_iter()
         .filter(|name| name.name_id == name_id)
         .find_map(|name| name.to_string())
-        .unwrap_or_else(|| "<none>".to_string())
 }
+
+/// Canonical mapping table for WinAnsiEncoding bytes 0x80–0x9F to Unicode.
+/// Bytes not listed here (0x81, 0x8D, 0x8F, 0x90, 0x9D) are undefined in WinAnsi.
+const WINANSI_SPECIAL: [(u8, char); 27] = [
+    (0x80, '\u{20AC}'), // Euro sign
+    (0x82, '\u{201A}'), // single low-9 quotation mark
+    (0x83, '\u{0192}'), // latin small letter f with hook
+    (0x84, '\u{201E}'), // double low-9 quotation mark
+    (0x85, '\u{2026}'), // horizontal ellipsis
+    (0x86, '\u{2020}'), // dagger
+    (0x87, '\u{2021}'), // double dagger
+    (0x88, '\u{02C6}'), // modifier letter circumflex accent
+    (0x89, '\u{2030}'), // per mille sign
+    (0x8A, '\u{0160}'), // latin capital letter s with caron
+    (0x8B, '\u{2039}'), // single left-pointing angle quotation mark
+    (0x8C, '\u{0152}'), // latin capital ligature oe
+    (0x8E, '\u{017D}'), // latin capital letter z with caron
+    (0x91, '\u{2018}'), // left single quotation mark
+    (0x92, '\u{2019}'), // right single quotation mark
+    (0x93, '\u{201C}'), // left double quotation mark
+    (0x94, '\u{201D}'), // right double quotation mark
+    (0x95, '\u{2022}'), // bullet
+    (0x96, '\u{2013}'), // en dash
+    (0x97, '\u{2014}'), // em dash
+    (0x98, '\u{02DC}'), // small tilde
+    (0x99, '\u{2122}'), // trade mark sign
+    (0x9A, '\u{0161}'), // latin small letter s with caron
+    (0x9B, '\u{203A}'), // single right-pointing angle quotation mark
+    (0x9C, '\u{0153}'), // latin small ligature oe
+    (0x9E, '\u{017E}'), // latin small letter z with caron
+    (0x9F, '\u{0178}'), // latin capital letter y with diaeresis
+];
 
 /// Maps a WinAnsiEncoding byte value to its Unicode code point.
 /// Bytes 0x00–0x7F and 0xA0–0xFF map directly to the same Unicode code point.
@@ -44,36 +74,22 @@ pub(crate) fn get_name(face: &Face, name_id: u16) -> String {
 /// Bytes 0x81, 0x8D, 0x8F, 0x90, 0x9D are undefined in WinAnsi and return None.
 fn winansi_to_unicode(byte: u8) -> Option<char> {
     match byte {
-        0x00..=0x7F => Some(byte as char),
-        0xA0..=0xFF => Some(byte as char),
-        0x80 => Some('\u{20AC}'), // Euro sign
-        0x82 => Some('\u{201A}'), // single low-9 quotation mark
-        0x83 => Some('\u{0192}'), // latin small letter f with hook
-        0x84 => Some('\u{201E}'), // double low-9 quotation mark
-        0x85 => Some('\u{2026}'), // horizontal ellipsis
-        0x86 => Some('\u{2020}'), // dagger
-        0x87 => Some('\u{2021}'), // double dagger
-        0x88 => Some('\u{02C6}'), // modifier letter circumflex accent
-        0x89 => Some('\u{2030}'), // per mille sign
-        0x8A => Some('\u{0160}'), // latin capital letter s with caron
-        0x8B => Some('\u{2039}'), // single left-pointing angle quotation mark
-        0x8C => Some('\u{0152}'), // latin capital ligature oe
-        0x8E => Some('\u{017D}'), // latin capital letter z with caron
-        0x91 => Some('\u{2018}'), // left single quotation mark
-        0x92 => Some('\u{2019}'), // right single quotation mark
-        0x93 => Some('\u{201C}'), // left double quotation mark
-        0x94 => Some('\u{201D}'), // right double quotation mark
-        0x95 => Some('\u{2022}'), // bullet
-        0x96 => Some('\u{2013}'), // en dash
-        0x97 => Some('\u{2014}'), // em dash
-        0x98 => Some('\u{02DC}'), // small tilde
-        0x99 => Some('\u{2122}'), // trade mark sign
-        0x9A => Some('\u{0161}'), // latin small letter s with caron
-        0x9B => Some('\u{203A}'), // single right-pointing angle quotation mark
-        0x9C => Some('\u{0153}'), // latin small ligature oe
-        0x9E => Some('\u{017E}'), // latin small letter z with caron
-        0x9F => Some('\u{0178}'), // latin capital letter y with diaeresis
-        _ => None, // 0x81, 0x8D, 0x8F, 0x90, 0x9D are undefined
+        0x00..=0x7F | 0xA0..=0xFF => Some(byte as char),
+        _ => WINANSI_SPECIAL.iter().find(|(b, _)| *b == byte).map(|(_, c)| *c),
+    }
+}
+
+/// Maps a Unicode codepoint to its WinAnsiEncoding byte value.
+/// Returns b'?' for characters not representable in WinAnsiEncoding.
+pub(crate) fn unicode_to_winansi(c: char) -> u8 {
+    let cp = c as u32;
+    match cp {
+        0x0000..=0x007F | 0x00A0..=0x00FF => cp as u8,
+        _ => WINANSI_SPECIAL
+            .iter()
+            .find(|(_, ch)| *ch == c)
+            .map(|(b, _)| *b)
+            .unwrap_or(b'?'),
     }
 }
 
@@ -106,7 +122,9 @@ const SYMBOLIC_LATIN_THRESHOLD: usize = 20;
 /// Symbol fonts don't use standard character encodings.
 fn detect_is_symbolic(face: &Face) -> bool {
     // Name-based detection for known symbol fonts
-    let ps_name = get_name(face, name_id::POST_SCRIPT_NAME).to_lowercase();
+    let ps_name = get_name(face, name_id::POST_SCRIPT_NAME)
+        .unwrap_or_default()
+        .to_lowercase();
     let symbol_indicators = ["symbol", "dingbat", "wingding", "zapf", "icon", "ornament"];
     if symbol_indicators.iter().any(|s| ps_name.contains(s)) {
         return true;
@@ -184,7 +202,7 @@ fn classify_font(face: &Face) -> (&'static str, &'static str) {
         .table(ttf_parser::Tag::from_bytes(b"CFF "))
         .is_some()
     {
-        ("FontFile", "Type1")
+        ("FontFile3", "Type1C")
     } else if face
         .raw_face()
         .table(ttf_parser::Tag::from_bytes(b"glyf"))
@@ -192,8 +210,8 @@ fn classify_font(face: &Face) -> (&'static str, &'static str) {
     {
         ("FontFile2", "TrueType")
     } else {
-        log::warn!("Font file type not recognized");
-        ("FontFile", "Type1")
+        log::warn!("Font file type not recognized; assuming CFF/Type1C");
+        ("FontFile3", "Type1C")
     }
 }
 
@@ -207,7 +225,7 @@ pub(crate) fn get_pdf_font_subtype(face: &Face) -> String {
 
 pub(crate) fn get_pdf_font_info_of_data(
     font_data: &[u8],
-) -> Result<(FontPdfInfo, FontDescriptorPdfInfo), PdfMergeError> {
+) -> Result<(FontPdfInfo, FontDescriptorPdfInfo), MedpdfError> {
     let face = Face::parse(font_data, 0)?;
     Ok(get_pdf_info_of_face(&face))
 }
@@ -218,7 +236,7 @@ pub fn measure_text_width(
     font_data: &crate::font_data::FontData,
     font_size: f32,
     text: &str,
-) -> Result<f32, PdfMergeError> {
+) -> Result<f32, MedpdfError> {
     match font_data {
         crate::font_data::FontData::Hack(_) | crate::font_data::FontData::BuiltIn(_) => {
             // Rough estimate: 0.6 * font_size per character for monospace-ish fonts
@@ -252,7 +270,7 @@ pub(crate) fn get_pdf_info_of_face(face: &Face) -> (FontPdfInfo, FontDescriptorP
 
     (
         FontPdfInfo {
-            base_font: get_name(face, name_id::POST_SCRIPT_NAME),
+            base_font: get_name(face, name_id::POST_SCRIPT_NAME).unwrap_or_else(|| "Unknown".to_string()),
             encoding,
             first_char: first_char.into(),
             last_char: last_char.into(),
@@ -260,7 +278,7 @@ pub(crate) fn get_pdf_info_of_face(face: &Face) -> (FontPdfInfo, FontDescriptorP
             subtype: get_pdf_font_subtype(face),
         },
         FontDescriptorPdfInfo {
-            font_name: get_name(face, name_id::POST_SCRIPT_NAME),
+            font_name: get_name(face, name_id::POST_SCRIPT_NAME).unwrap_or_else(|| "Unknown".to_string()),
             flags: compute_pdf_font_flags_internal(face, is_symbolic),
             font_bbox: get_pdf_font_bbox(face),
             italic_angle: face.italic_angle().round() as i16,

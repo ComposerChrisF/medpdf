@@ -4,50 +4,50 @@ use std::fmt::Debug;
 
 /// Unified error type for all medpdf operations.
 #[non_exhaustive]
-pub enum PdfMergeError {
+pub enum MedpdfError {
     Io(std::io::Error),
     LoPdf(lopdf::Error),
     FontKit(font_kit::error::SelectionError),
     Face(ttf_parser::FaceParsingError),
     Message(String),
 }
-impl PdfMergeError {
+impl MedpdfError {
     pub fn new<T: Into<String>>(msg: T) -> Self {
-        PdfMergeError::Message(msg.into())
+        MedpdfError::Message(msg.into())
     }
 }
-impl From<lopdf::Error> for PdfMergeError {
+impl From<lopdf::Error> for MedpdfError {
     fn from(err: lopdf::Error) -> Self {
-        PdfMergeError::LoPdf(err)
+        MedpdfError::LoPdf(err)
     }
 }
-impl From<std::io::Error> for PdfMergeError {
+impl From<std::io::Error> for MedpdfError {
     fn from(err: std::io::Error) -> Self {
-        PdfMergeError::Io(err)
+        MedpdfError::Io(err)
     }
 }
-impl From<ttf_parser::FaceParsingError> for PdfMergeError {
+impl From<ttf_parser::FaceParsingError> for MedpdfError {
     fn from(err: ttf_parser::FaceParsingError) -> Self {
-        PdfMergeError::Face(err)
+        MedpdfError::Face(err)
     }
 }
-impl From<&str> for PdfMergeError {
+impl From<&str> for MedpdfError {
     fn from(err: &str) -> Self {
-        PdfMergeError::Message(err.into())
+        MedpdfError::Message(err.into())
     }
 }
-impl From<String> for PdfMergeError {
+impl From<String> for MedpdfError {
     fn from(err: String) -> Self {
-        PdfMergeError::Message(err)
+        MedpdfError::Message(err)
     }
 }
-impl From<font_kit::error::SelectionError> for PdfMergeError {
+impl From<font_kit::error::SelectionError> for MedpdfError {
     fn from(err: font_kit::error::SelectionError) -> Self {
-        PdfMergeError::FontKit(err)
+        MedpdfError::FontKit(err)
     }
 }
 
-impl Debug for PdfMergeError {
+impl Debug for MedpdfError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Io(e) => f.debug_tuple("Io").field(e).finish(),
@@ -59,7 +59,7 @@ impl Debug for PdfMergeError {
     }
 }
 
-impl std::fmt::Display for PdfMergeError {
+impl std::fmt::Display for MedpdfError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Io(e) => write!(f, "I/O error: {}", e),
@@ -71,7 +71,7 @@ impl std::fmt::Display for PdfMergeError {
     }
 }
 
-impl std::error::Error for PdfMergeError {
+impl std::error::Error for MedpdfError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Io(e) => Some(e),
@@ -83,8 +83,8 @@ impl std::error::Error for PdfMergeError {
     }
 }
 
-/// Alias for [`PdfMergeError`].
-pub type Error = PdfMergeError;
+/// Alias for [`MedpdfError`].
+pub type Error = MedpdfError;
 
 /// Convenience result type for medpdf operations.
 pub type Result<T> = std::result::Result<T, Error>;

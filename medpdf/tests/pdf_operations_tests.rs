@@ -626,7 +626,7 @@ fn test_copy_page_from_multiple_sources() {
 
     assert_eq!(dest.get_pages().len(), 4);
     // All page IDs should be unique
-    let ids = vec![page_a1, page_b1, page_a2, page_b2];
+    let ids = [page_a1, page_b1, page_a2, page_b2];
     let unique: std::collections::HashSet<_> = ids.iter().collect();
     assert_eq!(unique.len(), 4, "All page IDs should be unique");
 

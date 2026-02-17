@@ -24,7 +24,7 @@ pdf_merger/                    # Repository root (workspace)
 │   ├── Cargo.toml
 │   └── src/
 │       ├── lib.rs             # Public API and re-exports
-│       ├── error.rs           # PdfMergeError with Display trait
+│       ├── error.rs           # MedpdfError with Display trait
 │       ├── parsing.rs         # Page spec parsing with nom
 │       ├── pdf_helpers.rs     # Deep copy, PDF key constants, Unit enum
 │       ├── pdf_font.rs        # Font discovery and caching
@@ -59,7 +59,7 @@ pdf_merger/                    # Repository root (workspace)
 
 | Crate/Module | Purpose |
 |--------------|---------|
-| `medpdf::error` | Custom `PdfMergeError` enum with Display/Error traits |
+| `medpdf::error` | Custom `MedpdfError` enum with Display/Error traits |
 | `medpdf::parsing` | Page spec parsing with nom (`"1-3,5,7-"`, `"all"`) |
 | `medpdf::pdf_helpers` | Deep object copying, PDF key constants, Unit enum, page rotation |
 | `medpdf::pdf_font` | Font discovery (system/file) and caching; re-exports `find_font`, `FontCache`, `FontPath` |

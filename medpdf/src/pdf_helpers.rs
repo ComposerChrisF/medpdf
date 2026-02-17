@@ -1,6 +1,6 @@
 //! Low-level PDF helpers: deep object copying, page tree traversal, key constants, and units.
 
-use crate::error::{PdfMergeError, Result};
+use crate::error::{MedpdfError, Result};
 use lopdf::{dictionary, Dictionary, Document, Object, ObjectId, Stream};
 use std::collections::BTreeMap;
 
@@ -101,9 +101,8 @@ pub fn get_page_rotation(doc: &Document, page_id: ObjectId) -> u32 {
 /// Sets the rotation angle on a page. Valid values: 0, 90, 180, 270.
 /// Returns an error if the angle is not a multiple of 90.
 pub fn set_page_rotation(doc: &mut Document, page_id: ObjectId, degrees: u32) -> Result<()> {
-    #[allow(clippy::manual_is_multiple_of)] // intentional: `% 90` works on all Rust versions
-    if degrees % 90 != 0 {
-        return Err(PdfMergeError::new(format!(
+    if !degrees.is_multiple_of(90) {
+        return Err(MedpdfError::new(format!(
             "Rotation must be a multiple of 90, got {degrees}"
         )));
     }
@@ -122,7 +121,7 @@ pub fn set_page_rotation(doc: &mut Document, page_id: ObjectId, degrees: u32) ->
 /// For bulk operations, callers should cache the result of `doc.get_pages()` externally.
 pub(crate) fn get_page_object_id_from_doc(doc: &Document, page_num: u32) -> Result<ObjectId> {
     doc.get_pages().get(&page_num).copied().ok_or_else(|| {
-        PdfMergeError::new(format!("Page {} not found in source document", page_num))
+        MedpdfError::new(format!("Page {} not found in source document", page_num))
     })
 }
 
@@ -155,7 +154,7 @@ pub(crate) fn deep_copy_object(
 ) -> Result<Object> {
     let new_obj = match source_object {
         Object::Reference(_) => {
-            return Err(PdfMergeError::new(
+            return Err(MedpdfError::new(
                 "deep_copy_object() called on a Object::Reference!",
             ));
         }
@@ -254,7 +253,7 @@ pub fn register_in_page_resources(
     let page_dict = doc
         .get_object_mut(page_id)?
         .as_dict_mut()
-        .map_err(|_| PdfMergeError::new("Page object is not a dictionary"))?;
+        .map_err(|_| MedpdfError::new("Page object is not a dictionary"))?;
 
     let resources_obj = page_dict.get_mut(KEY_RESOURCES);
     let (mut subdict_ref_id, resources_dict_id) = match resources_obj {
@@ -264,7 +263,7 @@ pub fn register_in_page_resources(
             (r, None)
         }
         Ok(_) => {
-            return Err(PdfMergeError::new(
+            return Err(MedpdfError::new(
                 "/Resources key of page not a Reference nor a Dictionary!",
             ))
         }
@@ -277,7 +276,7 @@ pub fn register_in_page_resources(
     };
 
     if subdict_ref_id.is_some() && resources_dict_id.is_some() {
-        return Err(PdfMergeError::new(
+        return Err(MedpdfError::new(
             "Internal error: both sub-dict ref and Resources ref are set!",
         ));
     }
@@ -311,7 +310,7 @@ fn handle_subdict_in_resources(
             dict.set(entry_key.to_vec(), Object::Reference(obj_id));
             Ok(None)
         }
-        Ok(_) => Err(PdfMergeError::new(format!(
+        Ok(_) => Err(MedpdfError::new(format!(
             "/{} key of Resources not a Reference nor a Dictionary!",
             String::from_utf8_lossy(resource_key)
         ))),

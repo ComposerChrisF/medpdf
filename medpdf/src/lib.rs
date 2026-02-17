@@ -19,7 +19,7 @@ pub mod pdf_watermark;
 pub mod types;
 
 // Re-exports for convenience
-pub use error::{Error, PdfMergeError, Result};
+pub use error::{Error, MedpdfError, Result};
 pub use font_data::FontData;
 pub use font_helpers::measure_text_width;
 pub use parsing::parse_page_spec;

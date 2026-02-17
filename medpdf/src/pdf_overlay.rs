@@ -1,13 +1,13 @@
 //! Page overlay — merging content from one PDF page onto another with resource renaming.
 
-use crate::error::{PdfMergeError, Result};
+use crate::error::{MedpdfError, Result};
 use crate::pdf_helpers::{self, KEY_CONTENTS, KEY_KIDS, KEY_PAGE, KEY_PAGES, KEY_RESOURCES, KEY_TYPE};
 use log::{debug, trace, warn};
 use lopdf::content::Operation;
 use lopdf::{Dictionary, Document, Object, ObjectId};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-fn add_resource_keys(keys: &mut HashSet<Vec<u8>>, dict_resources: &Dictionary) -> Result<()> {
+fn add_resource_keys(keys: &mut HashSet<Vec<u8>>, dict_resources: &Dictionary) {
     for (_, value) in dict_resources.iter() {
         if let Object::Dictionary(dict) = value {
             for (key, _) in dict.iter() {
@@ -15,7 +15,6 @@ fn add_resource_keys(keys: &mut HashSet<Vec<u8>>, dict_resources: &Dictionary) -
             }
         }
     }
-    Ok(())
 }
 
 /// Collects resource key names from a document's page tree, starting at `start`.
@@ -45,11 +44,11 @@ fn accumulate_dictionary_keys(
     // Collect resource keys from this node's /Resources
     match dict.get(KEY_RESOURCES) {
         Ok(Object::Dictionary(dict_resources)) => {
-            add_resource_keys(keys, dict_resources)?;
+            add_resource_keys(keys, dict_resources);
         }
         Ok(Object::Reference(id_resources)) => {
             if let Ok(dict_resources) = doc.get_dictionary(*id_resources) {
-                add_resource_keys(keys, dict_resources)?;
+                add_resource_keys(keys, dict_resources);
             }
         }
         _ => {}
@@ -78,16 +77,17 @@ fn find_unique_name(
     buffer.extend_from_slice(key_old);
     buffer.extend_from_slice(suffix);
     let start_len = buffer.len();
+    let mut itoa_buf = itoa::Buffer::new();
     for i in 0..10_000 {
         if i > 0 {
             buffer.truncate(start_len);
-            buffer.extend_from_slice(format!("{i}").as_bytes());
+            buffer.extend_from_slice(itoa_buf.format(i).as_bytes());
         }
         if !keys_used.contains(&buffer) {
             return Ok(buffer);
         }
     }
-    Err(PdfMergeError::new("No new unique key could be generated"))
+    Err(MedpdfError::new("No new unique key could be generated"))
 }
 
 fn rename_resources_in_dict(
@@ -181,21 +181,16 @@ fn modify_content_stream(
             }
         }
 
-        content_stream.content = content.encode()?;
-        content_stream.compress()?;
         if log::log_enabled!(log::Level::Trace) {
-            for (i, op) in content_stream
-                .decode_content()?
-                .operations
-                .iter()
-                .enumerate()
-            {
+            for (i, op) in content.operations.iter().enumerate() {
                 if i > 20 {
                     break;
                 }
                 trace!("op {op:?}");
             }
         }
+        content_stream.content = content.encode()?;
+        content_stream.compress()?;
     }
     Ok(())
 }
@@ -215,7 +210,7 @@ fn normalize_contents_array(
                 pdf_helpers::deep_copy_object_by_id(dest_doc, source_doc, *id, copied_objects)?
             }
             _ => {
-                return Err(PdfMergeError::new(
+                return Err(MedpdfError::new(
                     "Page/Contents array must contain Streams or References",
                 ))
             }
@@ -261,7 +256,7 @@ fn resolve_contents_to_ref_array(
                         Ok(a)
                     }
                 }
-                _ => Err(PdfMergeError::Message(format!(
+                _ => Err(MedpdfError::Message(format!(
                     "{context} /Contents references a non-stream / non-array"
                 ))),
             }
@@ -273,7 +268,7 @@ fn resolve_contents_to_ref_array(
                 Ok(a.clone())
             }
         }
-        _ => Err(PdfMergeError::Message(format!(
+        _ => Err(MedpdfError::Message(format!(
             "{context} /Contents must be stream or array or reference to stream or array"
         ))),
     }
@@ -328,7 +323,7 @@ pub fn overlay_page(
             pdf_helpers::deep_copy_object_by_id(dest_doc, overlay_doc, *id, &mut copied_objects)?
         }
         _ => {
-            return Err(PdfMergeError::Message(format!(
+            return Err(MedpdfError::Message(format!(
                 "Page {overlay_page_id:?} /Resources must be dictionary or reference to dictionary"
             )))
         }
@@ -373,14 +368,6 @@ pub fn overlay_page(
     // Unobvious, but changing decoded operations does not modify the Content!!!!  It looks
     // like we need to build a *new* Content, modifying the ops as we copy them.
     debug!("Updating overlay Content streams to use new keys");
-    for obj in overlay_contents_arr_new.iter() {
-        let o = dest_doc.get_object(obj.as_reference()?)?;
-        if o.as_stream().is_err() {
-            return Err(PdfMergeError::new(
-                "Overlay contents references must point to streams",
-            ));
-        }
-    }
     modify_content_stream(dest_doc, &overlay_contents_arr_new, Some(&key_mapping))?;
     if log::log_enabled!(log::Level::Trace) {
         trace!("arr_new: {overlay_contents_arr_new:?}");
@@ -438,7 +425,7 @@ pub fn overlay_page(
         Ok(Object::Dictionary(dict)) => (Some(dict.clone()), None),
         Ok(Object::Reference(reference)) => (None, Some(*reference)),
         Ok(_) => {
-            return Err(PdfMergeError::new(
+            return Err(MedpdfError::new(
                 "Destination page's /Resource was not a Dictionary nor Reference",
             ))
         }
@@ -451,7 +438,7 @@ pub fn overlay_page(
         }
         (None, Some(dict_ref)) => dict_ref,
         _ => {
-            return Err(PdfMergeError::new(
+            return Err(MedpdfError::new(
                 "Internal error: unexpected state in resources normalization",
             ))
         }

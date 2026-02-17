@@ -1,6 +1,6 @@
 use lopdf::{dictionary, Document, Object, ObjectId, Stream};
 use medpdf::{
-    insert_content_stream, register_extgstate_in_page_resources, PdfMergeError, Result,
+    insert_content_stream, register_extgstate_in_page_resources, MedpdfError, Result,
     KEY_XOBJECT,
 };
 use std::path::Path;
@@ -132,13 +132,13 @@ impl DrawImageParams {
 /// Returns (width, height, components).
 fn parse_jpeg_sof(data: &[u8]) -> Result<(u32, u32, u8)> {
     if data.len() < 2 || data[0] != 0xFF || data[1] != 0xD8 {
-        return Err(PdfMergeError::new("Not a valid JPEG file"));
+        return Err(MedpdfError::new("Not a valid JPEG file"));
     }
 
     let mut i = 2;
     while i + 1 < data.len() {
         if data[i] != 0xFF {
-            return Err(PdfMergeError::new("Invalid JPEG marker"));
+            return Err(MedpdfError::new("Invalid JPEG marker"));
         }
 
         // Skip fill bytes
@@ -156,7 +156,7 @@ fn parse_jpeg_sof(data: &[u8]) -> Result<(u32, u32, u8)> {
         // We accept any baseline/progressive/lossless SOF
         if matches!(marker, 0xC0 | 0xC1 | 0xC2 | 0xC3) {
             if i + 7 > data.len() {
-                return Err(PdfMergeError::new("JPEG SOF marker truncated"));
+                return Err(MedpdfError::new("JPEG SOF marker truncated"));
             }
             // Skip length (2 bytes) and precision (1 byte)
             let height = u16::from_be_bytes([data[i + 3], data[i + 4]]) as u32;
@@ -180,12 +180,12 @@ fn parse_jpeg_sof(data: &[u8]) -> Result<(u32, u32, u8)> {
         }
         let length = u16::from_be_bytes([data[i], data[i + 1]]) as usize;
         if length < 2 {
-            return Err(PdfMergeError::new("Invalid JPEG marker length"));
+            return Err(MedpdfError::new("Invalid JPEG marker length"));
         }
         i += length;
     }
 
-    Err(PdfMergeError::new(
+    Err(MedpdfError::new(
         "Could not find SOF marker in JPEG file",
     ))
 }
@@ -200,7 +200,7 @@ fn parse_jpeg_sof(data: &[u8]) -> Result<(u32, u32, u8)> {
 /// All other formats are decoded via the `image` crate.
 pub fn load_image(path: &Path) -> Result<ImageData> {
     let data = std::fs::read(path)
-        .map_err(|e| PdfMergeError::new(format!("Failed to read image file '{}': {}", path.display(), e)))?;
+        .map_err(|e| MedpdfError::new(format!("Failed to read image file '{}': {}", path.display(), e)))?;
 
     // Check for JPEG magic bytes
     if data.len() >= 2 && data[0] == 0xFF && data[1] == 0xD8 {
@@ -215,7 +215,7 @@ pub fn load_image(path: &Path) -> Result<ImageData> {
 
     // Decode via image crate
     let img = image::load_from_memory(&data)
-        .map_err(|e| PdfMergeError::new(format!("Failed to decode image '{}': {}", path.display(), e)))?;
+        .map_err(|e| MedpdfError::new(format!("Failed to decode image '{}': {}", path.display(), e)))?;
 
     let has_alpha = img.color().has_alpha();
 
@@ -282,12 +282,12 @@ fn maybe_downsample(image_data: ImageData, output_w_pts: f32, output_h_pts: f32,
         ImageData::Jpeg { data, pixel_width: _, pixel_height: _, components } => {
             // Decode JPEG, resize, re-encode as JPEG
             let img = image::load_from_memory(&data)
-                .map_err(|e| PdfMergeError::new(format!("Failed to decode JPEG for downsampling: {e}")))?;
+                .map_err(|e| MedpdfError::new(format!("Failed to decode JPEG for downsampling: {e}")))?;
             let resized = img.resize_exact(new_w, new_h, image::imageops::FilterType::Lanczos3);
 
             let mut jpeg_buf = std::io::Cursor::new(Vec::new());
             resized.write_to(&mut jpeg_buf, image::ImageFormat::Jpeg)
-                .map_err(|e| PdfMergeError::new(format!("Failed to re-encode JPEG: {e}")))?;
+                .map_err(|e| MedpdfError::new(format!("Failed to re-encode JPEG: {e}")))?;
 
             // Re-parse the new JPEG to get exact dimensions
             let jpeg_data = jpeg_buf.into_inner();
@@ -304,20 +304,20 @@ fn maybe_downsample(image_data: ImageData, output_w_pts: f32, output_h_pts: f32,
             // Resize the pixel buffer
             let resized_pixels = if components == 3 {
                 let img = image::RgbImage::from_raw(pixel_width, pixel_height, pixels)
-                    .ok_or_else(|| PdfMergeError::new("Invalid RGB pixel buffer dimensions"))?;
+                    .ok_or_else(|| MedpdfError::new("Invalid RGB pixel buffer dimensions"))?;
                 let resized = image::imageops::resize(&img, new_w, new_h, image::imageops::FilterType::Lanczos3);
                 resized.into_raw()
             } else {
                 // Grayscale
                 let img = image::GrayImage::from_raw(pixel_width, pixel_height, pixels)
-                    .ok_or_else(|| PdfMergeError::new("Invalid Gray pixel buffer dimensions"))?;
+                    .ok_or_else(|| MedpdfError::new("Invalid Gray pixel buffer dimensions"))?;
                 let resized = image::imageops::resize(&img, new_w, new_h, image::imageops::FilterType::Lanczos3);
                 resized.into_raw()
             };
 
             let resized_alpha = if let Some(alpha) = alpha_channel {
                 let alpha_img = image::GrayImage::from_raw(pixel_width, pixel_height, alpha)
-                    .ok_or_else(|| PdfMergeError::new("Invalid alpha channel dimensions"))?;
+                    .ok_or_else(|| MedpdfError::new("Invalid alpha channel dimensions"))?;
                 let resized = image::imageops::resize(&alpha_img, new_w, new_h, image::imageops::FilterType::Lanczos3);
                 Some(resized.into_raw())
             } else {

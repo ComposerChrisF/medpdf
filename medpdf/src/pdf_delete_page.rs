@@ -1,7 +1,7 @@
 //! Page deletion from PDF documents.
 
 use crate::{
-    error::{PdfMergeError, Result},
+    error::{MedpdfError, Result},
     pdf_helpers::{get_page_object_id_from_doc, KEY_COUNT, KEY_KIDS},
 };
 use lopdf::{Document, Object, ObjectId};
@@ -20,9 +20,9 @@ pub fn delete_page(doc: &mut Document, page_num: u32) -> Result<ObjectId> {
     let page_dict = doc.get_dictionary(page_id)?;
     let parent_id = page_dict
         .get(b"Parent")
-        .map_err(|_| PdfMergeError::new("Page has no /Parent reference"))?
+        .map_err(|_| MedpdfError::new("Page has no /Parent reference"))?
         .as_reference()
-        .map_err(|_| PdfMergeError::new("Page /Parent is not a reference"))?;
+        .map_err(|_| MedpdfError::new("Page /Parent is not a reference"))?;
 
     // Remove from /Kids and update /Count
     let parent = doc.get_object_mut(parent_id)?.as_dict_mut()?;
@@ -38,7 +38,7 @@ pub fn delete_page(doc: &mut Document, page_num: u32) -> Result<ObjectId> {
     });
 
     if kids.len() == original_len {
-        return Err(PdfMergeError::new(format!(
+        return Err(MedpdfError::new(format!(
             "Page {page_id:?} not found in parent's /Kids array"
         )));
     }

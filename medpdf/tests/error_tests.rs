@@ -1,27 +1,27 @@
 // tests/error_tests.rs
 // Tests for medpdf::error module
 
-use medpdf::PdfMergeError;
+use medpdf::MedpdfError;
 
-// --- PdfMergeError::new() ---
+// --- MedpdfError::new ---
 
 #[test]
 fn test_new_from_str_literal() {
-    let err = PdfMergeError::new("something went wrong");
+    let err = MedpdfError::new("something went wrong");
     let msg = format!("{}", err);
     assert_eq!(msg, "something went wrong");
 }
 
 #[test]
 fn test_new_from_string() {
-    let err = PdfMergeError::new(String::from("dynamic error"));
+    let err = MedpdfError::new(String::from("dynamic error"));
     let msg = format!("{}", err);
     assert_eq!(msg, "dynamic error");
 }
 
 #[test]
 fn test_new_empty_message() {
-    let err = PdfMergeError::new("");
+    let err = MedpdfError::new("");
     let msg = format!("{}", err);
     assert_eq!(msg, "");
 }
@@ -30,14 +30,14 @@ fn test_new_empty_message() {
 
 #[test]
 fn test_display_message_variant() {
-    let err = PdfMergeError::new("test message");
+    let err = MedpdfError::new("test message");
     assert_eq!(format!("{err}"), "test message");
 }
 
 #[test]
 fn test_display_io_variant() {
     let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file missing");
-    let err = PdfMergeError::Io(io_err);
+    let err = MedpdfError::Io(io_err);
     let display = format!("{err}");
     assert!(display.starts_with("I/O error:"), "got: {display}");
     assert!(display.contains("file missing"), "got: {display}");
@@ -46,7 +46,7 @@ fn test_display_io_variant() {
 #[test]
 fn test_display_lopdf_variant() {
     let lopdf_err = lopdf::Error::ObjectNotFound((1, 0));
-    let err: PdfMergeError = lopdf_err.into();
+    let err: MedpdfError = lopdf_err.into();
     let display = format!("{err}");
     assert!(display.starts_with("PDF error:"), "got: {display}");
 }
@@ -54,7 +54,7 @@ fn test_display_lopdf_variant() {
 #[test]
 fn test_display_fontkit_variant() {
     let fk_err = font_kit::error::SelectionError::NotFound;
-    let err = PdfMergeError::FontKit(fk_err);
+    let err = MedpdfError::FontKit(fk_err);
     let display = format!("{err}");
     assert!(display.starts_with("Font error:"), "got: {display}");
 }
@@ -65,7 +65,7 @@ fn test_display_face_variant() {
     let face_result = ttf_parser::Face::parse(&[], 0);
     assert!(face_result.is_err());
     let face_err = face_result.unwrap_err();
-    let err = PdfMergeError::Face(face_err);
+    let err = MedpdfError::Face(face_err);
     let display = format!("{err}");
     assert!(
         display.starts_with("Font parsing error:"),
@@ -77,7 +77,7 @@ fn test_display_face_variant() {
 
 #[test]
 fn test_debug_message_variant() {
-    let err = PdfMergeError::new("debug test");
+    let err = MedpdfError::new("debug test");
     let debug = format!("{err:?}");
     assert!(debug.contains("Message"), "got: {debug}");
     assert!(debug.contains("debug test"), "got: {debug}");
@@ -86,7 +86,7 @@ fn test_debug_message_variant() {
 #[test]
 fn test_debug_io_variant() {
     let io_err = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "access denied");
-    let err = PdfMergeError::Io(io_err);
+    let err = MedpdfError::Io(io_err);
     let debug = format!("{err:?}");
     assert!(debug.contains("Io"), "got: {debug}");
 }
@@ -96,43 +96,43 @@ fn test_debug_io_variant() {
 #[test]
 fn test_from_io_error() {
     let io_err = std::io::Error::new(std::io::ErrorKind::BrokenPipe, "broken");
-    let err: PdfMergeError = io_err.into();
-    assert!(matches!(err, PdfMergeError::Io(_)));
+    let err: MedpdfError = io_err.into();
+    assert!(matches!(err, MedpdfError::Io(_)));
 }
 
 #[test]
 fn test_from_lopdf_error() {
     let lopdf_err = lopdf::Error::ObjectNotFound((1, 0));
-    let err: PdfMergeError = lopdf_err.into();
-    assert!(matches!(err, PdfMergeError::LoPdf(_)));
+    let err: MedpdfError = lopdf_err.into();
+    assert!(matches!(err, MedpdfError::LoPdf(_)));
 }
 
 #[test]
 fn test_from_str() {
-    let err: PdfMergeError = "string slice error".into();
-    assert!(matches!(err, PdfMergeError::Message(_)));
+    let err: MedpdfError = "string slice error".into();
+    assert!(matches!(err, MedpdfError::Message(_)));
     assert_eq!(format!("{err}"), "string slice error");
 }
 
 #[test]
 fn test_from_string() {
-    let err: PdfMergeError = String::from("owned string error").into();
-    assert!(matches!(err, PdfMergeError::Message(_)));
+    let err: MedpdfError = String::from("owned string error").into();
+    assert!(matches!(err, MedpdfError::Message(_)));
     assert_eq!(format!("{err}"), "owned string error");
 }
 
 #[test]
 fn test_from_face_parsing_error() {
     let face_err = ttf_parser::Face::parse(&[], 0).unwrap_err();
-    let err: PdfMergeError = face_err.into();
-    assert!(matches!(err, PdfMergeError::Face(_)));
+    let err: MedpdfError = face_err.into();
+    assert!(matches!(err, MedpdfError::Face(_)));
 }
 
 #[test]
 fn test_from_selection_error() {
     let sel_err = font_kit::error::SelectionError::NotFound;
-    let err: PdfMergeError = sel_err.into();
-    assert!(matches!(err, PdfMergeError::FontKit(_)));
+    let err: MedpdfError = sel_err.into();
+    assert!(matches!(err, MedpdfError::FontKit(_)));
 }
 
 // --- std::error::Error::source() ---
@@ -140,7 +140,7 @@ fn test_from_selection_error() {
 #[test]
 fn test_source_message_is_none() {
     use std::error::Error;
-    let err = PdfMergeError::new("no source");
+    let err = MedpdfError::new("no source");
     assert!(err.source().is_none());
 }
 
@@ -148,7 +148,7 @@ fn test_source_message_is_none() {
 fn test_source_io_is_some() {
     use std::error::Error;
     let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "missing");
-    let err = PdfMergeError::Io(io_err);
+    let err = MedpdfError::Io(io_err);
     let source = err.source();
     assert!(source.is_some());
     assert!(source.unwrap().to_string().contains("missing"));
@@ -158,7 +158,7 @@ fn test_source_io_is_some() {
 fn test_source_lopdf_is_some() {
     use std::error::Error;
     let lopdf_err = lopdf::Error::ObjectNotFound((1, 0));
-    let err: PdfMergeError = lopdf_err.into();
+    let err: MedpdfError = lopdf_err.into();
     assert!(err.source().is_some());
 }
 
@@ -166,7 +166,7 @@ fn test_source_lopdf_is_some() {
 fn test_source_fontkit_is_some() {
     use std::error::Error;
     let fk_err = font_kit::error::SelectionError::NotFound;
-    let err: PdfMergeError = fk_err.into();
+    let err: MedpdfError = fk_err.into();
     assert!(err.source().is_some());
 }
 
@@ -174,7 +174,7 @@ fn test_source_fontkit_is_some() {
 fn test_source_face_is_some() {
     use std::error::Error;
     let face_err = ttf_parser::Face::parse(&[], 0).unwrap_err();
-    let err: PdfMergeError = face_err.into();
+    let err: MedpdfError = face_err.into();
     assert!(err.source().is_some());
 }
 
@@ -191,14 +191,14 @@ fn test_result_type_alias_ok() {
 
 #[test]
 fn test_result_type_alias_err() {
-    let result: medpdf::Result<i32> = Err(PdfMergeError::new("fail"));
+    let result: medpdf::Result<i32> = Err(MedpdfError::new("fail"));
     assert!(result.is_err());
 }
 
 // --- Error can be used with ? operator ---
 
 fn function_returning_result() -> medpdf::Result<()> {
-    let _: () = Err(PdfMergeError::new("propagated"))?;
+    let _: () = Err(MedpdfError::new("propagated"))?;
     Ok(())
 }
 

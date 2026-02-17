@@ -58,10 +58,10 @@ fn main() -> Result<()> {
 ### Error Handling
 
 ```rust
-use medpdf::{Error, PdfMergeError, Result};
+use medpdf::{Error, MedpdfError, Result};
 ```
 
-`PdfMergeError` wraps errors from underlying libraries:
+`MedpdfError` wraps errors from underlying libraries:
 
 | Variant | Source |
 |---------|--------|
@@ -71,7 +71,7 @@ use medpdf::{Error, PdfMergeError, Result};
 | `Face` | `ttf_parser::FaceParsingError` |
 | `Message` | Custom error messages |
 
-All public functions return `Result<T>`, which is `std::result::Result<T, PdfMergeError>`.
+All public functions return `Result<T>`, which is `std::result::Result<T, MedpdfError>`.
 
 ### Page Operations
 
