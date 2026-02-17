@@ -116,7 +116,7 @@ impl DrawImageParams {
     }
 
     pub fn alpha(mut self, alpha: f32) -> Self {
-        self.alpha = alpha;
+        self.alpha = alpha.clamp(0.0, 1.0);
         self
     }
 
@@ -459,6 +459,13 @@ pub(crate) fn compute_fit(
 
 /// Embed an image into a PDF page.
 pub fn add_image(doc: &mut Document, page_id: ObjectId, params: DrawImageParams) -> Result<()> {
+    if params.width <= 0.0 || params.height <= 0.0 {
+        return Err(MedpdfError::new(format!(
+            "Image output dimensions must be positive, got {}x{}",
+            params.width, params.height
+        )));
+    }
+
     let img_w = params.image_data.pixel_width() as f32;
     let img_h = params.image_data.pixel_height() as f32;
 
@@ -1050,6 +1057,73 @@ mod tests {
         // 600px at 72pt output = 600 DPI -> should downsample to ~300 DPI
         let result = maybe_downsample(data, 72.0, 72.0, 300.0).unwrap();
         assert!(result.pixel_width() < 600);
+    }
+
+    // --- Validation tests ---
+
+    #[test]
+    fn test_add_image_zero_width_errors() {
+        let (mut doc, page_id) = create_test_doc_and_page();
+        let image_data = ImageData::Decoded {
+            pixels: vec![0; 3],
+            alpha_channel: None,
+            pixel_width: 1,
+            pixel_height: 1,
+            components: 3,
+        };
+        let params = DrawImageParams::new(image_data, 0.0, 0.0, 0.0, 72.0);
+        assert!(add_image(&mut doc, page_id, params).is_err());
+    }
+
+    #[test]
+    fn test_add_image_zero_height_errors() {
+        let (mut doc, page_id) = create_test_doc_and_page();
+        let image_data = ImageData::Decoded {
+            pixels: vec![0; 3],
+            alpha_channel: None,
+            pixel_width: 1,
+            pixel_height: 1,
+            components: 3,
+        };
+        let params = DrawImageParams::new(image_data, 0.0, 0.0, 72.0, 0.0);
+        assert!(add_image(&mut doc, page_id, params).is_err());
+    }
+
+    #[test]
+    fn test_add_image_negative_dimensions_errors() {
+        let (mut doc, page_id) = create_test_doc_and_page();
+        let image_data = ImageData::Decoded {
+            pixels: vec![0; 3],
+            alpha_channel: None,
+            pixel_width: 1,
+            pixel_height: 1,
+            components: 3,
+        };
+        let params = DrawImageParams::new(image_data, 0.0, 0.0, -50.0, 72.0);
+        assert!(add_image(&mut doc, page_id, params).is_err());
+    }
+
+    #[test]
+    fn test_draw_image_params_alpha_clamped() {
+        let image_data = ImageData::Decoded {
+            pixels: vec![0; 3],
+            alpha_channel: None,
+            pixel_width: 1,
+            pixel_height: 1,
+            components: 3,
+        };
+        let params = DrawImageParams::new(image_data, 0.0, 0.0, 72.0, 72.0).alpha(1.5);
+        assert!((params.alpha - 1.0).abs() < f32::EPSILON);
+
+        let image_data = ImageData::Decoded {
+            pixels: vec![0; 3],
+            alpha_channel: None,
+            pixel_width: 1,
+            pixel_height: 1,
+            components: 3,
+        };
+        let params = DrawImageParams::new(image_data, 0.0, 0.0, 72.0, 72.0).alpha(-0.5);
+        assert!((params.alpha - 0.0).abs() < f32::EPSILON);
     }
 
     #[test]

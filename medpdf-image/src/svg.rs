@@ -100,7 +100,7 @@ impl DrawSvgParams {
     }
 
     pub fn alpha(mut self, alpha: f32) -> Self {
-        self.alpha = alpha;
+        self.alpha = alpha.clamp(0.0, 1.0);
         self
     }
 
@@ -193,6 +193,13 @@ pub fn load_svg_bytes(data: &[u8]) -> Result<SvgData> {
 
 /// Embed an SVG into a PDF page.
 pub fn add_svg(doc: &mut Document, page_id: ObjectId, params: DrawSvgParams) -> Result<()> {
+    if params.width <= 0.0 || params.height <= 0.0 {
+        return Err(MedpdfError::new(format!(
+            "SVG output dimensions must be positive, got {}x{}",
+            params.width, params.height
+        )));
+    }
+
     let opts = params.options;
 
     // Convert SVG → PDF bytes
@@ -371,10 +378,10 @@ fn get_media_box_dimensions(
 
     let get_f32 = |obj: &Object| -> Result<f32> {
         match obj {
-            Object::Real(v) => Ok(*v as f32),
+            Object::Real(v) => Ok(*v),
             Object::Integer(v) => Ok(*v as f32),
             Object::Reference(id) => match doc.get_object(*id)? {
-                Object::Real(v) => Ok(*v as f32),
+                Object::Real(v) => Ok(*v),
                 Object::Integer(v) => Ok(*v as f32),
                 _ => Err(MedpdfError::new("MediaBox element is not a number")),
             },
@@ -429,14 +436,14 @@ fn append_stream_bytes(doc: &Document, obj_id: ObjectId, buf: &mut Vec<u8>) -> R
         .as_stream()
         .map_err(|e| MedpdfError::new(format!("Contents entry is not a stream: {e}")))?;
 
-    let bytes = if stream.is_compressed() {
-        stream
-            .decompressed_content()
-            .unwrap_or_else(|_| stream.content.clone())
+    if stream.is_compressed() {
+        match stream.decompressed_content() {
+            Ok(decompressed) => buf.extend_from_slice(&decompressed),
+            Err(_) => buf.extend_from_slice(&stream.content),
+        }
     } else {
-        stream.content.clone()
-    };
-    buf.extend_from_slice(&bytes);
+        buf.extend_from_slice(&stream.content);
+    }
     Ok(())
 }
 
@@ -1149,6 +1156,45 @@ mod tests {
         let cm_count = text.matches(" cm\n").count();
         assert!(cm_count >= 4, "Should have rotation cm ops, got {cm_count}");
         assert!(text.contains("Do"), "Should have Do operator");
+    }
+
+    // -----------------------------------------------------------------------
+    // Validation
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_add_svg_zero_width_errors() {
+        let (mut doc, page_id) = create_test_doc_and_page();
+        let svg = load_svg_str(SIMPLE_SVG).unwrap();
+        let params = DrawSvgParams::new(svg, 0.0, 0.0, 0.0, 100.0);
+        assert!(add_svg(&mut doc, page_id, params).is_err());
+    }
+
+    #[test]
+    fn test_add_svg_zero_height_errors() {
+        let (mut doc, page_id) = create_test_doc_and_page();
+        let svg = load_svg_str(SIMPLE_SVG).unwrap();
+        let params = DrawSvgParams::new(svg, 0.0, 0.0, 100.0, 0.0);
+        assert!(add_svg(&mut doc, page_id, params).is_err());
+    }
+
+    #[test]
+    fn test_add_svg_negative_dimensions_errors() {
+        let (mut doc, page_id) = create_test_doc_and_page();
+        let svg = load_svg_str(SIMPLE_SVG).unwrap();
+        let params = DrawSvgParams::new(svg, 0.0, 0.0, -50.0, 100.0);
+        assert!(add_svg(&mut doc, page_id, params).is_err());
+    }
+
+    #[test]
+    fn test_draw_svg_params_alpha_clamped() {
+        let svg = load_svg_str(SIMPLE_SVG).unwrap();
+        let params = DrawSvgParams::new(svg, 0.0, 0.0, 100.0, 100.0).alpha(1.5);
+        assert!((params.alpha - 1.0).abs() < f32::EPSILON);
+
+        let svg = load_svg_str(SIMPLE_SVG).unwrap();
+        let params = DrawSvgParams::new(svg, 0.0, 0.0, 100.0, 100.0).alpha(-0.5);
+        assert!((params.alpha - 0.0).abs() < f32::EPSILON);
     }
 
     // -----------------------------------------------------------------------
