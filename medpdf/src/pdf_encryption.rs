@@ -126,13 +126,13 @@ pub fn parse_permission_name(name: &str) -> std::result::Result<Permissions, Str
 /// Parse a slice of permission names into a combined `Permissions` value.
 ///
 /// If the slice is empty, returns all permissions (the default).
-pub fn parse_permissions(names: &[String]) -> std::result::Result<Permissions, String> {
+pub fn parse_permissions(names: &[impl AsRef<str>]) -> std::result::Result<Permissions, String> {
     if names.is_empty() {
         return Ok(Permissions::all());
     }
     let mut perms = Permissions::empty();
     for name in names {
-        perms |= parse_permission_name(name)?;
+        perms |= parse_permission_name(name.as_ref())?;
     }
     Ok(perms)
 }
