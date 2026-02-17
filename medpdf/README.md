@@ -20,7 +20,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-medpdf = "0.1.0"
+medpdf = "0.8.2"
 ```
 
 ## Quick Start
@@ -132,15 +132,16 @@ overlay_page(
 )?;
 ```
 
-**Known limitation:** Resource key deduplication only scans the root `/Pages` node of the destination document when generating unique names for overlay resources. Per-page resource dictionaries are not inspected, which could theoretically cause name collisions in documents with page-level resources.
+Resource key deduplication recursively scans the entire destination page tree (both `/Pages` and `/Page` nodes) to collect existing resource names before generating unique overlay names.
 
 #### `add_text_params`
 
 Adds a text watermark to a page with full control over color, alignment, rotation, and more.
 
 ```rust
-use medpdf::{add_text_params, AddTextParams, PdfColor, HAlign};
+use medpdf::{add_text_params, AddTextParams, PdfColor, HAlign, EmbeddedFontCache};
 
+let mut font_cache = EmbeddedFontCache::new();
 let params = AddTextParams::new("DRAFT", font_data, "Helvetica")
     .font_size(24.0)
     .position(100.0, 100.0)
@@ -149,7 +150,7 @@ let params = AddTextParams::new("DRAFT", font_data, "Helvetica")
     .h_align(HAlign::Center)
     .layer_over(true);
 
-add_text_params(&mut dest_doc, page_id, &params)?;
+add_text_params(&mut dest_doc, page_id, &params, &mut font_cache)?;
 ```
 
 ### Parsing
@@ -191,6 +192,7 @@ Represents the source of a font:
 |---------|-------------|
 | `BuiltIn(String)` | PDF built-in font (Helvetica, Courier, etc.) |
 | `Path(PathBuf)` | Path to a font file |
+| `Memory(Arc<Vec<u8>>, String)` | In-memory font data with display name |
 | `Hack(u8)` | Reference to existing document font by index |
 
 #### `find_font`
@@ -240,22 +242,9 @@ let points = Unit::Mm.to_points(25.4); // 72.0
 use medpdf::pdf_helpers::{KEY_PAGES, KEY_RESOURCES, KEY_CONTENTS, KEY_FONT};
 ```
 
-### Deep Copy Utilities
+### Deep Copy (Internal)
 
-```rust
-use medpdf::pdf_helpers::{deep_copy_object, deep_copy_object_by_id};
-use std::collections::BTreeMap;
-
-let mut copied_objects = BTreeMap::new();
-let new_id = deep_copy_object_by_id(
-    &mut dest_doc,
-    &source_doc,
-    source_object_id,
-    &mut copied_objects,
-)?;
-```
-
-The `copied_objects` map tracks which source objects have been copied and their new IDs, preventing duplicate copies and maintaining reference integrity.
+`deep_copy_object()` and `deep_copy_object_by_id()` are `pub(crate)` helpers used internally by `copy_page`, `overlay_page`, and other operations. They recursively clone PDF objects using a `BTreeMap<ObjectId, ObjectId>` to track copies, preventing duplicates and maintaining reference integrity. `Parent` references are skipped to avoid copying the entire page tree.
 
 ## Key Patterns
 

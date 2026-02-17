@@ -15,7 +15,7 @@ Never commit changes to git without permission from the user.
 
 ## Workspace Structure
 
-This is a Cargo workspace with two crates:
+This is a Cargo workspace with three crates:
 
 ```
 pdf_merger/                    # Repository root (workspace)
@@ -25,16 +25,22 @@ pdf_merger/                    # Repository root (workspace)
 │   └── src/
 │       ├── lib.rs             # Public API and re-exports
 │       ├── error.rs           # MedpdfError with Display trait
+│       ├── types.rs           # Builder-pattern param types (AddTextParams, PdfColor, etc.)
+│       ├── font_data.rs       # FontData enum (Hack/BuiltIn/Embedded)
 │       ├── parsing.rs         # Page spec parsing with nom
 │       ├── pdf_helpers.rs     # Deep copy, PDF key constants, Unit enum
 │       ├── pdf_font.rs        # Font discovery and caching
-│       ├── font_helpers.rs    # TTF parsing, font metrics
+│       ├── font_helpers.rs    # TTF parsing, font metrics, WinAnsi encoding
 │       ├── pdf_copy_page.rs   # Page copying between documents
 │       ├── pdf_delete_page.rs # Page deletion from documents
 │       ├── pdf_blank_page.rs  # Blank page creation
-│       ├── pdf_encryption.rs   # Document encryption (AES-256/AES-128)
+│       ├── pdf_encryption.rs  # Document encryption (AES-256/AES-128)
 │       ├── pdf_overlay.rs     # Page overlay with resource renaming
 │       └── pdf_watermark.rs   # Text watermark rendering
+├── medpdf-image/              # Image embedding companion crate
+│   ├── Cargo.toml
+│   └── src/
+│       └── lib.rs             # JPEG/PNG/etc. image embedding into PDF pages
 └── pdf-merger/                # CLI crate
     ├── Cargo.toml
     └── src/
@@ -60,16 +66,19 @@ pdf_merger/                    # Repository root (workspace)
 | Crate/Module | Purpose |
 |--------------|---------|
 | `medpdf::error` | Custom `MedpdfError` enum with Display/Error traits |
+| `medpdf::types` | Builder-pattern param types: `AddTextParams`, `DrawRectParams`, `DrawLineParams`, `PdfColor`, alignment enums |
+| `medpdf::font_data` | `FontData` enum: `Hack(u8)`, `BuiltIn(String)`, `Embedded(Arc<Vec<u8>>)` |
 | `medpdf::parsing` | Page spec parsing with nom (`"1-3,5,7-"`, `"all"`) |
 | `medpdf::pdf_helpers` | Deep object copying, PDF key constants, Unit enum, page rotation |
 | `medpdf::pdf_font` | Font discovery (system/file) and caching; re-exports `find_font`, `FontCache`, `FontPath` |
-| `medpdf::font_helpers` | TTF parsing, font metrics, PDF FontDescriptor generation |
+| `medpdf::font_helpers` | TTF parsing, font metrics, PDF FontDescriptor generation, canonical WinAnsi encoding table |
 | `medpdf::pdf_copy_page` | `copy_page()` - copy pages between documents |
 | `medpdf::pdf_delete_page` | `delete_page()` - remove pages from documents |
 | `medpdf::pdf_encryption` | `encrypt_document()` - AES-256/AES-128 encryption with permission controls |
 | `medpdf::pdf_blank_page` | `create_blank_page()` - add empty pages |
 | `medpdf::pdf_overlay` | `overlay_page()` - merge content with resource renaming |
 | `medpdf::pdf_watermark` | `add_text_params()` - text watermark rendering with color, alignment, rotation, alpha; `EmbeddedFontCache` for deduplicating embedded font objects across pages |
+| `medpdf_image` | Image embedding companion crate (JPEG, PNG, etc.) |
 | `pdf_merger::main` | CLI args (clap), orchestrates pipeline (`pdf-merger` crate) |
 | `pdf_merger::spec_types` | CLI spec types with FromStr for clap integration (`pdf-merger` crate) |
 
