@@ -6,11 +6,12 @@ use medpdf::{
 use std::path::Path;
 
 /// Fit mode when both width and height are specified.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum ImageFit {
     /// Distort image to exact w x h.
     Stretch,
     /// Fit inside box preserving aspect ratio, centered.
+    #[default]
     Contain,
     /// Fill box preserving aspect ratio, overflow clipped.
     Cover,
@@ -154,8 +155,8 @@ fn parse_jpeg_sof(data: &[u8]) -> Result<(u32, u32, u8)> {
 
         // SOF markers: SOF0 (0xC0), SOF1 (0xC1), SOF2 (0xC2), SOF3 (0xC3)
         // We accept any baseline/progressive/lossless SOF
-        if matches!(marker, 0xC0 | 0xC1 | 0xC2 | 0xC3) {
-            if i + 7 > data.len() {
+        if matches!(marker, 0xC0..=0xC3) {
+            if i + 8 > data.len() {
                 return Err(MedpdfError::new("JPEG SOF marker truncated"));
             }
             // Skip length (2 bytes) and precision (1 byte)
@@ -217,25 +218,58 @@ pub fn load_image(path: &Path) -> Result<ImageData> {
     let img = image::load_from_memory(&data)
         .map_err(|e| MedpdfError::new(format!("Failed to decode image '{}': {}", path.display(), e)))?;
 
-    let has_alpha = img.color().has_alpha();
+    let color = img.color();
+    let has_alpha = color.has_alpha();
+    let is_grayscale = matches!(
+        color,
+        image::ColorType::L8 | image::ColorType::L16 | image::ColorType::La8 | image::ColorType::La16
+    );
 
     if has_alpha {
-        let rgba = img.into_rgba8();
-        let (w, h) = (rgba.width(), rgba.height());
-        let mut pixels = Vec::with_capacity((w * h * 3) as usize);
-        let mut alpha_channel = Vec::with_capacity((w * h) as usize);
-        for pixel in rgba.pixels() {
-            pixels.push(pixel[0]);
-            pixels.push(pixel[1]);
-            pixels.push(pixel[2]);
-            alpha_channel.push(pixel[3]);
+        if is_grayscale {
+            let la = img.into_luma_alpha8();
+            let (w, h) = (la.width(), la.height());
+            let mut pixels = Vec::with_capacity((w * h) as usize);
+            let mut alpha_channel = Vec::with_capacity((w * h) as usize);
+            for pixel in la.pixels() {
+                pixels.push(pixel[0]);
+                alpha_channel.push(pixel[1]);
+            }
+            Ok(ImageData::Decoded {
+                pixels,
+                alpha_channel: Some(alpha_channel),
+                pixel_width: w,
+                pixel_height: h,
+                components: 1,
+            })
+        } else {
+            let rgba = img.into_rgba8();
+            let (w, h) = (rgba.width(), rgba.height());
+            let mut pixels = Vec::with_capacity((w * h * 3) as usize);
+            let mut alpha_channel = Vec::with_capacity((w * h) as usize);
+            for pixel in rgba.pixels() {
+                pixels.push(pixel[0]);
+                pixels.push(pixel[1]);
+                pixels.push(pixel[2]);
+                alpha_channel.push(pixel[3]);
+            }
+            Ok(ImageData::Decoded {
+                pixels,
+                alpha_channel: Some(alpha_channel),
+                pixel_width: w,
+                pixel_height: h,
+                components: 3,
+            })
         }
+    } else if is_grayscale {
+        let gray = img.into_luma8();
+        let (w, h) = (gray.width(), gray.height());
         Ok(ImageData::Decoded {
-            pixels,
-            alpha_channel: Some(alpha_channel),
+            pixels: gray.into_raw(),
+            alpha_channel: None,
             pixel_width: w,
             pixel_height: h,
-            components: 3,
+            components: 1,
         })
     } else {
         let rgb = img.into_rgb8();
@@ -349,6 +383,36 @@ fn register_xobject_in_page_resources(
     medpdf::register_in_page_resources(doc, page_id, KEY_XOBJECT, xobj_name.as_bytes(), xobj_id)
 }
 
+/// Generate an image XObject name that doesn't collide with existing XObject entries.
+fn unique_img_name(doc: &Document, page_id: ObjectId) -> String {
+    // Collect existing XObject keys from the page's resources (best-effort).
+    let existing = (|| -> Option<std::collections::HashSet<Vec<u8>>> {
+        let page_dict = doc.get_dictionary(page_id).ok()?;
+        let res_obj = page_dict.get(medpdf::KEY_RESOURCES).ok()?;
+        let res_dict = match res_obj {
+            Object::Reference(id) => doc.get_dictionary(*id).ok()?,
+            Object::Dictionary(d) => d,
+            _ => return None,
+        };
+        let xobj_obj = res_dict.get(KEY_XOBJECT).ok()?;
+        let xobj_dict = match xobj_obj {
+            Object::Reference(id) => doc.get_dictionary(*id).ok()?,
+            Object::Dictionary(d) => d,
+            _ => return None,
+        };
+        Some(xobj_dict.as_hashmap().keys().cloned().collect())
+    })()
+    .unwrap_or_default();
+
+    for i in 0u32.. {
+        let name = format!("Img{i}");
+        if !existing.contains(name.as_bytes()) {
+            return name;
+        }
+    }
+    unreachable!()
+}
+
 // ---------------------------------------------------------------------------
 // Sizing / fit logic
 // ---------------------------------------------------------------------------
@@ -400,9 +464,9 @@ pub fn add_image(doc: &mut Document, page_id: ObjectId, params: DrawImageParams)
     let image_data = maybe_downsample(params.image_data, actual_w, actual_h, params.max_dpi)?;
 
     // Create the image XObject
-    let img_name = format!("Img{}", doc.max_id + 1);
+    let img_name = unique_img_name(doc, page_id);
 
-    let xobj_id = match &image_data {
+    let xobj_id = match image_data {
         ImageData::Jpeg {
             data,
             pixel_width,
@@ -417,14 +481,14 @@ pub fn add_image(doc: &mut Document, page_id: ObjectId, params: DrawImageParams)
             let img_dict = dictionary! {
                 "Type" => "XObject",
                 "Subtype" => "Image",
-                "Width" => *pixel_width as i64,
-                "Height" => *pixel_height as i64,
+                "Width" => pixel_width as i64,
+                "Height" => pixel_height as i64,
                 "ColorSpace" => color_space,
                 "BitsPerComponent" => 8,
                 "Filter" => "DCTDecode",
                 "Length" => data.len() as i64,
             };
-            doc.add_object(Stream::new(img_dict, data.clone()))
+            doc.add_object(Stream::new(img_dict, data))
         }
         ImageData::Decoded {
             pixels,
@@ -433,20 +497,20 @@ pub fn add_image(doc: &mut Document, page_id: ObjectId, params: DrawImageParams)
             pixel_height,
             components,
         } => {
-            let color_space = if *components == 1 {
+            let color_space = if components == 1 {
                 "DeviceGray"
             } else {
                 "DeviceRGB"
             };
 
             // Compress pixel data with flate2
-            let compressed = flate_compress(pixels);
+            let compressed = flate_compress(&pixels)?;
 
             let mut img_dict = dictionary! {
                 "Type" => "XObject",
                 "Subtype" => "Image",
-                "Width" => *pixel_width as i64,
-                "Height" => *pixel_height as i64,
+                "Width" => pixel_width as i64,
+                "Height" => pixel_height as i64,
                 "ColorSpace" => color_space,
                 "BitsPerComponent" => 8,
                 "Filter" => "FlateDecode",
@@ -454,13 +518,13 @@ pub fn add_image(doc: &mut Document, page_id: ObjectId, params: DrawImageParams)
             };
 
             // Create SMask for alpha channel
-            if let Some(alpha) = alpha_channel {
-                let alpha_compressed = flate_compress(alpha);
+            if let Some(alpha) = &alpha_channel {
+                let alpha_compressed = flate_compress(alpha)?;
                 let smask_dict = dictionary! {
                     "Type" => "XObject",
                     "Subtype" => "Image",
-                    "Width" => *pixel_width as i64,
-                    "Height" => *pixel_height as i64,
+                    "Width" => pixel_width as i64,
+                    "Height" => pixel_height as i64,
                     "ColorSpace" => "DeviceGray",
                     "BitsPerComponent" => 8,
                     "Filter" => "FlateDecode",
@@ -545,22 +609,26 @@ pub fn add_image(doc: &mut Document, page_id: ObjectId, params: DrawImageParams)
     insert_content_stream(doc, page_id, content_id, params.layer_over)
 }
 
-fn flate_compress(data: &[u8]) -> Vec<u8> {
+fn flate_compress(data: &[u8]) -> Result<Vec<u8>> {
     use flate2::write::ZlibEncoder;
     use flate2::Compression;
     use std::io::Write;
 
     let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
-    encoder.write_all(data).expect("flate2 compress failed");
-    encoder.finish().expect("flate2 finish failed")
+    encoder
+        .write_all(data)
+        .map_err(|e| MedpdfError::new(format!("flate2 compress failed: {e}")))?;
+    encoder
+        .finish()
+        .map_err(|e| MedpdfError::new(format!("flate2 finish failed: {e}")))
 }
 
 fn fmt_f32(v: f32) -> String {
     // Avoid trailing zeros, but keep reasonable precision
-    let s = format!("{:.4}", v);
-    let s = s.trim_end_matches('0');
-    let s = s.trim_end_matches('.');
-    s.to_string()
+    let mut s = format!("{v:.4}");
+    let trimmed_len = s.trim_end_matches('0').trim_end_matches('.').len();
+    s.truncate(trimmed_len);
+    s
 }
 
 // ---------------------------------------------------------------------------
