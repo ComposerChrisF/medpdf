@@ -1,3 +1,5 @@
+//! Page overlay — merging content from one PDF page onto another with resource renaming.
+
 use crate::error::{PdfMergeError, Result};
 use crate::pdf_helpers::{self, KEY_CONTENTS, KEY_KIDS, KEY_PAGE, KEY_PAGES, KEY_RESOURCES, KEY_TYPE};
 use log::{debug, trace, warn};

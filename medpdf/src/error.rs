@@ -1,5 +1,8 @@
+//! Error types for medpdf operations.
+
 use std::fmt::Debug;
 
+/// Unified error type for all medpdf operations.
 #[non_exhaustive]
 pub enum PdfMergeError {
     Io(std::io::Error),
@@ -80,5 +83,8 @@ impl std::error::Error for PdfMergeError {
     }
 }
 
+/// Alias for [`PdfMergeError`].
 pub type Error = PdfMergeError;
+
+/// Convenience result type for medpdf operations.
 pub type Result<T> = std::result::Result<T, Error>;

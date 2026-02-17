@@ -1,3 +1,5 @@
+//! Blank page creation.
+
 use crate::{
     error::Result,
     pdf_helpers::{KEY_COUNT, KEY_KIDS, KEY_PAGES, KEY_PARENT},

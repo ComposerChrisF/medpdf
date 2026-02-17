@@ -1,3 +1,5 @@
+//! Page deletion from PDF documents.
+
 use crate::{
     error::{PdfMergeError, Result},
     pdf_helpers::{get_page_object_id_from_doc, KEY_COUNT, KEY_KIDS},

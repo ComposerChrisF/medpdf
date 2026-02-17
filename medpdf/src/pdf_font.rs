@@ -1,3 +1,8 @@
+//! Font discovery, resolution, and caching.
+//!
+//! Resolves font specifiers to concrete font data via a pipeline:
+//! numeric handle → `@`-prefixed built-in → system search (font-kit) → direct file path.
+
 use font_kit::source::SystemSource;
 use std::{
     collections::HashMap,
@@ -9,14 +14,20 @@ use std::{
 use crate::error::{PdfMergeError, Result};
 use crate::font_data::FontData;
 
+/// A resolved font location.
 pub enum FontPath {
+    /// Numeric font handle (legacy compatibility).
     Hack(u8),
+    /// Standard PDF built-in font name (e.g. `Helvetica`).
     BuiltIn(String),
+    /// Path to a font file on disk.
     Path(PathBuf),
+    /// In-memory font data with a display name.
     Memory(Arc<Vec<u8>>, String),
 }
 
 impl FontPath {
+    /// Returns a display name suitable for use as a PDF resource key.
     pub fn get_name(&self) -> String {
         match self {
             FontPath::Hack(n) => format!("F{n}"),
@@ -31,6 +42,7 @@ impl FontPath {
     }
 }
 
+/// Caches font file reads as `Arc<Vec<u8>>`, keyed by file path.
 pub struct FontCache {
     hash: HashMap<PathBuf, Arc<Vec<u8>>>,
 }
@@ -42,6 +54,7 @@ impl FontCache {
         }
     }
 
+    /// Returns font data for the given path, reading from disk (and caching) if needed.
     pub fn get_data(&mut self, font_path: &FontPath) -> Result<FontData> {
         match font_path {
             FontPath::Hack(n) => Ok(FontData::Hack(*n)),
@@ -130,6 +143,7 @@ pub fn find_font_with_style(
     }
 }
 
+/// Resolves a font specifier to a [`FontPath`] using default weight/style.
 pub fn find_font(font_path: &Path) -> Result<FontPath> {
     if let Some(resolved) = resolve_non_system_font(font_path) {
         return Ok(resolved);

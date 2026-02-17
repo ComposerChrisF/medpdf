@@ -1,4 +1,8 @@
-// medpdf - Medium-level PDF API over lopdf
+//! Medium-level PDF API over lopdf.
+//!
+//! Provides reusable operations for building, merging, and manipulating PDF documents:
+//! page copying, deletion, blank page creation, overlays, text/shape watermarking,
+//! font discovery and embedding, and document encryption.
 
 pub mod error;
 pub mod font_data;

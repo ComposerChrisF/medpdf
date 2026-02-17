@@ -1,4 +1,4 @@
-// src/parsing.rs
+//! Page specification parsing (e.g. `"1-3,5,7-"`, `"all"`).
 
 use nom::{
     branch::alt,

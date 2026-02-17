@@ -1,3 +1,8 @@
+//! Text watermarks, rectangles, and lines — drawing operations on PDF pages.
+//!
+//! Supports color, alpha, rotation, horizontal/vertical alignment, underline,
+//! strikeout, and layering (over or under existing content).
+
 use std::collections::HashMap;
 use std::sync::Arc;
 

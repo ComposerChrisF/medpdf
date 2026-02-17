@@ -1,3 +1,5 @@
+//! Page copying between PDF documents with full object graph duplication.
+
 use crate::{
     error::Result,
     pdf_helpers::{self, KEY_COUNT, KEY_KIDS, KEY_PAGES, KEY_PARENT},

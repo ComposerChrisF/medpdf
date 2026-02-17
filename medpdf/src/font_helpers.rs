@@ -1,3 +1,5 @@
+//! TTF/OTF font parsing, metrics extraction, and PDF font descriptor generation.
+
 use ttf_parser::{name_id, Face};
 
 use crate::error::PdfMergeError;

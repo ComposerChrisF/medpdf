@@ -1,3 +1,5 @@
+//! Low-level PDF helpers: deep object copying, page tree traversal, key constants, and units.
+
 use crate::error::{PdfMergeError, Result};
 use lopdf::{dictionary, Dictionary, Document, Object, ObjectId, Stream};
 use std::collections::BTreeMap;

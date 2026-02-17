@@ -1,3 +1,9 @@
+//! PDF document encryption (AES-256 and AES-128) with permission controls.
+//!
+//! AES-256 (V5) generates a random file encryption key; passwords wrap it for authentication.
+//! AES-128 (V4) derives the key from the password and file ID.
+//! RC4 is intentionally excluded — it is cryptographically broken.
+
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
