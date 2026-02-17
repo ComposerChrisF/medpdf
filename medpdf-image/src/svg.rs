@@ -449,9 +449,34 @@ mod tests {
     use super::*;
     use medpdf::KEY_XOBJECT;
 
+    // --- Test SVG constants ---
+
+    /// Landscape SVG: 100x50 user units.
     const SIMPLE_SVG: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="50">
   <rect width="100" height="50" fill="red"/>
 </svg>"#;
+
+    /// Square SVG: 200x200 user units.
+    const SQUARE_SVG: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200">
+  <circle cx="100" cy="100" r="80" fill="blue"/>
+</svg>"#;
+
+    /// Portrait SVG: 50x150 user units.
+    const PORTRAIT_SVG: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" width="50" height="150">
+  <rect width="50" height="150" fill="green"/>
+</svg>"#;
+
+    /// SVG with text content.
+    const TEXT_SVG: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100">
+  <text x="10" y="50" font-size="24" font-family="serif">Hello SVG</text>
+</svg>"#;
+
+    /// SVG with viewBox (intrinsic size from width/height attributes).
+    const VIEWBOX_SVG: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300" width="200" height="150">
+  <rect width="400" height="300" fill="orange"/>
+</svg>"#;
+
+    // --- Test helpers ---
 
     fn create_test_doc_and_page() -> (Document, ObjectId) {
         let mut doc = Document::with_version("1.7");
@@ -495,6 +520,52 @@ mod tests {
         (doc, page_id)
     }
 
+    /// Extract concatenated content stream text from all content streams on a page.
+    fn get_content_text(doc: &Document, page_id: ObjectId) -> String {
+        let page_dict = doc.get_dictionary(page_id).unwrap();
+        let contents = page_dict.get(b"Contents").unwrap();
+        let mut all_text = String::new();
+        match contents {
+            Object::Reference(id) => {
+                let stream = doc.get_object(*id).unwrap().as_stream().unwrap();
+                all_text.push_str(&String::from_utf8_lossy(&stream.content));
+            }
+            Object::Array(arr) => {
+                for item in arr {
+                    if let Object::Reference(id) = item {
+                        let stream = doc.get_object(*id).unwrap().as_stream().unwrap();
+                        all_text.push_str(&String::from_utf8_lossy(&stream.content));
+                        all_text.push('\n');
+                    }
+                }
+            }
+            _ => {}
+        }
+        all_text
+    }
+
+    /// Look up the Form XObject registered as `name` in the page's resources.
+    fn get_form_xobject<'a>(
+        doc: &'a Document,
+        page_id: ObjectId,
+        name: &[u8],
+    ) -> &'a Stream {
+        let page_dict = doc.get_dictionary(page_id).unwrap();
+        let res_id = page_dict
+            .get(medpdf::KEY_RESOURCES)
+            .unwrap()
+            .as_reference()
+            .unwrap();
+        let res_dict = doc.get_dictionary(res_id).unwrap();
+        let xobj_dict = res_dict.get(KEY_XOBJECT).unwrap().as_dict().unwrap();
+        let form_ref = xobj_dict.get(name).unwrap().as_reference().unwrap();
+        doc.get_object(form_ref).unwrap().as_stream().unwrap()
+    }
+
+    // -----------------------------------------------------------------------
+    // Loading tests
+    // -----------------------------------------------------------------------
+
     #[test]
     fn test_load_svg_str_basic() {
         let svg = load_svg_str(SIMPLE_SVG).unwrap();
@@ -516,13 +587,150 @@ mod tests {
     }
 
     #[test]
+    fn test_load_svg_bytes_invalid() {
+        let result = load_svg_bytes(b"\x00\x01\x02\x03garbage");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_load_svg_str_empty() {
+        let result = load_svg_str("");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_load_svg_str_square() {
+        let svg = load_svg_str(SQUARE_SVG).unwrap();
+        assert!((svg.width - 200.0).abs() < 0.01);
+        assert!((svg.height - 200.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_load_svg_str_portrait() {
+        let svg = load_svg_str(PORTRAIT_SVG).unwrap();
+        assert!((svg.width - 50.0).abs() < 0.01);
+        assert!((svg.height - 150.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_load_svg_str_with_viewbox() {
+        let svg = load_svg_str(VIEWBOX_SVG).unwrap();
+        // Width/height attributes take precedence for intrinsic size
+        assert!((svg.width - 200.0).abs() < 0.01);
+        assert!((svg.height - 150.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_load_svg_str_with_text() {
+        // Text SVG should parse without error (fonts may or may not resolve)
+        let svg = load_svg_str(TEXT_SVG).unwrap();
+        assert!((svg.width - 200.0).abs() < 0.01);
+        assert!((svg.height - 100.0).abs() < 0.01);
+    }
+
+    // -----------------------------------------------------------------------
+    // SvgData Debug
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_svg_data_debug_format() {
+        let svg = load_svg_str(SIMPLE_SVG).unwrap();
+        let debug_str = format!("{svg:?}");
+        assert!(debug_str.contains("SvgData"));
+        assert!(debug_str.contains("width"));
+        assert!(debug_str.contains("height"));
+        assert!(debug_str.contains("100.0"));
+        assert!(debug_str.contains("50.0"));
+    }
+
+    // -----------------------------------------------------------------------
+    // SvgOptions defaults
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_svg_options_default() {
+        let opts = SvgOptions::default();
+        assert!((opts.raster_scale - 1.5).abs() < f32::EPSILON);
+        assert!((opts.svg_dpi - 96.0).abs() < f32::EPSILON);
+        assert!(opts.embed_text);
+        assert!(opts.compress);
+    }
+
+    // -----------------------------------------------------------------------
+    // DrawSvgParams constructor and builder
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_draw_svg_params_new_defaults() {
+        let svg = load_svg_str(SIMPLE_SVG).unwrap();
+        let params = DrawSvgParams::new(svg, 10.0, 20.0, 300.0, 150.0);
+
+        assert!((params.x - 10.0).abs() < f32::EPSILON);
+        assert!((params.y - 20.0).abs() < f32::EPSILON);
+        assert!((params.width - 300.0).abs() < f32::EPSILON);
+        assert!((params.height - 150.0).abs() < f32::EPSILON);
+        assert_eq!(params.fit, ImageFit::Contain);
+        assert!((params.alpha - 1.0).abs() < f32::EPSILON);
+        assert!((params.rotation - 0.0).abs() < f32::EPSILON);
+        assert!(params.layer_over);
+        // Options should be defaults
+        assert!((params.options.raster_scale - 1.5).abs() < f32::EPSILON);
+        assert!((params.options.svg_dpi - 96.0).abs() < f32::EPSILON);
+        assert!(params.options.embed_text);
+        assert!(params.options.compress);
+    }
+
+    #[test]
+    fn test_draw_svg_params_builder() {
+        let svg = load_svg_str(SIMPLE_SVG).unwrap();
+        let params = DrawSvgParams::new(svg, 10.0, 20.0, 300.0, 150.0)
+            .fit(ImageFit::Cover)
+            .alpha(0.7)
+            .rotation(45.0)
+            .layer_over(false)
+            .raster_scale(2.0)
+            .svg_dpi(72.0)
+            .embed_text(false)
+            .compress(false);
+
+        assert_eq!(params.fit, ImageFit::Cover);
+        assert!((params.alpha - 0.7).abs() < f32::EPSILON);
+        assert!((params.rotation - 45.0).abs() < f32::EPSILON);
+        assert!(!params.layer_over);
+        assert!((params.options.raster_scale - 2.0).abs() < f32::EPSILON);
+        assert!((params.options.svg_dpi - 72.0).abs() < f32::EPSILON);
+        assert!(!params.options.embed_text);
+        assert!(!params.options.compress);
+    }
+
+    #[test]
+    fn test_draw_svg_params_options_builder() {
+        let svg = load_svg_str(SIMPLE_SVG).unwrap();
+        let custom_opts = SvgOptions {
+            raster_scale: 3.0,
+            svg_dpi: 144.0,
+            embed_text: false,
+            compress: false,
+        };
+        let params = DrawSvgParams::new(svg, 0.0, 0.0, 72.0, 72.0).options(custom_opts);
+
+        assert!((params.options.raster_scale - 3.0).abs() < f32::EPSILON);
+        assert!((params.options.svg_dpi - 144.0).abs() < f32::EPSILON);
+        assert!(!params.options.embed_text);
+        assert!(!params.options.compress);
+    }
+
+    // -----------------------------------------------------------------------
+    // add_svg: XObject registration
+    // -----------------------------------------------------------------------
+
+    #[test]
     fn test_add_svg_creates_xobject() {
         let (mut doc, page_id) = create_test_doc_and_page();
         let svg = load_svg_str(SIMPLE_SVG).unwrap();
         let params = DrawSvgParams::new(svg, 0.0, 0.0, 200.0, 100.0);
         add_svg(&mut doc, page_id, params).unwrap();
 
-        // Verify XObject was registered in resources
         let page_dict = doc.get_dictionary(page_id).unwrap();
         let res_id = page_dict
             .get(medpdf::KEY_RESOURCES)
@@ -538,32 +746,84 @@ mod tests {
     }
 
     #[test]
+    fn test_add_svg_multiple_on_same_page() {
+        let (mut doc, page_id) = create_test_doc_and_page();
+
+        // Add three SVGs to the same page
+        for i in 0..3 {
+            let svg = load_svg_str(SIMPLE_SVG).unwrap();
+            let params = DrawSvgParams::new(svg, (i as f32) * 100.0, 0.0, 80.0, 40.0);
+            add_svg(&mut doc, page_id, params).unwrap();
+        }
+
+        // Verify all three have unique names
+        let page_dict = doc.get_dictionary(page_id).unwrap();
+        let res_id = page_dict
+            .get(medpdf::KEY_RESOURCES)
+            .unwrap()
+            .as_reference()
+            .unwrap();
+        let res_dict = doc.get_dictionary(res_id).unwrap();
+        let xobj_dict = res_dict.get(KEY_XOBJECT).unwrap().as_dict().unwrap();
+        assert!(xobj_dict.get(b"Svg0").is_ok(), "Should have Svg0");
+        assert!(xobj_dict.get(b"Svg1").is_ok(), "Should have Svg1");
+        assert!(xobj_dict.get(b"Svg2").is_ok(), "Should have Svg2");
+        assert_eq!(xobj_dict.len(), 3, "Should have exactly 3 XObject entries");
+    }
+
+    // -----------------------------------------------------------------------
+    // add_svg: content stream structure
+    // -----------------------------------------------------------------------
+
+    #[test]
     fn test_add_svg_content_has_do() {
         let (mut doc, page_id) = create_test_doc_and_page();
         let svg = load_svg_str(SIMPLE_SVG).unwrap();
         let params = DrawSvgParams::new(svg, 50.0, 60.0, 200.0, 100.0);
         add_svg(&mut doc, page_id, params).unwrap();
 
-        // Read back content streams and check for "Do" and "cm"
-        let page_dict = doc.get_dictionary(page_id).unwrap();
-        let contents = page_dict.get(b"Contents").unwrap().as_array().unwrap();
-        let mut found_do = false;
-        let mut found_cm = false;
-        for item in contents {
-            if let Object::Reference(id) = item {
-                let stream = doc.get_object(*id).unwrap().as_stream().unwrap();
-                let text = String::from_utf8_lossy(&stream.content);
-                if text.contains("Do") {
-                    found_do = true;
-                }
-                if text.contains("cm") {
-                    found_cm = true;
-                }
-            }
-        }
-        assert!(found_do, "Content stream should contain 'Do' operator");
-        assert!(found_cm, "Content stream should contain 'cm' operator");
+        let text = get_content_text(&doc, page_id);
+        assert!(text.contains("Do"), "Content stream should contain 'Do' operator");
+        assert!(text.contains("cm"), "Content stream should contain 'cm' operator");
     }
+
+    #[test]
+    fn test_add_svg_content_wrapped_in_save_restore() {
+        let (mut doc, page_id) = create_test_doc_and_page();
+        let svg = load_svg_str(SIMPLE_SVG).unwrap();
+        let params = DrawSvgParams::new(svg, 0.0, 0.0, 100.0, 50.0);
+        add_svg(&mut doc, page_id, params).unwrap();
+
+        let text = get_content_text(&doc, page_id);
+        // Find the SVG content stream (the one with Do)
+        assert!(text.contains("q\n"), "Content should start with save state");
+        assert!(text.contains("Q\n"), "Content should end with restore state");
+
+        // q must appear before Do, and Q must appear after
+        let q_pos = text.find("q\n").unwrap();
+        let do_pos = text.find("Do").unwrap();
+        let big_q_pos = text.rfind("Q\n").unwrap();
+        assert!(q_pos < do_pos, "q must precede Do");
+        assert!(do_pos < big_q_pos, "Do must precede Q");
+    }
+
+    #[test]
+    fn test_add_svg_content_references_correct_name() {
+        let (mut doc, page_id) = create_test_doc_and_page();
+        let svg = load_svg_str(SIMPLE_SVG).unwrap();
+        let params = DrawSvgParams::new(svg, 0.0, 0.0, 100.0, 50.0);
+        add_svg(&mut doc, page_id, params).unwrap();
+
+        let text = get_content_text(&doc, page_id);
+        assert!(
+            text.contains("/Svg0 Do"),
+            "Content should reference /Svg0 Do, got: {text}"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // add_svg: alpha branch
+    // -----------------------------------------------------------------------
 
     #[test]
     fn test_add_svg_with_alpha() {
@@ -584,6 +844,142 @@ mod tests {
             res_dict.get(medpdf::KEY_EXTGSTATE).is_ok(),
             "Should have ExtGState for alpha"
         );
+
+        // Content stream should reference the ExtGState
+        let text = get_content_text(&doc, page_id);
+        assert!(text.contains("gs\n"), "Should have gs operator for alpha");
+    }
+
+    #[test]
+    fn test_add_svg_no_extgstate_at_full_alpha() {
+        let (mut doc, page_id) = create_test_doc_and_page();
+        let svg = load_svg_str(SIMPLE_SVG).unwrap();
+        let params = DrawSvgParams::new(svg, 0.0, 0.0, 200.0, 100.0); // alpha defaults to 1.0
+        add_svg(&mut doc, page_id, params).unwrap();
+
+        // Verify no ExtGState when alpha is 1.0
+        let page_dict = doc.get_dictionary(page_id).unwrap();
+        let res_id = page_dict
+            .get(medpdf::KEY_RESOURCES)
+            .unwrap()
+            .as_reference()
+            .unwrap();
+        let res_dict = doc.get_dictionary(res_id).unwrap();
+        assert!(
+            res_dict.get(medpdf::KEY_EXTGSTATE).is_err(),
+            "Should NOT have ExtGState at full alpha"
+        );
+
+        let text = get_content_text(&doc, page_id);
+        assert!(!text.contains("gs\n"), "Should NOT have gs operator at full alpha");
+    }
+
+    // -----------------------------------------------------------------------
+    // add_svg: rotation branch
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_add_svg_with_rotation() {
+        let (mut doc, page_id) = create_test_doc_and_page();
+        let svg = load_svg_str(SIMPLE_SVG).unwrap();
+        let params = DrawSvgParams::new(svg, 100.0, 200.0, 200.0, 100.0).rotation(45.0);
+        add_svg(&mut doc, page_id, params).unwrap();
+
+        let text = get_content_text(&doc, page_id);
+        // Rotation produces three cm operations (translate to center, rotate, translate back)
+        let cm_count = text.matches(" cm\n").count();
+        // At least 4 cm: 3 for rotation + 1 for placement
+        assert!(
+            cm_count >= 4,
+            "Rotation should produce at least 4 cm ops, got {cm_count}. Content:\n{text}"
+        );
+    }
+
+    #[test]
+    fn test_add_svg_no_rotation_at_zero() {
+        let (mut doc, page_id) = create_test_doc_and_page();
+        let svg = load_svg_str(SIMPLE_SVG).unwrap();
+        let params = DrawSvgParams::new(svg, 0.0, 0.0, 200.0, 100.0); // rotation defaults to 0
+        add_svg(&mut doc, page_id, params).unwrap();
+
+        let text = get_content_text(&doc, page_id);
+        // Only 1 cm for placement, no rotation cm ops
+        let cm_count = text.matches(" cm\n").count();
+        assert_eq!(
+            cm_count, 1,
+            "Zero rotation should produce only 1 cm op (placement), got {cm_count}. Content:\n{text}"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // add_svg: fit mode branches (cover / stretch)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_add_svg_cover_mode_has_clip() {
+        let (mut doc, page_id) = create_test_doc_and_page();
+        let svg = load_svg_str(SIMPLE_SVG).unwrap(); // 100x50 (landscape)
+        // Non-matching box forces overflow in cover mode
+        let params = DrawSvgParams::new(svg, 10.0, 20.0, 100.0, 100.0).fit(ImageFit::Cover);
+        add_svg(&mut doc, page_id, params).unwrap();
+
+        let text = get_content_text(&doc, page_id);
+        assert!(
+            text.contains("re W n"),
+            "Cover mode should emit clip rect (re W n). Content:\n{text}"
+        );
+    }
+
+    #[test]
+    fn test_add_svg_contain_mode_no_clip() {
+        let (mut doc, page_id) = create_test_doc_and_page();
+        let svg = load_svg_str(SIMPLE_SVG).unwrap();
+        let params = DrawSvgParams::new(svg, 0.0, 0.0, 200.0, 200.0).fit(ImageFit::Contain);
+        add_svg(&mut doc, page_id, params).unwrap();
+
+        let text = get_content_text(&doc, page_id);
+        assert!(
+            !text.contains("re W n"),
+            "Contain mode should NOT emit clip rect"
+        );
+    }
+
+    #[test]
+    fn test_add_svg_stretch_mode_no_clip() {
+        let (mut doc, page_id) = create_test_doc_and_page();
+        let svg = load_svg_str(SIMPLE_SVG).unwrap();
+        let params = DrawSvgParams::new(svg, 0.0, 0.0, 300.0, 100.0).fit(ImageFit::Stretch);
+        add_svg(&mut doc, page_id, params).unwrap();
+
+        let text = get_content_text(&doc, page_id);
+        assert!(
+            !text.contains("re W n"),
+            "Stretch mode should NOT emit clip rect"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // add_svg: layer_over / layer_under
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_add_svg_layer_over() {
+        let (mut doc, page_id) = create_test_doc_and_page();
+        let svg = load_svg_str(SIMPLE_SVG).unwrap();
+        let params = DrawSvgParams::new(svg, 0.0, 0.0, 100.0, 50.0).layer_over(true);
+        add_svg(&mut doc, page_id, params).unwrap();
+
+        // In layer_over mode, new content is appended (last in array)
+        let page_dict = doc.get_dictionary(page_id).unwrap();
+        let contents = page_dict.get(b"Contents").unwrap().as_array().unwrap();
+        assert!(contents.len() >= 2, "Should have multiple content streams");
+
+        // Last stream should be our SVG content
+        if let Object::Reference(last_id) = contents.last().unwrap() {
+            let stream = doc.get_object(*last_id).unwrap().as_stream().unwrap();
+            let text = String::from_utf8_lossy(&stream.content);
+            assert!(text.contains("Do"), "Last stream should contain SVG Do");
+        }
     }
 
     #[test]
@@ -593,7 +989,6 @@ mod tests {
         let params = DrawSvgParams::new(svg, 0.0, 0.0, 200.0, 100.0).layer_over(false);
         add_svg(&mut doc, page_id, params).unwrap();
 
-        // In layer_under mode, new content is prepended
         let page_dict = doc.get_dictionary(page_id).unwrap();
         let contents = page_dict.get(b"Contents").unwrap().as_array().unwrap();
         assert!(contents.len() >= 2, "Should have multiple content streams");
@@ -606,6 +1001,10 @@ mod tests {
         }
     }
 
+    // -----------------------------------------------------------------------
+    // add_svg: Form XObject structure
+    // -----------------------------------------------------------------------
+
     #[test]
     fn test_add_svg_form_xobject_has_bbox() {
         let (mut doc, page_id) = create_test_doc_and_page();
@@ -613,29 +1012,17 @@ mod tests {
         let params = DrawSvgParams::new(svg, 0.0, 0.0, 200.0, 100.0);
         add_svg(&mut doc, page_id, params).unwrap();
 
-        // Find the Form XObject via resources
-        let page_dict = doc.get_dictionary(page_id).unwrap();
-        let res_id = page_dict
-            .get(medpdf::KEY_RESOURCES)
-            .unwrap()
-            .as_reference()
-            .unwrap();
-        let res_dict = doc.get_dictionary(res_id).unwrap();
-        let xobj_dict = res_dict.get(KEY_XOBJECT).unwrap().as_dict().unwrap();
-        let form_ref = xobj_dict.get(b"Svg0").unwrap().as_reference().unwrap();
-
-        let form_obj = doc.get_object(form_ref).unwrap().as_stream().unwrap();
-        let bbox = form_obj.dict.get(b"BBox").unwrap().as_array().unwrap();
+        let form = get_form_xobject(&doc, page_id, b"Svg0");
+        let bbox = form.dict.get(b"BBox").unwrap().as_array().unwrap();
         assert_eq!(bbox.len(), 4, "BBox should have 4 elements");
 
-        // BBox should have positive width and height
         let w = match &bbox[2] {
-            Object::Real(v) => *v as f32,
+            Object::Real(v) => *v,
             Object::Integer(v) => *v as f32,
             _ => panic!("BBox[2] not a number"),
         };
         let h = match &bbox[3] {
-            Object::Real(v) => *v as f32,
+            Object::Real(v) => *v,
             Object::Integer(v) => *v as f32,
             _ => panic!("BBox[3] not a number"),
         };
@@ -644,29 +1031,164 @@ mod tests {
     }
 
     #[test]
-    fn test_draw_svg_params_builder() {
+    fn test_add_svg_form_xobject_type_and_subtype() {
+        let (mut doc, page_id) = create_test_doc_and_page();
         let svg = load_svg_str(SIMPLE_SVG).unwrap();
-        let params = DrawSvgParams::new(svg, 10.0, 20.0, 300.0, 150.0)
-            .fit(ImageFit::Cover)
-            .alpha(0.7)
-            .rotation(45.0)
-            .layer_over(false)
-            .raster_scale(2.0)
-            .svg_dpi(72.0)
-            .embed_text(false)
-            .compress(false);
+        let params = DrawSvgParams::new(svg, 0.0, 0.0, 200.0, 100.0);
+        add_svg(&mut doc, page_id, params).unwrap();
 
-        assert!((params.x - 10.0).abs() < f32::EPSILON);
-        assert!((params.y - 20.0).abs() < f32::EPSILON);
-        assert!((params.width - 300.0).abs() < f32::EPSILON);
-        assert!((params.height - 150.0).abs() < f32::EPSILON);
-        assert_eq!(params.fit, ImageFit::Cover);
-        assert!((params.alpha - 0.7).abs() < f32::EPSILON);
-        assert!((params.rotation - 45.0).abs() < f32::EPSILON);
-        assert!(!params.layer_over);
-        assert!((params.options.raster_scale - 2.0).abs() < f32::EPSILON);
-        assert!((params.options.svg_dpi - 72.0).abs() < f32::EPSILON);
-        assert!(!params.options.embed_text);
-        assert!(!params.options.compress);
+        let form = get_form_xobject(&doc, page_id, b"Svg0");
+        let type_val = form.dict.get(b"Type").unwrap().as_name().unwrap();
+        assert_eq!(type_val, b"XObject");
+        let subtype_val = form.dict.get(b"Subtype").unwrap().as_name().unwrap();
+        assert_eq!(subtype_val, b"Form");
+    }
+
+    #[test]
+    fn test_add_svg_form_xobject_has_resources() {
+        let (mut doc, page_id) = create_test_doc_and_page();
+        let svg = load_svg_str(SIMPLE_SVG).unwrap();
+        let params = DrawSvgParams::new(svg, 0.0, 0.0, 200.0, 100.0);
+        add_svg(&mut doc, page_id, params).unwrap();
+
+        let form = get_form_xobject(&doc, page_id, b"Svg0");
+        // Resources should exist (either as dictionary or reference)
+        assert!(
+            form.dict.get(b"Resources").is_ok(),
+            "Form XObject should have Resources"
+        );
+    }
+
+    #[test]
+    fn test_add_svg_form_xobject_has_content() {
+        let (mut doc, page_id) = create_test_doc_and_page();
+        let svg = load_svg_str(SIMPLE_SVG).unwrap();
+        let params = DrawSvgParams::new(svg, 0.0, 0.0, 200.0, 100.0);
+        add_svg(&mut doc, page_id, params).unwrap();
+
+        let form = get_form_xobject(&doc, page_id, b"Svg0");
+        assert!(
+            !form.content.is_empty(),
+            "Form XObject content should not be empty"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // add_svg: different aspect ratios
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_add_svg_square() {
+        let (mut doc, page_id) = create_test_doc_and_page();
+        let svg = load_svg_str(SQUARE_SVG).unwrap();
+        let params = DrawSvgParams::new(svg, 0.0, 0.0, 144.0, 144.0);
+        add_svg(&mut doc, page_id, params).unwrap();
+
+        let text = get_content_text(&doc, page_id);
+        assert!(text.contains("/Svg0 Do"), "Should place square SVG");
+    }
+
+    #[test]
+    fn test_add_svg_portrait() {
+        let (mut doc, page_id) = create_test_doc_and_page();
+        let svg = load_svg_str(PORTRAIT_SVG).unwrap();
+        let params = DrawSvgParams::new(svg, 0.0, 0.0, 200.0, 200.0);
+        add_svg(&mut doc, page_id, params).unwrap();
+
+        let text = get_content_text(&doc, page_id);
+        assert!(text.contains("/Svg0 Do"), "Should place portrait SVG");
+    }
+
+    // -----------------------------------------------------------------------
+    // add_svg: compress option
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_add_svg_compress_false() {
+        let (mut doc, page_id) = create_test_doc_and_page();
+        let svg = load_svg_str(SIMPLE_SVG).unwrap();
+        let params = DrawSvgParams::new(svg, 0.0, 0.0, 200.0, 100.0).compress(false);
+        add_svg(&mut doc, page_id, params).unwrap();
+
+        // Should still produce valid output
+        let text = get_content_text(&doc, page_id);
+        assert!(text.contains("/Svg0 Do"), "Should work with compress=false");
+    }
+
+    #[test]
+    fn test_add_svg_compress_true() {
+        let (mut doc, page_id) = create_test_doc_and_page();
+        let svg = load_svg_str(SIMPLE_SVG).unwrap();
+        let params = DrawSvgParams::new(svg, 0.0, 0.0, 200.0, 100.0).compress(true);
+        add_svg(&mut doc, page_id, params).unwrap();
+
+        let text = get_content_text(&doc, page_id);
+        assert!(text.contains("/Svg0 Do"), "Should work with compress=true");
+    }
+
+    // -----------------------------------------------------------------------
+    // add_svg: combined options
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_add_svg_all_options_combined() {
+        let (mut doc, page_id) = create_test_doc_and_page();
+        let svg = load_svg_str(SIMPLE_SVG).unwrap();
+        let params = DrawSvgParams::new(svg, 50.0, 50.0, 200.0, 200.0)
+            .fit(ImageFit::Cover)
+            .alpha(0.3)
+            .rotation(90.0)
+            .layer_over(false)
+            .compress(false);
+        add_svg(&mut doc, page_id, params).unwrap();
+
+        let text = get_content_text(&doc, page_id);
+        assert!(text.contains("gs\n"), "Should have alpha ExtGState");
+        assert!(text.contains("re W n"), "Should have cover clip rect");
+        // 3 rotation cm + 1 placement cm = 4
+        let cm_count = text.matches(" cm\n").count();
+        assert!(cm_count >= 4, "Should have rotation cm ops, got {cm_count}");
+        assert!(text.contains("Do"), "Should have Do operator");
+    }
+
+    // -----------------------------------------------------------------------
+    // add_svg: different DPI settings
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_add_svg_different_dpi_produces_different_bbox() {
+        // Higher DPI = smaller PDF page = smaller BBox
+        let (mut doc1, page_id1) = create_test_doc_and_page();
+        let svg1 = load_svg_str(SIMPLE_SVG).unwrap();
+        let params1 = DrawSvgParams::new(svg1, 0.0, 0.0, 200.0, 100.0).svg_dpi(72.0);
+        add_svg(&mut doc1, page_id1, params1).unwrap();
+
+        let (mut doc2, page_id2) = create_test_doc_and_page();
+        let svg2 = load_svg_str(SIMPLE_SVG).unwrap();
+        let params2 = DrawSvgParams::new(svg2, 0.0, 0.0, 200.0, 100.0).svg_dpi(144.0);
+        add_svg(&mut doc2, page_id2, params2).unwrap();
+
+        let form1 = get_form_xobject(&doc1, page_id1, b"Svg0");
+        let form2 = get_form_xobject(&doc2, page_id2, b"Svg0");
+
+        let bbox1 = form1.dict.get(b"BBox").unwrap().as_array().unwrap();
+        let bbox2 = form2.dict.get(b"BBox").unwrap().as_array().unwrap();
+
+        let w1 = match &bbox1[2] {
+            Object::Real(v) => *v,
+            Object::Integer(v) => *v as f32,
+            _ => panic!("not a number"),
+        };
+        let w2 = match &bbox2[2] {
+            Object::Real(v) => *v,
+            Object::Integer(v) => *v as f32,
+            _ => panic!("not a number"),
+        };
+
+        // At 72 DPI, 100 SVG units = 100 pt. At 144 DPI, 100 SVG units = 50 pt.
+        assert!(
+            w1 > w2,
+            "Lower DPI should produce larger BBox: 72dpi={w1}, 144dpi={w2}"
+        );
     }
 }
