@@ -96,6 +96,12 @@ pub(crate) fn get_font_widths(face: &Face, first_char: u8, last_char: u8) -> Vec
     widths
 }
 
+/// Minimum number of A-Z/a-z glyphs (out of 52) for a font to be considered
+/// a text font rather than symbolic. Chosen as ~38% coverage — symbol fonts
+/// like Wingdings/ZapfDingbats typically have 0 Latin letters, while even
+/// incomplete text fonts tend to have the full alphabet.
+const SYMBOLIC_LATIN_THRESHOLD: usize = 20;
+
 /// Detects whether a font is symbolic (e.g., Symbol, Dingbats, Wingdings).
 /// Symbol fonts don't use standard character encodings.
 fn detect_is_symbolic(face: &Face) -> bool {
@@ -112,8 +118,7 @@ fn detect_is_symbolic(face: &Face) -> bool {
         .filter(|&ch| face.glyph_index(ch as char).is_some())
         .count();
 
-    // If fewer than 20 of 52 Latin letters, likely symbolic
-    if basic_latin_count < 20 {
+    if basic_latin_count < SYMBOLIC_LATIN_THRESHOLD {
         let has_some_glyphs = (32u8..=127).any(|ch| face.glyph_index(ch as char).is_some());
         if has_some_glyphs {
             return true;

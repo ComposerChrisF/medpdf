@@ -60,13 +60,18 @@ fn count_q_balance(dest_doc: &Document, content_refs: &[ObjectId]) -> Result<isi
             };
 
             // Parse and count q/Q operations
-            if let Ok(content) = Content::decode(&content_bytes) {
-                for operation in content.operations.iter() {
-                    match operation.operator.as_str() {
-                        "q" => total_balance += 1,
-                        "Q" => total_balance -= 1,
-                        _ => {}
+            match Content::decode(&content_bytes) {
+                Ok(content) => {
+                    for operation in content.operations.iter() {
+                        match operation.operator.as_str() {
+                            "q" => total_balance += 1,
+                            "Q" => total_balance -= 1,
+                            _ => {}
+                        }
                     }
+                }
+                Err(e) => {
+                    log::warn!("Failed to decode content stream {content_id:?}: {e}; assuming balanced q/Q");
                 }
             }
         }
@@ -302,20 +307,13 @@ fn compute_text_metrics(params: &crate::types::AddTextParams) -> TextMetrics {
     TextMetrics { text_width, dx, dy }
 }
 
-/// Builds the PDF operations for text rendering (color, alpha, rotation, text placement).
-fn build_text_ops(
+/// Pushes alpha transparency operations via ExtGState when not fully opaque.
+fn push_alpha_ops(
+    ops: &mut Vec<Operation>,
     dest_doc: &mut Document,
     page_id: ObjectId,
-    params: &crate::types::AddTextParams,
-    font_key: &str,
-    metrics: &TextMetrics,
-) -> Result<Vec<Operation>> {
-    let encoded_text = utf8_to_winansi(&params.text);
-    let mut ops = vec![Operation::new("q", vec![])];
-    let color = params.color.clamped();
-
-    // Apply alpha via ExtGState when not fully opaque
-    let alpha = color.a;
+    alpha: f32,
+) -> Result<()> {
     if (alpha - 1.0).abs() > f32::EPSILON {
         let gs_dict = dictionary! {
             "Type" => "ExtGState",
@@ -329,13 +327,30 @@ fn build_text_ops(
             vec![Object::Name(gs_key.as_bytes().to_vec())],
         ));
     }
+    Ok(())
+}
+
+/// Builds the PDF operations for text rendering (color, alpha, rotation, text placement).
+fn build_text_ops(
+    dest_doc: &mut Document,
+    page_id: ObjectId,
+    params: &crate::types::AddTextParams,
+    font_key: &str,
+    metrics: &TextMetrics,
+) -> Result<Vec<Operation>> {
+    let encoded_text = utf8_to_winansi(&params.text);
+    let mut ops = vec![Operation::new("q", vec![])];
+    let color = params.color.clamped();
+
+    push_alpha_ops(&mut ops, dest_doc, page_id, color.a)?;
 
     ops.push(Operation::new(
         "rg",
         vec![color.r.into(), color.g.into(), color.b.into()],
     ));
 
-    if params.rotation.abs() > 0.001 {
+    let has_rotation = params.rotation.abs() > 0.001;
+    if has_rotation {
         let angle = params.rotation.to_radians();
         let cos = angle.cos();
         let sin = angle.sin();
@@ -343,22 +358,20 @@ fn build_text_ops(
             "cm",
             vec![cos.into(), sin.into(), (-sin).into(), cos.into(), params.x.into(), params.y.into()],
         ));
-        ops.push(Operation::new("BT", vec![]));
-        ops.push(Operation::new(
-            "Tf",
-            vec![Object::Name(font_key.as_bytes().to_vec()), params.font_size.into()],
-        ));
-        ops.push(Operation::new("Td", vec![metrics.dx.into(), metrics.dy.into()]));
-    } else {
-        ops.push(Operation::new("BT", vec![]));
-        ops.push(Operation::new(
-            "Tf",
-            vec![Object::Name(font_key.as_bytes().to_vec()), params.font_size.into()],
-        ));
-        let final_x = params.x + metrics.dx;
-        let final_y = params.y + metrics.dy;
-        ops.push(Operation::new("Td", vec![final_x.into(), final_y.into()]));
     }
+
+    ops.push(Operation::new("BT", vec![]));
+    ops.push(Operation::new(
+        "Tf",
+        vec![Object::Name(font_key.as_bytes().to_vec()), params.font_size.into()],
+    ));
+
+    let (tx, ty) = if has_rotation {
+        (metrics.dx, metrics.dy)
+    } else {
+        (params.x + metrics.dx, params.y + metrics.dy)
+    };
+    ops.push(Operation::new("Td", vec![tx.into(), ty.into()]));
 
     ops.push(Operation::new(
         "Tj",
@@ -403,6 +416,20 @@ fn build_decoration_ops(
     ops
 }
 
+/// Encodes operations into a content stream and inserts it into the page.
+fn encode_and_insert(
+    dest_doc: &mut Document,
+    page_id: ObjectId,
+    ops: Vec<Operation>,
+    layer_over: bool,
+) -> Result<()> {
+    let content_id = dest_doc.add_object(Stream::new(
+        dictionary! {},
+        Content { operations: ops }.encode()?,
+    ));
+    insert_content_stream(dest_doc, page_id, content_id, layer_over)
+}
+
 /// Adds text to a page using rich parameters (color, f32 coords, rotation, alignment).
 ///
 /// Vertical alignment uses real font metrics (ascent, descent, x-height) when
@@ -418,11 +445,7 @@ pub fn add_text_params(
     let mut ops = build_text_ops(dest_doc, page_id, params, &font_key, &metrics)?;
     ops.extend(build_decoration_ops(params, &metrics));
     ops.push(Operation::new("Q", vec![]));
-    let content_id = dest_doc.add_object(Stream::new(
-        dictionary! {},
-        Content { operations: ops }.encode()?,
-    ));
-    insert_content_stream(dest_doc, page_id, content_id, params.layer_over)
+    encode_and_insert(dest_doc, page_id, ops, params.layer_over)
 }
 
 /// Inserts a content stream into a page, either over or under existing content.
@@ -509,21 +532,7 @@ pub fn add_rect(
     let color = params.color.clamped();
     let mut ops = vec![Operation::new("q", vec![])];
 
-    // Apply alpha via ExtGState when not fully opaque
-    let alpha = color.a;
-    if (alpha - 1.0).abs() > f32::EPSILON {
-        let gs_dict = dictionary! {
-            "Type" => "ExtGState",
-            "ca" => alpha,
-            "CA" => alpha,
-        };
-        let gs_id = dest_doc.add_object(gs_dict);
-        let gs_key = register_extgstate_in_page_resources(dest_doc, page_id, gs_id)?;
-        ops.push(Operation::new(
-            "gs",
-            vec![Object::Name(gs_key.as_bytes().to_vec())],
-        ));
-    }
+    push_alpha_ops(&mut ops, dest_doc, page_id, color.a)?;
 
     // Set fill color
     ops.push(Operation::new(
@@ -544,11 +553,7 @@ pub fn add_rect(
     ops.push(Operation::new("f", vec![]));
     ops.push(Operation::new("Q", vec![]));
 
-    let content = Content { operations: ops };
-    let content_stream = Stream::new(dictionary! {}, content.encode()?);
-    let content_id = dest_doc.add_object(content_stream);
-
-    insert_content_stream(dest_doc, page_id, content_id, params.layer_over)
+    encode_and_insert(dest_doc, page_id, ops, params.layer_over)
 }
 
 /// Draws a stroked line on a page.
@@ -560,21 +565,7 @@ pub fn add_line(
     let color = params.color.clamped();
     let mut ops = vec![Operation::new("q", vec![])];
 
-    // Apply alpha via ExtGState when not fully opaque
-    let alpha = color.a;
-    if (alpha - 1.0).abs() > f32::EPSILON {
-        let gs_dict = dictionary! {
-            "Type" => "ExtGState",
-            "ca" => alpha,
-            "CA" => alpha,
-        };
-        let gs_id = dest_doc.add_object(gs_dict);
-        let gs_key = register_extgstate_in_page_resources(dest_doc, page_id, gs_id)?;
-        ops.push(Operation::new(
-            "gs",
-            vec![Object::Name(gs_key.as_bytes().to_vec())],
-        ));
-    }
+    push_alpha_ops(&mut ops, dest_doc, page_id, color.a)?;
 
     // Set stroke color
     ops.push(Operation::new(
@@ -597,11 +588,7 @@ pub fn add_line(
     ops.push(Operation::new("S", vec![]));
     ops.push(Operation::new("Q", vec![]));
 
-    let content = Content { operations: ops };
-    let content_stream = Stream::new(dictionary! {}, content.encode()?);
-    let content_id = dest_doc.add_object(content_stream);
-
-    insert_content_stream(dest_doc, page_id, content_id, params.layer_over)
+    encode_and_insert(dest_doc, page_id, ops, params.layer_over)
 }
 
 fn add_embedded_font(
