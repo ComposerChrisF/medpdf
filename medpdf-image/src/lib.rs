@@ -5,6 +5,12 @@ use medpdf::{
 };
 use std::path::Path;
 
+#[cfg(feature = "svg")]
+mod svg;
+
+#[cfg(feature = "svg")]
+pub use svg::{add_svg, load_svg, load_svg_bytes, load_svg_str, DrawSvgParams, SvgData, SvgOptions};
+
 /// Fit mode when both width and height are specified.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum ImageFit {
@@ -374,7 +380,7 @@ fn maybe_downsample(image_data: ImageData, output_w_pts: f32, output_h_pts: f32,
 // ---------------------------------------------------------------------------
 
 /// Registers an XObject in the page's Resources.
-fn register_xobject_in_page_resources(
+pub(crate) fn register_xobject_in_page_resources(
     doc: &mut Document,
     page_id: ObjectId,
     xobj_id: ObjectId,
@@ -383,8 +389,8 @@ fn register_xobject_in_page_resources(
     medpdf::register_in_page_resources(doc, page_id, KEY_XOBJECT, xobj_name.as_bytes(), xobj_id)
 }
 
-/// Generate an image XObject name that doesn't collide with existing XObject entries.
-fn unique_img_name(doc: &Document, page_id: ObjectId) -> String {
+/// Generate an XObject name with the given prefix that doesn't collide with existing entries.
+pub(crate) fn unique_xobject_name(doc: &Document, page_id: ObjectId, prefix: &str) -> String {
     // Collect existing XObject keys from the page's resources (best-effort).
     let existing = (|| -> Option<std::collections::HashSet<Vec<u8>>> {
         let page_dict = doc.get_dictionary(page_id).ok()?;
@@ -405,7 +411,7 @@ fn unique_img_name(doc: &Document, page_id: ObjectId) -> String {
     .unwrap_or_default();
 
     for i in 0u32.. {
-        let name = format!("Img{i}");
+        let name = format!("{prefix}{i}");
         if !existing.contains(name.as_bytes()) {
             return name;
         }
@@ -419,7 +425,7 @@ fn unique_img_name(doc: &Document, page_id: ObjectId) -> String {
 
 /// Compute actual placement dimensions and offset within the box.
 /// Returns (actual_w, actual_h, offset_x, offset_y, needs_clip).
-fn compute_fit(
+pub(crate) fn compute_fit(
     img_w: f32,
     img_h: f32,
     box_w: f32,
@@ -464,7 +470,7 @@ pub fn add_image(doc: &mut Document, page_id: ObjectId, params: DrawImageParams)
     let image_data = maybe_downsample(params.image_data, actual_w, actual_h, params.max_dpi)?;
 
     // Create the image XObject
-    let img_name = unique_img_name(doc, page_id);
+    let img_name = unique_xobject_name(doc, page_id, "Img");
 
     let xobj_id = match image_data {
         ImageData::Jpeg {
@@ -623,7 +629,7 @@ fn flate_compress(data: &[u8]) -> Result<Vec<u8>> {
         .map_err(|e| MedpdfError::new(format!("flate2 finish failed: {e}")))
 }
 
-fn fmt_f32(v: f32) -> String {
+pub(crate) fn fmt_f32(v: f32) -> String {
     // Avoid trailing zeros, but keep reasonable precision
     let mut s = format!("{v:.4}");
     let trimmed_len = s.trim_end_matches('0').trim_end_matches('.').len();

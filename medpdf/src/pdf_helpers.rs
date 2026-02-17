@@ -125,7 +125,7 @@ pub(crate) fn get_page_object_id_from_doc(doc: &Document, page_num: u32) -> Resu
     })
 }
 
-pub(crate) fn deep_copy_object_by_id(
+pub fn deep_copy_object_by_id(
     dest_doc: &mut Document,
     source_doc: &Document,
     source_object_id: ObjectId,
@@ -146,7 +146,7 @@ pub(crate) fn deep_copy_object_by_id(
     Ok(new_id)
 }
 
-pub(crate) fn deep_copy_object(
+pub fn deep_copy_object(
     dest_doc: &mut Document,
     source_doc: &Document,
     source_object: &Object,
