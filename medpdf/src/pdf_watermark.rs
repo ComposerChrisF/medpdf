@@ -3,7 +3,7 @@
 //! Supports color, alpha, rotation, horizontal/vertical alignment, underline,
 //! strikeout, and layering (over or under existing content).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use crate::error::{MedpdfError, Result};
@@ -12,13 +12,23 @@ use crate::pdf_helpers::{KEY_CONTENTS, KEY_EXTGSTATE, KEY_FONT, KEY_FONT_DESCRIP
 use lopdf::content::{Content, Operation};
 use lopdf::{dictionary, Document, Object, ObjectId, Stream, StringFormat};
 
+/// Per-font tracking entry for subsetting support.
+pub struct CachedFontEntry {
+    pub(crate) font_id: ObjectId,
+    pub(crate) font_key: String,
+    pub(crate) font_stream_id: ObjectId,
+    pub(crate) descriptor_id: ObjectId,
+    pub(crate) data: Arc<Vec<u8>>,
+    pub(crate) used_chars: HashSet<char>,
+}
+
 /// Cache for embedded font PDF objects, preventing duplicate font embedding.
 ///
 /// Keys on `Arc::as_ptr()` identity — safe because [`FontCache`](crate::pdf_font::FontCache)
-/// guarantees the same `Arc<Vec<u8>>` for the same font path. Stores the Font dictionary's
-/// `ObjectId` and resource key (e.g. `"F55"`) so subsequent pages can reuse the same objects.
+/// guarantees the same `Arc<Vec<u8>>` for the same font path. Stores font dictionary IDs,
+/// stream IDs, and character usage for post-watermark subsetting.
 pub struct EmbeddedFontCache {
-    cache: HashMap<usize, (ObjectId, String)>,
+    cache: HashMap<usize, CachedFontEntry>,
 }
 
 impl EmbeddedFontCache {
@@ -28,13 +38,40 @@ impl EmbeddedFontCache {
         }
     }
 
-    fn get(&self, data: &Arc<Vec<u8>>) -> Option<&(ObjectId, String)> {
+    fn get(&self, data: &Arc<Vec<u8>>) -> Option<&CachedFontEntry> {
         self.cache.get(&(Arc::as_ptr(data) as usize))
     }
 
-    fn insert(&mut self, data: &Arc<Vec<u8>>, font_id: ObjectId, font_key: String) {
-        self.cache
-            .insert(Arc::as_ptr(data) as usize, (font_id, font_key));
+    fn insert(
+        &mut self,
+        data: &Arc<Vec<u8>>,
+        font_id: ObjectId,
+        font_key: String,
+        font_stream_id: ObjectId,
+        descriptor_id: ObjectId,
+    ) {
+        self.cache.insert(
+            Arc::as_ptr(data) as usize,
+            CachedFontEntry {
+                font_id,
+                font_key,
+                font_stream_id,
+                descriptor_id,
+                data: Arc::clone(data),
+                used_chars: HashSet::new(),
+            },
+        );
+    }
+
+    fn record_chars(&mut self, data: &Arc<Vec<u8>>, text: &str) {
+        if let Some(entry) = self.cache.get_mut(&(Arc::as_ptr(data) as usize)) {
+            entry.used_chars.extend(text.chars());
+        }
+    }
+
+    /// Iterates over all cached embedded font entries.
+    pub fn embedded_entries(&self) -> impl Iterator<Item = &CachedFontEntry> {
+        self.cache.values()
     }
 }
 
@@ -132,13 +169,14 @@ fn add_font_objects(
         crate::font_data::FontData::Hack(n) => Ok(format!("F{n}")),
         crate::font_data::FontData::BuiltIn(_) => add_known_named_font(dest_doc, page_id, font_name),
         crate::font_data::FontData::Embedded(data) => {
-            if let Some((cached_font_id, cached_key)) = font_cache.get(data) {
+            if let Some(entry) = font_cache.get(data) {
                 // Font already embedded — just register it in this page's resources
-                register_font_in_page_resources(dest_doc, page_id, *cached_font_id)?;
-                Ok(cached_key.clone())
+                register_font_in_page_resources(dest_doc, page_id, entry.font_id)?;
+                Ok(entry.font_key.clone())
             } else {
-                let (font_id, font_key) = add_embedded_font(dest_doc, page_id, data)?;
-                font_cache.insert(data, font_id, font_key.clone());
+                let (font_id, font_key, font_stream_id, descriptor_id) =
+                    add_embedded_font(dest_doc, page_id, data)?;
+                font_cache.insert(data, font_id, font_key.clone(), font_stream_id, descriptor_id);
                 Ok(font_key)
             }
         }
@@ -399,6 +437,9 @@ pub fn add_text_params(
     font_cache: &mut EmbeddedFontCache,
 ) -> Result<()> {
     let font_key = add_font_objects(dest_doc, page_id, &params.font_data, &params.font_name, font_cache)?;
+    if let crate::font_data::FontData::Embedded(ref data) = params.font_data {
+        font_cache.record_chars(data, &params.text);
+    }
     let metrics = compute_text_metrics(params);
     let mut ops = build_text_ops(dest_doc, page_id, params, &font_key, &metrics)?;
     ops.extend(build_decoration_ops(params, &metrics));
@@ -553,7 +594,7 @@ fn add_embedded_font(
     dest_doc: &mut Document,
     page_id: ObjectId,
     font_data: &[u8],
-) -> Result<(ObjectId, String)> {
+) -> Result<(ObjectId, String, ObjectId, ObjectId)> {
     let (font_info, font_descriptor) = font_helpers::get_pdf_font_info_of_data(font_data)?;
     let mut font_dict = dictionary! {
         "Type" => "Font",
@@ -594,7 +635,7 @@ fn add_embedded_font(
 
     let font_id = dest_doc.add_object(font_dict);
     let font_key = register_font_in_page_resources(dest_doc, page_id, font_id)?;
-    Ok((font_id, font_key))
+    Ok((font_id, font_key, font_file_id, descriptor_id))
 }
 
 #[cfg(test)]
@@ -894,20 +935,23 @@ mod tests {
         let mut cache = EmbeddedFontCache::new();
         let data = Arc::new(vec![1, 2, 3]);
         let font_id = (42, 0);
-        cache.insert(&data, font_id, "F42".into());
+        cache.insert(&data, font_id, "F42".into(), (100, 0), (101, 0));
 
-        let result = cache.get(&data);
-        assert!(result.is_some());
-        let (id, key) = result.unwrap();
-        assert_eq!(*id, (42, 0));
-        assert_eq!(key, "F42");
+        let entry = cache.get(&data);
+        assert!(entry.is_some());
+        let entry = entry.unwrap();
+        assert_eq!(entry.font_id, (42, 0));
+        assert_eq!(entry.font_key, "F42");
+        assert_eq!(entry.font_stream_id, (100, 0));
+        assert_eq!(entry.descriptor_id, (101, 0));
+        assert!(entry.used_chars.is_empty());
     }
 
     #[test]
     fn test_embedded_font_cache_same_arc_hits() {
         let mut cache = EmbeddedFontCache::new();
         let data = Arc::new(vec![1, 2, 3]);
-        cache.insert(&data, (10, 0), "F10".into());
+        cache.insert(&data, (10, 0), "F10".into(), (100, 0), (101, 0));
 
         // Clone the Arc — same pointer, should hit cache
         let data_clone = Arc::clone(&data);
@@ -919,7 +963,7 @@ mod tests {
     fn test_embedded_font_cache_different_arc_misses() {
         let mut cache = EmbeddedFontCache::new();
         let data1 = Arc::new(vec![1, 2, 3]);
-        cache.insert(&data1, (10, 0), "F10".into());
+        cache.insert(&data1, (10, 0), "F10".into(), (100, 0), (101, 0));
 
         // Different Arc with identical content — different pointer, should miss
         let data2 = Arc::new(vec![1, 2, 3]);
@@ -932,16 +976,16 @@ mod tests {
         let mut cache = EmbeddedFontCache::new();
         let font_a = Arc::new(vec![1, 2, 3]);
         let font_b = Arc::new(vec![4, 5, 6]);
-        cache.insert(&font_a, (10, 0), "F10".into());
-        cache.insert(&font_b, (20, 0), "F20".into());
+        cache.insert(&font_a, (10, 0), "F10".into(), (100, 0), (101, 0));
+        cache.insert(&font_b, (20, 0), "F20".into(), (200, 0), (201, 0));
 
-        let (id_a, key_a) = cache.get(&font_a).unwrap();
-        assert_eq!(*id_a, (10, 0));
-        assert_eq!(key_a, "F10");
+        let entry_a = cache.get(&font_a).unwrap();
+        assert_eq!(entry_a.font_id, (10, 0));
+        assert_eq!(entry_a.font_key, "F10");
 
-        let (id_b, key_b) = cache.get(&font_b).unwrap();
-        assert_eq!(*id_b, (20, 0));
-        assert_eq!(key_b, "F20");
+        let entry_b = cache.get(&font_b).unwrap();
+        assert_eq!(entry_b.font_id, (20, 0));
+        assert_eq!(entry_b.font_key, "F20");
     }
 
     #[test]
@@ -949,5 +993,26 @@ mod tests {
         let cache = EmbeddedFontCache::new();
         let data = Arc::new(vec![1, 2, 3]);
         assert!(cache.get(&data).is_none());
+    }
+
+    #[test]
+    fn test_embedded_font_cache_record_chars() {
+        let mut cache = EmbeddedFontCache::new();
+        let data = Arc::new(vec![1, 2, 3]);
+        cache.insert(&data, (10, 0), "F10".into(), (100, 0), (101, 0));
+
+        cache.record_chars(&data, "DRAFT");
+        let entry = cache.get(&data).unwrap();
+        assert_eq!(entry.used_chars.len(), 5);
+        assert!(entry.used_chars.contains(&'D'));
+        assert!(entry.used_chars.contains(&'R'));
+        assert!(entry.used_chars.contains(&'A'));
+        assert!(entry.used_chars.contains(&'F'));
+        assert!(entry.used_chars.contains(&'T'));
+
+        // Recording again with overlapping chars shouldn't double them
+        cache.record_chars(&data, "DATA");
+        let entry = cache.get(&data).unwrap();
+        assert_eq!(entry.used_chars.len(), 5); // still 5 — no new unique chars
     }
 }

@@ -38,6 +38,8 @@ struct Args {
     pad_last_page_file: Option<PadFileSpec>,
     #[arg(long, help = "Use traditional PDF format for maximum compatibility with older tools")]
     broad_compatibility: bool,
+    #[arg(long, help = "Disable font subsetting (embed full font files)")]
+    no_subset: bool,
     #[arg(long, help = "Password required to open the document")]
     user_password: Option<String>,
     #[arg(long, help = "Password required to change permissions/restrictions")]
@@ -167,7 +169,7 @@ fn apply_drawing_commands(
     lines: &[DrawLineSpec],
     images: &[DrawImageSpec],
     watermarks: &[WatermarkSpec],
-) -> Result<(), MedpdfError> {
+) -> Result<medpdf::EmbeddedFontCache, MedpdfError> {
     println!("\n--- Applying Drawing Commands ---");
     let mut font_cache = FontCache::new();
     let mut font_object_cache = medpdf::EmbeddedFontCache::new();
@@ -257,7 +259,7 @@ fn apply_drawing_commands(
             }
         }
     }
-    Ok(())
+    Ok(font_object_cache)
 }
 
 fn apply_padding(
@@ -345,7 +347,10 @@ fn main() -> Result<(), MedpdfError> {
 
     merge_pages(&mut doc, &mut page_ids, &args.inputs, &args.blank_page)?;
     apply_overlays(&mut doc, &page_ids, &args.overlay)?;
-    apply_drawing_commands(&mut doc, &page_ids, &args.draw_rect, &args.draw_line, &args.draw_image, &args.watermark)?;
+    let font_object_cache = apply_drawing_commands(&mut doc, &page_ids, &args.draw_rect, &args.draw_line, &args.draw_image, &args.watermark)?;
+    if !args.no_subset {
+        medpdf::subset_fonts(&mut doc, &font_object_cache)?;
+    }
     apply_padding(&mut doc, &mut page_ids, &args.pad_to, &args.pad_last_page_file)?;
 
     let encryption = match (&args.user_password, &args.owner_password) {
