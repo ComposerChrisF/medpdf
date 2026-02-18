@@ -104,8 +104,13 @@ fn subset_single_font(
         .map_err(|e| format!("re-parse table provider error: {e}"))?;
 
     // Subset the font
-    let subsetted = subset(&provider2, &glyph_ids, &SubsetProfile::Pdf, CmapTarget::Unicode)
-        .map_err(|e| format!("subset error: {e:?}"))?;
+    let subsetted = subset(
+        &provider2,
+        &glyph_ids,
+        &SubsetProfile::Custom(vec![tag::CVT, tag::FPGM, tag::PREP]),
+        CmapTarget::Unicode,
+    )
+    .map_err(|e| format!("subset error: {e:?}"))?;
 
     let subsetted_len = subsetted.len();
     if subsetted_len >= original_len {
