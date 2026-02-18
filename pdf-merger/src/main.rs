@@ -42,7 +42,7 @@ struct Args {
     user_password: Option<String>,
     #[arg(long, help = "Password required to change permissions/restrictions")]
     owner_password: Option<String>,
-    #[arg(long, default_value = "aes256", help = "Encryption algorithm: aes256, aes128")]
+    #[arg(long, default_value = "aes128", help = "Encryption algorithm: aes256, aes128, rc4")]
     encryption_algorithm: String,
     #[arg(long, value_delimiter = ',', help = "Comma-separated permissions: print,modify,copy,annotate,fill,accessibility,assemble,print_hq,all,none")]
     permissions: Vec<String>,

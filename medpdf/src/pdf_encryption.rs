@@ -18,10 +18,10 @@ use crate::Result;
 /// Encryption algorithm to use when saving.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum EncryptionAlgorithm {
-    /// AES-256 (PDF 2.0) — strongest, default
-    #[default]
+    /// AES-256 (PDF 2.0) — strongest, but lopdf corrupts content streams (renders blank)
     Aes256,
-    /// AES-128 (PDF 1.6+) — broader compatibility
+    /// AES-128 (PDF 1.6+) — default until lopdf AES-256 bug is fixed
+    #[default]
     Aes128,
     /// RC4-128 (PDF 1.4, V2/R3) — cryptographically weak but works around lopdf AES bugs
     Rc4_128,
