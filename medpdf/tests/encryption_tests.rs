@@ -110,7 +110,7 @@ fn test_encryption_params_defaults() {
     let params = EncryptionParams::new("user", "owner");
     assert_eq!(params.user_password, "user");
     assert_eq!(params.owner_password, "owner");
-    assert_eq!(params.algorithm, EncryptionAlgorithm::Aes256);
+    assert_eq!(params.algorithm, EncryptionAlgorithm::Aes128);
     assert_eq!(params.permissions, Permissions::all());
 }
 

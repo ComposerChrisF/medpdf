@@ -440,7 +440,7 @@ pub fn insert_content_stream(
 
     if let Ok(contents) = page_dict.get_mut(KEY_CONTENTS) {
         match contents {
-            Object::Array(ref mut arr) => {
+            Object::Array(arr) => {
                 if layer_over {
                     let q = q_id.ok_or_else(|| MedpdfError::new("Internal error: missing q stream ID"))?;
                     let closing_q = closing_q_id.ok_or_else(|| MedpdfError::new("Internal error: missing closing q stream ID"))?;

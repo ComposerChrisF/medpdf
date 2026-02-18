@@ -1282,7 +1282,7 @@ dependencies = [
 
 [[package]]
 name = "medpdf"
-version = "0.8.4"
+version = "0.8.6"
 dependencies = [
  "font-kit",
  "itoa",
@@ -1297,7 +1297,7 @@ dependencies = [
 
 [[package]]
 name = "medpdf-image"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "flate2",
  "image",
@@ -1499,7 +1499,7 @@ dependencies = [
 
 [[package]]
 name = "pdf-merger"
-version = "0.8.3"
+version = "0.8.5"
 dependencies = [
  "chrono",
  "clap",
@@ -1513,7 +1513,7 @@ dependencies = [
 
 [[package]]
 name = "pdf-test-visual"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "dssim-core",
  "imgref",
