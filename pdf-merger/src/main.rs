@@ -304,8 +304,9 @@ fn parse_encryption_algorithm(s: &str) -> Result<EncryptionAlgorithm, MedpdfErro
     match s.to_ascii_lowercase().as_str() {
         "aes256" | "aes-256" => Ok(EncryptionAlgorithm::Aes256),
         "aes128" | "aes-128" => Ok(EncryptionAlgorithm::Aes128),
+        "rc4" | "rc4-128" | "rc4_128" => Ok(EncryptionAlgorithm::Rc4_128),
         _ => Err(MedpdfError::new(format!(
-            "Unknown encryption algorithm: '{s}'. Valid values: aes256, aes128"
+            "Unknown encryption algorithm: '{s}'. Valid values: aes256, aes128, rc4"
         ))),
     }
 }

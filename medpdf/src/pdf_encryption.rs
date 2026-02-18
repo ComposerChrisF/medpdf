@@ -1,8 +1,9 @@
-//! PDF document encryption (AES-256 and AES-128) with permission controls.
+//! PDF document encryption (AES-256, AES-128, and RC4-128) with permission controls.
 //!
 //! AES-256 (V5) generates a random file encryption key; passwords wrap it for authentication.
 //! AES-128 (V4) derives the key from the password and file ID.
-//! RC4 is intentionally excluded — it is cryptographically broken.
+//! RC4-128 (V2/R3) derives the key from the password and file ID. Cryptographically weak but
+//! included as a workaround for lopdf AES encryption bugs.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -22,7 +23,8 @@ pub enum EncryptionAlgorithm {
     Aes256,
     /// AES-128 (PDF 1.6+) — broader compatibility
     Aes128,
-    // RC4 intentionally excluded — cryptographically broken
+    /// RC4-128 (PDF 1.4, V2/R3) — cryptographically weak but works around lopdf AES bugs
+    Rc4_128,
 }
 
 /// Parameters for encrypting a PDF document.
@@ -58,15 +60,10 @@ impl EncryptionParams {
 
 /// Encrypt a PDF document in place.
 pub fn encrypt_document(doc: &mut Document, params: &EncryptionParams) -> Result<()> {
-    let crypt_filter: Arc<dyn CryptFilter> = match params.algorithm {
-        EncryptionAlgorithm::Aes256 => Arc::new(Aes256CryptFilter),
-        EncryptionAlgorithm::Aes128 => Arc::new(Aes128CryptFilter),
-    };
-
-    let crypt_filters = BTreeMap::from([(b"StdCF".to_vec(), crypt_filter)]);
-
     let state = match params.algorithm {
         EncryptionAlgorithm::Aes256 => {
+            let crypt_filter: Arc<dyn CryptFilter> = Arc::new(Aes256CryptFilter);
+            let crypt_filters = BTreeMap::from([(b"StdCF".to_vec(), crypt_filter)]);
             let mut file_encryption_key = [0u8; 32];
             rand::rng().fill(&mut file_encryption_key);
 
@@ -83,6 +80,8 @@ pub fn encrypt_document(doc: &mut Document, params: &EncryptionParams) -> Result
             EncryptionState::try_from(version)?
         }
         EncryptionAlgorithm::Aes128 => {
+            let crypt_filter: Arc<dyn CryptFilter> = Arc::new(Aes128CryptFilter);
+            let crypt_filters = BTreeMap::from([(b"StdCF".to_vec(), crypt_filter)]);
             let version = EncryptionVersion::V4 {
                 document: doc,
                 encrypt_metadata: true,
@@ -91,6 +90,16 @@ pub fn encrypt_document(doc: &mut Document, params: &EncryptionParams) -> Result
                 string_filter: b"StdCF".to_vec(),
                 owner_password: &params.owner_password,
                 user_password: &params.user_password,
+                permissions: params.permissions,
+            };
+            EncryptionState::try_from(version)?
+        }
+        EncryptionAlgorithm::Rc4_128 => {
+            let version = EncryptionVersion::V2 {
+                document: doc,
+                owner_password: &params.owner_password,
+                user_password: &params.user_password,
+                key_length: 128,
                 permissions: params.permissions,
             };
             EncryptionState::try_from(version)?

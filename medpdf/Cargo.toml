@@ -1,6 +1,6 @@
 [package]
 name = "medpdf"
-version = "0.8.3"
+version = "0.8.4"
 edition = "2021"
 description = "Medium-level PDF API over lopdf"
 license = "MIT OR Apache-2.0"
@@ -16,3 +16,4 @@ itoa = "1"
 
 [dev-dependencies]
 tempfile = "3"
+pdf-test-visual = { path = "../pdf-test-visual" }
