@@ -1,0 +1,12 @@
+[package]
+name = "pdf-test-visual"
+version = "0.1.0"
+edition = "2021"
+description = "Visual regression testing for PDF crates"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+dssim-core = "3"
+rgb = "0.8"
+imgref = "1"
+png = "0.18"
