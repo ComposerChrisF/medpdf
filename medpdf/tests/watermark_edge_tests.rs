@@ -588,26 +588,9 @@ fn test_rect_line_watermark_combined() {
 
 // --- EmbeddedFontCache integration tests ---
 
-/// Loads a system TTF font for embedded font testing.
-/// Returns None if no suitable font is found.
-fn load_system_ttf() -> Option<std::sync::Arc<Vec<u8>>> {
-    let candidates = [
-        "/System/Library/Fonts/Supplemental/Arial.ttf",
-        "/System/Library/Fonts/Supplemental/Andale Mono.ttf",
-        "/System/Library/Fonts/Supplemental/Verdana.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-    ];
-    for path in &candidates {
-        if let Ok(data) = std::fs::read(path) {
-            return Some(std::sync::Arc::new(data));
-        }
-    }
-    None
-}
-
 #[test]
 fn test_embedded_font_cache_reuses_font_across_pages() {
-    let font_arc = match load_system_ttf() {
+    let font_arc = match fixtures::load_system_ttf() {
         Some(f) => f,
         None => { eprintln!("Skipping: no system TTF font found"); return; }
     };
@@ -649,23 +632,12 @@ fn test_embedded_font_cache_reuses_font_across_pages() {
 
 #[test]
 fn test_embedded_font_cache_separate_entries_for_different_fonts() {
-    let font_arc1 = match load_system_ttf() {
+    let font_arc1 = match fixtures::load_system_ttf() {
         Some(f) => f,
         None => { eprintln!("Skipping: no system TTF font found"); return; }
     };
 
-    // Load a different font
-    let candidates = [
-        "/System/Library/Fonts/Supplemental/Courier New.ttf",
-        "/System/Library/Fonts/Supplemental/Georgia.ttf",
-        "/System/Library/Fonts/Supplemental/Trebuchet MS.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf",
-    ];
-    let font_arc2 = candidates.iter()
-        .filter_map(|p| std::fs::read(p).ok())
-        .map(std::sync::Arc::new)
-        .next();
-    let font_arc2 = match font_arc2 {
+    let font_arc2 = match fixtures::load_second_system_ttf() {
         Some(f) => f,
         None => { eprintln!("Skipping: need 2 different system fonts"); return; }
     };
@@ -695,7 +667,7 @@ fn test_embedded_font_cache_separate_entries_for_different_fonts() {
 
 #[test]
 fn test_embedded_font_without_cache_duplicates_objects() {
-    let font_arc = match load_system_ttf() {
+    let font_arc = match fixtures::load_system_ttf() {
         Some(f) => f,
         None => { eprintln!("Skipping: no system TTF font found"); return; }
     };
@@ -731,7 +703,7 @@ fn test_embedded_font_without_cache_duplicates_objects() {
 
 #[test]
 fn test_embedded_font_data_is_compressed() {
-    let font_arc = match load_system_ttf() {
+    let font_arc = match fixtures::load_system_ttf() {
         Some(f) => f,
         None => { eprintln!("Skipping: no system TTF font found"); return; }
     };

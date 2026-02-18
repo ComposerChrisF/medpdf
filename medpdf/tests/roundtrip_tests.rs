@@ -5,7 +5,7 @@ mod fixtures;
 
 use medpdf::pdf_helpers::get_page_media_box;
 use medpdf::types::{AddTextParams, PdfColor};
-use medpdf::{add_text_params, copy_page, create_blank_page, delete_page, EmbeddedFontCache, FontData};
+use medpdf::{add_text_params, copy_page, create_blank_page, delete_page, subset_fonts, EmbeddedFontCache, FontData};
 use tempfile::NamedTempFile;
 
 /// Helper: saves a Document to a temp file and reloads it.
@@ -285,4 +285,86 @@ fn test_roundtrip_preserves_content_stream() {
     // Content may be re-encoded, but key operators should be present
     assert!(text.contains("re"), "Rectangle operator should survive");
     assert!(text.contains("rg"), "Color operator should survive");
+}
+
+// --- Subsetting + Roundtrip ---
+
+// C1: subsetted document preserves pages and font metadata after roundtrip
+#[test]
+fn test_roundtrip_subsetted_preserves_pages_and_font() {
+    let font_data = match fixtures::load_system_ttf() {
+        Some(f) => f,
+        None => { eprintln!("Skipping: no system TTF font found"); return; }
+    };
+
+    let source_doc = fixtures::create_pdf_with_pages(1);
+    let mut doc = fixtures::create_empty_pdf();
+    let page_id = copy_page(&mut doc, &source_doc, 1).unwrap();
+    let mut cache = EmbeddedFontCache::new();
+
+    let params = AddTextParams::new("DRAFT", FontData::Embedded(font_data.clone()), "TestFont")
+        .font_size(48.0)
+        .position(100.0, 400.0);
+    add_text_params(&mut doc, page_id, &params, &mut cache).unwrap();
+
+    subset_fonts(&mut doc, &cache).unwrap();
+
+    let reloaded = save_and_reload(&mut doc);
+    assert_eq!(reloaded.get_pages().len(), 1, "Should have 1 page after roundtrip");
+
+    // Verify BaseFont has TAG+ prefix
+    let mut found_tagged = false;
+    for (_id, obj) in reloaded.objects.iter() {
+        if let Ok(dict) = obj.as_dict() {
+            if let Ok(lopdf::Object::Name(n)) = dict.get(b"BaseFont") {
+                let name = String::from_utf8_lossy(n);
+                if name.contains('+') {
+                    found_tagged = true;
+                }
+            }
+        }
+    }
+    assert!(found_tagged, "BaseFont should have TAG+ prefix after roundtrip");
+
+    // Verify font stream has Length1 and Filter
+    let mut found_font_stream = false;
+    for (_id, obj) in reloaded.objects.iter() {
+        if let Ok(stream) = obj.as_stream() {
+            if stream.dict.has(b"Length1") {
+                assert!(stream.dict.has(b"Filter"), "Font stream should have Filter");
+                found_font_stream = true;
+            }
+        }
+    }
+    assert!(found_font_stream, "Should find font stream with Length1 after roundtrip");
+}
+
+// C2: watermark text survives subsetting + roundtrip
+#[test]
+fn test_roundtrip_subsetted_watermark_text_survives() {
+    let font_data = match fixtures::load_system_ttf() {
+        Some(f) => f,
+        None => { eprintln!("Skipping: no system TTF font found"); return; }
+    };
+
+    let source_doc = fixtures::create_pdf_with_pages(1);
+    let mut doc = fixtures::create_empty_pdf();
+    let page_id = copy_page(&mut doc, &source_doc, 1).unwrap();
+    let mut cache = EmbeddedFontCache::new();
+
+    let params = AddTextParams::new("DRAFT", FontData::Embedded(font_data.clone()), "TestFont")
+        .font_size(48.0)
+        .position(100.0, 400.0);
+    add_text_params(&mut doc, page_id, &params, &mut cache).unwrap();
+
+    subset_fonts(&mut doc, &cache).unwrap();
+
+    let reloaded = save_and_reload(&mut doc);
+    let page_id = *reloaded.get_pages().get(&1).unwrap();
+    let content_bytes = fixtures::get_page_content_bytes(&reloaded, page_id);
+    let content_str = String::from_utf8_lossy(&content_bytes);
+    assert!(
+        content_str.contains("DRAFT"),
+        "Watermark text 'DRAFT' should survive subsetting + roundtrip"
+    );
 }

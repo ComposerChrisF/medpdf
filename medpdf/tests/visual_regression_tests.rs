@@ -4,7 +4,7 @@ use medpdf::pdf_copy_page::copy_page;
 use medpdf::pdf_watermark::{add_line, add_rect, add_text_params};
 use medpdf::types::{AddTextParams, DrawLineParams, DrawRectParams, HAlign, PdfColor, VAlign};
 use medpdf::pdf_encryption::{encrypt_document, EncryptionAlgorithm, EncryptionParams};
-use medpdf::{create_blank_page, EmbeddedFontCache, FontData};
+use medpdf::{create_blank_page, subset_fonts, EmbeddedFontCache, FontData};
 use pdf_test_visual::{assert_images_ssim, assert_page_matches, rasterize_page_with_password, rasterizer_available, CompareMode};
 use std::path::{Path, PathBuf};
 use tempfile::NamedTempFile;
@@ -244,4 +244,49 @@ fn visual_encryption_rc4_preserves_rendering() {
         EncryptionAlgorithm::Rc4_128,
         "encryption-rc4-watermark.png",
     );
+}
+
+// --- D1: Subsetted vs non-subsetted rendering should be identical ---
+// Builds ONE document, snapshots before subsetting, subsets in-place,
+// snapshots again, and compares the two renders.
+
+#[test]
+fn visual_subset_vs_nonsubset_identical() {
+    if skip_if_no_rasterizer() {
+        return;
+    }
+    let font_data = match fixtures::load_system_ttf() {
+        Some(f) => f,
+        None => { eprintln!("[visual_regression] Skipping: no system TTF font found"); return; }
+    };
+
+    // Build a single document with an embedded-font watermark
+    let source_doc = fixtures::create_pdf_with_pages(1);
+    let mut doc = fixtures::create_empty_pdf();
+    let page_id = copy_page(&mut doc, &source_doc, 1).unwrap();
+    let mut cache = EmbeddedFontCache::new();
+    let params = AddTextParams::new("DRAFT", FontData::Embedded(font_data.clone()), "TestFont")
+        .font_size(60.0)
+        .position(306.0, 396.0)
+        .h_align(HAlign::Center)
+        .v_align(VAlign::Center)
+        .color(PdfColor::RED);
+    add_text_params(&mut doc, page_id, &params, &mut cache).unwrap();
+
+    // Snapshot A: before subsetting
+    let tmp_before = save_to_temp(&mut doc);
+    let png_before = pdf_test_visual::rasterize_page(tmp_before.path(), 1, 150).unwrap();
+
+    // Subset in-place on the same document
+    subset_fonts(&mut doc, &cache).unwrap();
+
+    // Snapshot B: after subsetting
+    let tmp_after = save_to_temp(&mut doc);
+    let png_after = pdf_test_visual::rasterize_page(tmp_after.path(), 1, 150).unwrap();
+
+    // Compare the two snapshots of the same document
+    let before_tmp = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(before_tmp.path(), &png_before).unwrap();
+
+    assert_images_ssim(before_tmp.path(), &png_after, 0.98).unwrap();
 }

@@ -4,6 +4,41 @@
 #![allow(dead_code)] // These are test utilities; not all are used in every test file
 
 use lopdf::{dictionary, Document, Object, ObjectId, Stream};
+use std::sync::Arc;
+
+/// Loads a system TTF font for embedded font testing.
+/// Returns None if no suitable font is found.
+pub fn load_system_ttf() -> Option<Arc<Vec<u8>>> {
+    let candidates = [
+        "/System/Library/Fonts/Supplemental/Arial.ttf",
+        "/System/Library/Fonts/Supplemental/Andale Mono.ttf",
+        "/System/Library/Fonts/Supplemental/Verdana.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    ];
+    for path in &candidates {
+        if let Ok(data) = std::fs::read(path) {
+            return Some(Arc::new(data));
+        }
+    }
+    None
+}
+
+/// Loads a second, different system TTF font for tests needing two distinct fonts.
+/// Returns None if no suitable font is found.
+pub fn load_second_system_ttf() -> Option<Arc<Vec<u8>>> {
+    let candidates = [
+        "/System/Library/Fonts/Supplemental/Courier New.ttf",
+        "/System/Library/Fonts/Supplemental/Georgia.ttf",
+        "/System/Library/Fonts/Supplemental/Trebuchet MS.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf",
+    ];
+    for path in &candidates {
+        if let Ok(data) = std::fs::read(path) {
+            return Some(Arc::new(data));
+        }
+    }
+    None
+}
 
 /// Creates a minimal valid PDF document with no pages.
 pub fn create_empty_pdf() -> Document {
