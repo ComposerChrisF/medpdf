@@ -104,13 +104,33 @@ fn subset_single_font(
         .map_err(|e| format!("re-parse table provider error: {e}"))?;
 
     // Subset the font
+    // Use Custom profile with all Minimal tables (includes OS/2 and proper cmap)
+    // plus TrueType hinting tables (cvt, fpgm, prep). Note: Custom(vec) uses
+    // the vec as-is — it does NOT implicitly include Minimal tables.
     let subsetted = subset(
         &provider2,
         &glyph_ids,
-        &SubsetProfile::Custom(vec![tag::CVT, tag::FPGM, tag::PREP]),
+        &SubsetProfile::Custom(vec![
+            // Minimal profile tables (required for valid OpenType)
+            tag::CMAP, tag::HEAD, tag::HHEA, tag::HMTX,
+            tag::MAXP, tag::NAME, tag::OS_2, tag::POST,
+            // TrueType hinting tables
+            tag::CVT, tag::FPGM, tag::PREP,
+        ]),
         CmapTarget::Unicode,
     )
     .map_err(|e| format!("subset error: {e:?}"))?;
+
+    // allsorts generates cmap with only platform=0 (Unicode). Adobe Acrobat
+    // requires platform=3 (Windows) for WinAnsiEncoding TrueType fonts.
+    // Add a Windows encoding record pointing to the same Format 4 subtable.
+    let subsetted = match add_windows_cmap(&subsetted) {
+        Ok(patched) => patched,
+        Err(e) => {
+            log::debug!("Windows cmap patch skipped: {e}");
+            subsetted
+        }
+    };
 
     let subsetted_len = subsetted.len();
     if subsetted_len >= original_len {
@@ -162,6 +182,195 @@ fn prefix_font_name(doc: &mut Document, descriptor_id: lopdf::ObjectId, tag: &st
             dict.set("FontName", Object::Name(new_name.into_bytes()));
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// TrueType cmap patching: add Windows (platform=3, encoding=1) encoding record
+// ---------------------------------------------------------------------------
+//
+// allsorts' subsetter generates a cmap table with a single platform=0
+// (Unicode) encoding record.  Adobe Acrobat (and Foxit) expect platform=3
+// (Windows) when the PDF font uses WinAnsiEncoding.  We add a second
+// encoding record that shares the same Format 4 subtable data.
+
+/// Adds a Windows (platform=3, encoding=1) cmap encoding record to a
+/// subsetted TrueType font.  Returns the patched font bytes, or an error
+/// if the font already has a Windows cmap or can't be parsed.
+fn add_windows_cmap(font_data: &[u8]) -> std::result::Result<Vec<u8>, String> {
+    if font_data.len() < 12 {
+        return Err("font too small".into());
+    }
+    let num_tables = be_u16(font_data, 4) as usize;
+    let dir_end = 12 + num_tables * 16;
+    if font_data.len() < dir_end {
+        return Err("truncated table directory".into());
+    }
+
+    // Locate the cmap table entry in the TrueType table directory.
+    let mut cmap_dir_idx = None;
+    for i in 0..num_tables {
+        if &font_data[12 + i * 16..12 + i * 16 + 4] == b"cmap" {
+            cmap_dir_idx = Some(i);
+            break;
+        }
+    }
+    let cmap_dir_idx = cmap_dir_idx.ok_or("no cmap table")?;
+    let cmap_offset = be_u32(font_data, 12 + cmap_dir_idx * 16 + 8) as usize;
+    let cmap_length = be_u32(font_data, 12 + cmap_dir_idx * 16 + 12) as usize;
+    if font_data.len() < cmap_offset + cmap_length || cmap_length < 4 {
+        return Err("cmap table out of bounds".into());
+    }
+
+    let cmap = &font_data[cmap_offset..cmap_offset + cmap_length];
+    let cmap_num_recs = be_u16(cmap, 2) as usize;
+    if cmap.len() < 4 + cmap_num_recs * 8 {
+        return Err("truncated cmap encoding records".into());
+    }
+
+    // Scan existing encoding records.
+    let mut unicode_bmp_off = None;
+    for i in 0..cmap_num_recs {
+        let base = 4 + i * 8;
+        let plat = be_u16(cmap, base);
+        let enc = be_u16(cmap, base + 2);
+        if plat == 3 {
+            return Err("font already has platform=3 cmap".into());
+        }
+        if plat == 0 && enc == 3 {
+            unicode_bmp_off = Some(be_u32(cmap, base + 4));
+        }
+    }
+    let unicode_bmp_off = unicode_bmp_off.ok_or("no platform=0 encoding=3 cmap subtable")?;
+
+    // Build new cmap: one extra 8-byte encoding record, same subtable data.
+    let extra = 8u32;
+    let mut new_cmap = Vec::with_capacity(cmap.len() + extra as usize);
+    push_be_u16(&mut new_cmap, 0); // version
+    push_be_u16(&mut new_cmap, (cmap_num_recs + 1) as u16);
+
+    // Existing records with shifted subtable offsets.
+    for i in 0..cmap_num_recs {
+        let base = 4 + i * 8;
+        new_cmap.extend_from_slice(&cmap[base..base + 4]); // platform + encoding
+        push_be_u32(&mut new_cmap, be_u32(cmap, base + 4) + extra);
+    }
+
+    // New Windows record sharing the same subtable.
+    push_be_u16(&mut new_cmap, 3); // platformID = Windows
+    push_be_u16(&mut new_cmap, 1); // encodingID = Unicode BMP
+    push_be_u32(&mut new_cmap, unicode_bmp_off + extra);
+
+    // Copy the subtable data verbatim.
+    new_cmap.extend_from_slice(&cmap[4 + cmap_num_recs * 8..]);
+
+    // Rebuild the font with the new cmap table.
+    rebuild_ttf(font_data, num_tables, cmap_dir_idx, &new_cmap)
+}
+
+/// Rebuilds a TrueType font binary, replacing one table's data.
+fn rebuild_ttf(
+    font_data: &[u8],
+    num_tables: usize,
+    replace_idx: usize,
+    new_table: &[u8],
+) -> std::result::Result<Vec<u8>, String> {
+    // Collect (tag, data) for every table, sorted by tag (TrueType requirement).
+    let mut tables: Vec<(u32, &[u8])> = Vec::with_capacity(num_tables);
+    for i in 0..num_tables {
+        let base = 12 + i * 16;
+        let tag = be_u32(font_data, base);
+        let off = be_u32(font_data, base + 8) as usize;
+        let len = be_u32(font_data, base + 12) as usize;
+        if i == replace_idx {
+            tables.push((tag, new_table));
+        } else {
+            if font_data.len() < off + len {
+                return Err(format!("table {i} out of bounds"));
+            }
+            tables.push((tag, &font_data[off..off + len]));
+        }
+    }
+    tables.sort_by_key(|(tag, _)| *tag);
+
+    let nt = tables.len() as u16;
+    let entry_sel = 15u16.saturating_sub(nt.leading_zeros() as u16); // floor(log2(nt))
+    let search_range = (1u16 << entry_sel) * 16;
+    let range_shift = nt * 16 - search_range;
+    let header_size = 12 + tables.len() * 16;
+
+    // Pre-calculate table offsets.
+    let mut offsets = Vec::with_capacity(tables.len());
+    let mut off = header_size;
+    for (_, data) in &tables {
+        offsets.push(off as u32);
+        off += (data.len() + 3) & !3; // pad to 4-byte boundary
+    }
+
+    let mut out = Vec::with_capacity(off);
+
+    // Offset table — preserve sfVersion from original.
+    out.extend_from_slice(&font_data[0..4]);
+    push_be_u16(&mut out, nt);
+    push_be_u16(&mut out, search_range);
+    push_be_u16(&mut out, entry_sel);
+    push_be_u16(&mut out, range_shift);
+
+    // Table directory.
+    for ((tag, data), &toff) in tables.iter().zip(offsets.iter()) {
+        push_be_u32(&mut out, *tag);
+        push_be_u32(&mut out, ttf_checksum(data));
+        push_be_u32(&mut out, toff);
+        push_be_u32(&mut out, data.len() as u32);
+    }
+
+    // Table data (each padded to 4 bytes).
+    for (_, data) in &tables {
+        out.extend_from_slice(data);
+        let pad = (4 - data.len() % 4) % 4;
+        out.extend_from_slice(&[0u8; 3][..pad]);
+    }
+
+    // Fix head.checksumAdjustment.
+    for (i, (tag, _)) in tables.iter().enumerate() {
+        if *tag == u32::from_be_bytes(*b"head") {
+            let h = offsets[i] as usize;
+            if h + 12 <= out.len() {
+                out[h + 8..h + 12].copy_from_slice(&0u32.to_be_bytes());
+                let adj = 0xB1B0AFBAu32.wrapping_sub(ttf_checksum(&out));
+                out[h + 8..h + 12].copy_from_slice(&adj.to_be_bytes());
+            }
+            break;
+        }
+    }
+
+    Ok(out)
+}
+
+fn ttf_checksum(data: &[u8]) -> u32 {
+    let mut sum = 0u32;
+    let chunks = data.chunks(4);
+    for chunk in chunks {
+        let mut buf = [0u8; 4];
+        buf[..chunk.len()].copy_from_slice(chunk);
+        sum = sum.wrapping_add(u32::from_be_bytes(buf));
+    }
+    sum
+}
+
+fn be_u16(data: &[u8], off: usize) -> u16 {
+    u16::from_be_bytes(data[off..off + 2].try_into().unwrap())
+}
+
+fn be_u32(data: &[u8], off: usize) -> u32 {
+    u32::from_be_bytes(data[off..off + 4].try_into().unwrap())
+}
+
+fn push_be_u16(buf: &mut Vec<u8>, val: u16) {
+    buf.extend_from_slice(&val.to_be_bytes());
+}
+
+fn push_be_u32(buf: &mut Vec<u8>, val: u32) {
+    buf.extend_from_slice(&val.to_be_bytes());
 }
 
 #[cfg(test)]
