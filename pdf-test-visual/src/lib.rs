@@ -122,6 +122,25 @@ pub fn rasterize_page(
     page: u32,
     dpi: u32,
 ) -> Result<Vec<u8>, VisualTestError> {
+    rasterize_page_impl(pdf_path, page, dpi, None)
+}
+
+/// Like [`rasterize_page`], but supplies a user password for encrypted PDFs.
+pub fn rasterize_page_with_password(
+    pdf_path: &Path,
+    page: u32,
+    dpi: u32,
+    password: &str,
+) -> Result<Vec<u8>, VisualTestError> {
+    rasterize_page_impl(pdf_path, page, dpi, Some(password))
+}
+
+fn rasterize_page_impl(
+    pdf_path: &Path,
+    page: u32,
+    dpi: u32,
+    password: Option<&str>,
+) -> Result<Vec<u8>, VisualTestError> {
     let rasterizer = detect_rasterizer().ok_or(VisualTestError::RasterizerNotFound)?;
     let dpi = if dpi == 0 { 150 } else { dpi };
     static COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -130,8 +149,8 @@ pub fn rasterize_page(
     std::fs::create_dir_all(&tmp_dir)?;
 
     let result = match rasterizer {
-        Rasterizer::Pdftoppm => rasterize_pdftoppm(pdf_path, page, dpi, &tmp_dir),
-        Rasterizer::Mutool => rasterize_mutool(pdf_path, page, dpi, &tmp_dir),
+        Rasterizer::Pdftoppm => rasterize_pdftoppm(pdf_path, page, dpi, &tmp_dir, password),
+        Rasterizer::Mutool => rasterize_mutool(pdf_path, page, dpi, &tmp_dir, password),
     };
 
     let _ = std::fs::remove_dir_all(&tmp_dir);
@@ -143,7 +162,7 @@ pub fn rasterize_all_pages(
     pdf_path: &Path,
     dpi: u32,
 ) -> Result<Vec<Vec<u8>>, VisualTestError> {
-    let page_count = count_pages(pdf_path)?;
+    let page_count = count_pages(pdf_path, None)?;
     let mut pages = Vec::with_capacity(page_count as usize);
     for p in 1..=page_count {
         pages.push(rasterize_page(pdf_path, p, dpi)?);
@@ -151,12 +170,15 @@ pub fn rasterize_all_pages(
     Ok(pages)
 }
 
-fn count_pages(pdf_path: &Path) -> Result<u32, VisualTestError> {
+fn count_pages(pdf_path: &Path, password: Option<&str>) -> Result<u32, VisualTestError> {
     let rasterizer = detect_rasterizer().ok_or(VisualTestError::RasterizerNotFound)?;
     match rasterizer {
         Rasterizer::Pdftoppm => {
-            // Use pdfinfo if available, otherwise rasterize sequentially until failure
-            let output = Command::new("pdfinfo")
+            let mut cmd = Command::new("pdfinfo");
+            if let Some(pw) = password {
+                cmd.args(["-upw", pw]);
+            }
+            let output = cmd
                 .arg(pdf_path)
                 .output()
                 .map_err(|e| VisualTestError::RasterizationFailed(format!("pdfinfo failed: {e}")))?;
@@ -174,8 +196,13 @@ fn count_pages(pdf_path: &Path) -> Result<u32, VisualTestError> {
             ))
         }
         Rasterizer::Mutool => {
-            let output = Command::new("mutool")
-                .args(["info", pdf_path.to_str().unwrap_or("")])
+            let mut cmd = Command::new("mutool");
+            cmd.arg("info");
+            if let Some(pw) = password {
+                cmd.args(["-p", pw]);
+            }
+            cmd.arg(pdf_path.to_str().unwrap_or(""));
+            let output = cmd
                 .output()
                 .map_err(|e| VisualTestError::RasterizationFailed(format!("mutool info failed: {e}")))?;
             let stdout = String::from_utf8_lossy(&output.stdout);
@@ -240,13 +267,16 @@ fn rasterize_pdftoppm(
     page: u32,
     dpi: u32,
     tmp_dir: &Path,
+    password: Option<&str>,
 ) -> Result<Vec<u8>, VisualTestError> {
     let prefix = tmp_dir.join("page");
+    let mut cmd = Command::new("pdftoppm");
+    cmd.args(["-png", "-r", &dpi.to_string(), "-f", &page.to_string(), "-l", &page.to_string()]);
+    if let Some(pw) = password {
+        cmd.args(["-upw", pw]);
+    }
     let output = run_with_timeout(
-        Command::new("pdftoppm")
-            .args(["-png", "-r", &dpi.to_string(), "-f", &page.to_string(), "-l", &page.to_string()])
-            .arg(pdf_path)
-            .arg(&prefix),
+        cmd.arg(pdf_path).arg(&prefix),
         30,
     )?;
 
@@ -283,19 +313,23 @@ fn rasterize_mutool(
     page: u32,
     dpi: u32,
     tmp_dir: &Path,
+    password: Option<&str>,
 ) -> Result<Vec<u8>, VisualTestError> {
     let out_path = tmp_dir.join("page.png");
+    let mut cmd = Command::new("mutool");
+    cmd.args([
+        "draw",
+        "-r",
+        &dpi.to_string(),
+        "-o",
+        out_path.to_str().unwrap_or("page.png"),
+    ]);
+    if let Some(pw) = password {
+        cmd.args(["-p", pw]);
+    }
+    cmd.args([pdf_path.to_str().unwrap_or(""), &page.to_string()]);
     let output = run_with_timeout(
-        Command::new("mutool")
-            .args([
-                "draw",
-                "-r",
-                &dpi.to_string(),
-                "-o",
-                out_path.to_str().unwrap_or("page.png"),
-                pdf_path.to_str().unwrap_or(""),
-                &page.to_string(),
-            ]),
+        &mut cmd,
         30,
     )?;
 
