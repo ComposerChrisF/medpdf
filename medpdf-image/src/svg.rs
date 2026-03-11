@@ -1,3 +1,17 @@
+//! SVG embedding into PDF pages via `svg2pdf` and `usvg`.
+//!
+//! `usvg` parses SVG into a simplified render tree, then `svg2pdf` converts that
+//! tree into a self-contained PDF document. The resulting PDF is loaded by lopdf
+//! and its page content is overlaid onto the target page as an XObject.
+//!
+//! All dependencies are permissively licensed (MIT/Apache-2.0) with no copyleft
+//! in the dependency tree. The `svg` feature flag enables base support; the
+//! `svg-filters` flag adds rasterized filter support (increases the dependency
+//! tree via tiny-skia).
+//!
+//! **Maintenance note:** svg2pdf's primary maintainer (Typst) migrated to `krilla`
+//! in 2025. Monitor `krilla-svg` as a potential future alternative.
+
 use lopdf::{dictionary, Document, Object, ObjectId, Stream};
 use medpdf::{
     deep_copy_object, deep_copy_object_by_id, insert_content_stream,

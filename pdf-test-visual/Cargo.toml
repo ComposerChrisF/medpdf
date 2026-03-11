@@ -4,6 +4,7 @@ version = "0.1.1"
 edition = "2024"
 description = "Visual regression testing for PDF crates"
 license = "MIT OR Apache-2.0"
+publish = false
 
 [dependencies]
 dssim-core = "3"

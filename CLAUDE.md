@@ -6,7 +6,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 cargo build --release            # Build optimized binaries
-cargo build --release -p pdf-merger  # Build CLI only
 cargo check --workspace          # Fast type checking
 cargo test --workspace           # Run all tests
 ```
@@ -18,7 +17,7 @@ Never commit changes to git without permission from the user.
 This is a Cargo workspace with three crates:
 
 ```
-pdf_merger/                    # Repository root (workspace)
+medpdf/                        # Repository root (workspace)
 ├── Cargo.toml                 # Workspace manifest
 ├── medpdf/                    # Library crate (medium-level PDF API)
 │   ├── Cargo.toml
@@ -41,25 +40,15 @@ pdf_merger/                    # Repository root (workspace)
 │   ├── Cargo.toml
 │   └── src/
 │       └── lib.rs             # JPEG/PNG/etc. image embedding into PDF pages
-└── pdf-merger/                # CLI crate
+└── pdf-test-visual/           # Visual regression test utility (publish=false)
     ├── Cargo.toml
     └── src/
-        ├── main.rs            # CLI args (clap), orchestrates pipeline
-        └── spec_types.rs      # CLI spec types with FromStr (WatermarkSpec, etc.)
+        └── lib.rs
 ```
 
 ## Architecture Overview
 
-**medpdf** is a reusable library providing medium-level PDF operations over lopdf.
-**pdf-merger** is a CLI tool that uses medpdf for merging, overlaying, and watermarking PDFs.
-
-### 5-Phase Processing Pipeline (pdf-merger/src/main.rs)
-
-1. **Merge Pages** - Parse input file/page specs, load documents, copy selected pages
-2. **Apply Overlays** - Overlay content from other PDFs with resource renaming
-3. **Apply Watermarks** - Add text watermarks with embedded/system fonts
-4. **Padding** - Pad document to multiple of N pages
-5. **Save** - Compress and write output
+**medpdf** is a reusable library providing medium-level PDF operations over lopdf. Consumers include [pdf-merger](https://github.com/ComposerChrisF/pdf-merger) (separate repo).
 
 ### Module Responsibilities
 
@@ -79,8 +68,6 @@ pdf_merger/                    # Repository root (workspace)
 | `medpdf::pdf_overlay` | `overlay_page()` - merge content with resource renaming |
 | `medpdf::pdf_watermark` | `add_text_params()` - text watermark rendering with color, alignment, rotation, alpha; `EmbeddedFontCache` for deduplicating embedded font objects across pages |
 | `medpdf_image` | Image embedding companion crate (JPEG, PNG, etc.) |
-| `pdf_merger::main` | CLI args (clap), orchestrates pipeline (`pdf-merger` crate) |
-| `pdf_merger::spec_types` | CLI spec types with FromStr for clap integration (`pdf-merger` crate) |
 
 ### Key Patterns
 
@@ -91,17 +78,6 @@ pdf_merger/                    # Repository root (workspace)
 **Font Discovery Pipeline**: Numeric handle → built-in (@Helvetica, @Courier, etc.) → system search via font-kit → direct file path
 
 **Embedded Font Caching**: Two-level caching prevents redundant work. `FontCache` caches font file reads as `Arc<Vec<u8>>` (keyed by path). `EmbeddedFontCache` caches the resulting PDF font objects (keyed by `Arc` pointer identity), so the same embedded font is only added to the document once even when applied to many pages. Embedded font streams are compressed (deflate) before insertion.
-
-**Spec Parsing**: `WatermarkSpec`, `OverlaySpec`, `PadToSpec`, `PadFileSpec` all implement `FromStr` for clap integration.
-
-### CLI Usage
-
-```bash
-pdf-merger -o out.pdf in1.pdf "1-3" in2.pdf "all" \
-  --watermark "text=DRAFT,font=@Helvetica,size=24,x=1,y=1,units=in,color=#FF0000,alpha=0.5,rotation=45,h_align=center,pages=all" \
-  --overlay "file=overlay.pdf,src_page=1,target_pages=1-5" \
-  --pad-to 4
-```
 
 ### PDF Key Constants
 

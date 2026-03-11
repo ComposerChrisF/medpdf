@@ -20,7 +20,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-medpdf = "0.8.2"
+medpdf = "0.9.2"
 ```
 
 ## Quick Start
@@ -285,4 +285,4 @@ use medpdf::{copy_page, Result};
 
 ## License
 
-MIT
+Licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or [MIT License](LICENSE-MIT) at your option.

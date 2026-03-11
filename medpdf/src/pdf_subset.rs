@@ -4,6 +4,11 @@
 //! only the glyphs actually used by watermark text. Content streams and
 //! font dictionaries (widths, encoding) are unchanged — only the binary
 //! font data, `Length1`, and `BaseFont`/`FontName` prefix are modified.
+//!
+//! allsorts was chosen over typst's `subsetter` crate because allsorts preserves the
+//! cmap table (`CmapTarget::Unicode`), allowing existing font dictionaries, content
+//! streams, and WinAnsiEncoding to remain unchanged. `subsetter` removes the cmap,
+//! which would require rewriting font embedding to use CIDFont/Type0 composite fonts.
 
 use lopdf::{dictionary, Document, Object, Stream};
 use rand::Rng;

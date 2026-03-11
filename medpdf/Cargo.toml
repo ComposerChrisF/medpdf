@@ -4,6 +4,9 @@ version = "0.9.2"
 edition = "2024"
 description = "Medium-level PDF API over lopdf"
 license = "MIT OR Apache-2.0"
+repository = "https://github.com/ComposerChrisF/medpdf"
+keywords = ["pdf", "lopdf", "merge", "watermark", "overlay"]
+categories = ["multimedia::encoding"]
 
 [dependencies]
 lopdf = "0.39.0"
