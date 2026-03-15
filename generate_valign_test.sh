@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # generate_valign_test.sh
 #
-# Recreates valign_test.pdf using the pdf-merger CLI.
+# Recreates valign_test.pdf using the pdf-maker CLI.
 # Demonstrates --blank-page, --draw-rect, --draw-line, and --watermark with v_align options.
 #
 # Requirements:
@@ -11,14 +11,14 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PDF_MERGER="${SCRIPT_DIR}/target/release/pdf-merger"
+PDF_MERGER="${SCRIPT_DIR}/target/release/pdf-maker"
 OUTPUT="${SCRIPT_DIR}/valign_test_cli.pdf"
 FONT="/Library/Fonts/CrimsonPro-Light.ttf"
 
 # Build if needed
 if [ ! -f "$PDF_MERGER" ]; then
-    echo "Building pdf-merger..."
-    cargo build --release -p pdf-merger --manifest-path "${SCRIPT_DIR}/Cargo.toml"
+    echo "Building pdf-maker..."
+    cargo build --release -p pdf-maker --manifest-path "${SCRIPT_DIR}/Cargo.toml"
 fi
 
 # Font shorthand

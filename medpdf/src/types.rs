@@ -289,6 +289,50 @@ impl DrawLineParams {
     }
 }
 
+/// Parameters for placing a source PDF page onto a destination page
+/// at a specific position, uniform scale, and rotation.
+///
+/// Fields use `f64` intentionally: imposition calculations (booklet layouts, N-up)
+/// accumulate positioning arithmetic across many pages, where f32 rounding compounds
+/// into visible misalignment. The final f64→f32 truncation happens once, when emitting
+/// PDF `cm` operator values.
+#[derive(Debug, Clone)]
+pub struct PlacePageParams {
+    /// X offset in points (from left edge of destination page).
+    pub x: f64,
+    /// Y offset in points (from bottom edge of destination page).
+    pub y: f64,
+    /// Uniform scale factor (1.0 = no scaling, 0.5 = half size).
+    pub scale: f64,
+    /// Counterclockwise rotation in degrees. Exact values are used for 0/90/180/270;
+    /// arbitrary angles use trig.
+    pub rotation: f64,
+    /// Whether to clip source content to its MediaBox (default: true).
+    pub clip: bool,
+}
+
+impl PlacePageParams {
+    pub fn new(x: f64, y: f64, scale: f64) -> Self {
+        Self {
+            x,
+            y,
+            scale,
+            rotation: 0.0,
+            clip: true,
+        }
+    }
+
+    pub fn rotation(mut self, degrees: f64) -> Self {
+        self.rotation = degrees;
+        self
+    }
+
+    pub fn clip(mut self, clip: bool) -> Self {
+        self.clip = clip;
+        self
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

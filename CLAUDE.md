@@ -35,6 +35,8 @@ medpdf/                        # Repository root (workspace)
 │       ├── pdf_blank_page.rs  # Blank page creation
 │       ├── pdf_encryption.rs  # Document encryption (AES-256/AES-128)
 │       ├── pdf_overlay.rs     # Page overlay with resource renaming
+│       ├── pdf_overlay_helpers.rs # Shared helpers for overlay/place-page operations
+│       ├── pdf_place_page.rs  # Positioned/scaled page placement
 │       └── pdf_watermark.rs   # Text watermark rendering
 ├── medpdf-image/              # Image embedding companion crate
 │   ├── Cargo.toml
@@ -48,14 +50,14 @@ medpdf/                        # Repository root (workspace)
 
 ## Architecture Overview
 
-**medpdf** is a reusable library providing medium-level PDF operations over lopdf. Consumers include [pdf-merger](https://github.com/ComposerChrisF/pdf-merger) (separate repo).
+**medpdf** is a reusable library providing medium-level PDF operations over lopdf. Consumers include [pdf-maker](https://github.com/ComposerChrisF/pdf-maker) (separate repo).
 
 ### Module Responsibilities
 
 | Crate/Module | Purpose |
 |--------------|---------|
 | `medpdf::error` | Custom `MedpdfError` enum with Display/Error traits |
-| `medpdf::types` | Builder-pattern param types: `AddTextParams`, `DrawRectParams`, `DrawLineParams`, `PdfColor`, alignment enums |
+| `medpdf::types` | Builder-pattern param types: `AddTextParams`, `DrawRectParams`, `DrawLineParams`, `PlacePageParams`, `PdfColor`, alignment enums |
 | `medpdf::font_data` | `FontData` enum: `Hack(u8)`, `BuiltIn(String)`, `Embedded(Arc<Vec<u8>>)` |
 | `medpdf::parsing` | Page spec parsing with nom (`"1-3,5,7-"`, `"all"`) |
 | `medpdf::pdf_helpers` | Deep object copying, PDF key constants, Unit enum, page rotation |
@@ -66,12 +68,14 @@ medpdf/                        # Repository root (workspace)
 | `medpdf::pdf_encryption` | `encrypt_document()` - AES-256/AES-128 encryption with permission controls |
 | `medpdf::pdf_blank_page` | `create_blank_page()` - add empty pages |
 | `medpdf::pdf_overlay` | `overlay_page()` - merge content with resource renaming |
+| `medpdf::pdf_overlay_helpers` | Shared helpers for overlay/place-page: resource key collection, renaming, content stream normalization |
+| `medpdf::pdf_place_page` | `place_page()` - place a source page at a specific position, scale, and rotation with optional clipping |
 | `medpdf::pdf_watermark` | `add_text_params()` - text watermark rendering with color, alignment, rotation, alpha; `EmbeddedFontCache` for deduplicating embedded font objects across pages |
 | `medpdf_image` | Image embedding companion crate (JPEG, PNG, etc.) |
 
 ### Key Patterns
 
-**Resource Renaming**: When overlaying pages, resources get suffixed to prevent conflicts. `find_unique_name()` generates non-conflicting identifiers, and content streams are updated to reference renamed resources.
+**Resource Renaming**: When overlaying or placing pages, resources get suffixed to prevent conflicts (`_o` for overlay, `_p` for place-page). `find_unique_name()` generates non-conflicting identifiers, and content streams are updated to reference renamed resources.
 
 **Deep Copy with Reference Tracking**: `deep_copy_object()` recursively clones PDF objects using a `BTreeMap<ObjectId, ObjectId>` to maintain reference integrity and skip Parent references.
 
