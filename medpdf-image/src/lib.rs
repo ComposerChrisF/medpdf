@@ -5,6 +5,8 @@ use medpdf::{
 };
 use std::path::Path;
 
+pub mod recompress;
+
 #[cfg(feature = "svg")]
 mod svg;
 
