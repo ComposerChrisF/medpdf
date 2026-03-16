@@ -94,6 +94,15 @@ pub fn recompress_images(
         stream
             .dict
             .set("Filter", Object::Name(b"DCTDecode".to_vec()));
+        // Normalize colorspace to simple DeviceRGB/DeviceGray (drops ICCBased reference)
+        let cs_name = if info.components == 3 {
+            "DeviceRGB"
+        } else {
+            "DeviceGray"
+        };
+        stream
+            .dict
+            .set("ColorSpace", Object::Name(cs_name.as_bytes().to_vec()));
 
         stats.recompressed += 1;
         stats.bytes_before += before;
@@ -136,13 +145,9 @@ fn extract_image_info(doc: &Document, id: ObjectId, min_size: usize) -> Option<I
         return None;
     }
 
-    // /ColorSpace must be simple DeviceRGB or DeviceGray
+    // /ColorSpace must be DeviceRGB, DeviceGray, or ICCBased with 1 or 3 components
     let cs = stream.dict.get(b"ColorSpace").ok()?;
-    let components: u8 = match cs {
-        Object::Name(n) if n == b"DeviceRGB" => 3,
-        Object::Name(n) if n == b"DeviceGray" => 1,
-        _ => return None,
-    };
+    let components: u8 = resolve_colorspace_components(doc, cs)?;
 
     // Width and Height
     let width = get_integer(&stream.dict, b"Width")? as u32;
@@ -171,6 +176,43 @@ fn extract_image_info(doc: &Document, id: ObjectId, min_size: usize) -> Option<I
 fn get_integer(dict: &lopdf::Dictionary, key: &[u8]) -> Option<i64> {
     match dict.get(key).ok()? {
         Object::Integer(n) => Some(*n),
+        _ => None,
+    }
+}
+
+/// Resolve a /ColorSpace value to a component count (1 for gray, 3 for RGB).
+///
+/// Supports:
+/// - `/DeviceRGB` → 3
+/// - `/DeviceGray` → 1
+/// - `[/ICCBased <stream-ref>]` → reads `/N` from the ICC profile stream
+/// - Indirect reference to any of the above
+///
+/// Returns `None` for unsupported colorspaces (Indexed, DeviceCMYK, CalRGB, Lab, etc.).
+fn resolve_colorspace_components(doc: &Document, cs: &Object) -> Option<u8> {
+    match cs {
+        Object::Name(n) if n == b"DeviceRGB" => Some(3),
+        Object::Name(n) if n == b"DeviceGray" => Some(1),
+        Object::Array(arr) => {
+            // [/ICCBased <stream-ref>]
+            let name = arr.first()?.as_name().ok()?;
+            if name != b"ICCBased" {
+                return None;
+            }
+            let profile_id = arr.get(1)?.as_reference().ok()?;
+            let profile_stream = doc.get_object(profile_id).ok()?.as_stream().ok()?;
+            let n = get_integer(&profile_stream.dict, b"N")?;
+            match n {
+                1 => Some(1),
+                3 => Some(3),
+                _ => None, // 4 = CMYK, skip
+            }
+        }
+        Object::Reference(id) => {
+            // Indirect reference — resolve and recurse
+            let resolved = doc.get_object(*id).ok()?;
+            resolve_colorspace_components(doc, resolved)
+        }
         _ => None,
     }
 }
@@ -440,6 +482,99 @@ mod tests {
         let mut doc = Document::with_version("1.7");
         let params = RecompressParams::default();
         let stats = recompress_images(&mut doc, &[], &params).unwrap();
+        assert_eq!(stats.scanned, 0);
+        assert_eq!(stats.recompressed, 0);
+    }
+
+    /// Create a FlateDecode image with ICCBased colorspace (N components).
+    fn make_iccbased_flate_image(doc: &mut Document, width: u32, height: u32, n: u8) -> ObjectId {
+        let pixel_count = (width * height) as usize * n as usize;
+        let mut pixels = Vec::with_capacity(pixel_count);
+        let mut val: u32 = 99;
+        for _ in 0..pixel_count {
+            val = val.wrapping_mul(1103515245).wrapping_add(12345);
+            pixels.push((val >> 16) as u8);
+        }
+
+        use flate2::write::ZlibEncoder;
+        use flate2::Compression;
+        use std::io::Write;
+        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(&pixels).unwrap();
+        let compressed = encoder.finish().unwrap();
+
+        let alternate = if n == 3 { "DeviceRGB" } else { "DeviceGray" };
+
+        // Create ICC profile stream (minimal — just needs /N and /Alternate)
+        let icc_dict = dictionary! {
+            "N" => n as i64,
+            "Alternate" => alternate,
+            "Length" => 0_i64,
+        };
+        let icc_id = doc.add_object(Stream::new(icc_dict, vec![]));
+
+        // ColorSpace array: [/ICCBased <icc-stream-ref>]
+        let cs_array = doc.add_object(Object::Array(vec![
+            Object::Name(b"ICCBased".to_vec()),
+            Object::Reference(icc_id),
+        ]));
+
+        let dict = dictionary! {
+            "Type" => "XObject",
+            "Subtype" => "Image",
+            "Width" => width as i64,
+            "Height" => height as i64,
+            "ColorSpace" => Object::Reference(cs_array),
+            "BitsPerComponent" => 8,
+            "Filter" => "FlateDecode",
+            "Length" => compressed.len() as i64,
+        };
+        doc.add_object(Stream::new(dict, compressed))
+    }
+
+    #[test]
+    fn recompress_iccbased_rgb_image() {
+        let mut doc = Document::with_version("1.7");
+        let id = make_iccbased_flate_image(&mut doc, 200, 200, 3);
+
+        let params = RecompressParams { quality: 85, min_size: 0 };
+        let stats = recompress_images(&mut doc, &[id], &params).unwrap();
+
+        assert_eq!(stats.scanned, 1);
+        assert_eq!(stats.recompressed, 1);
+
+        // Verify filter changed to DCTDecode and colorspace to DeviceRGB
+        let stream = doc.get_object(id).unwrap().as_stream().unwrap();
+        let filter = stream.dict.get(b"Filter").unwrap();
+        assert!(matches!(filter, Object::Name(n) if n == b"DCTDecode"));
+        let cs = stream.dict.get(b"ColorSpace").unwrap();
+        assert!(matches!(cs, Object::Name(n) if n == b"DeviceRGB"));
+    }
+
+    #[test]
+    fn recompress_iccbased_gray_image() {
+        let mut doc = Document::with_version("1.7");
+        let id = make_iccbased_flate_image(&mut doc, 200, 200, 1);
+
+        let params = RecompressParams { quality: 85, min_size: 0 };
+        let stats = recompress_images(&mut doc, &[id], &params).unwrap();
+
+        assert_eq!(stats.scanned, 1);
+        assert_eq!(stats.recompressed, 1);
+
+        let stream = doc.get_object(id).unwrap().as_stream().unwrap();
+        let cs = stream.dict.get(b"ColorSpace").unwrap();
+        assert!(matches!(cs, Object::Name(n) if n == b"DeviceGray"));
+    }
+
+    #[test]
+    fn skip_iccbased_cmyk_image() {
+        let mut doc = Document::with_version("1.7");
+        let id = make_iccbased_flate_image(&mut doc, 200, 200, 4);
+
+        let params = RecompressParams { quality: 85, min_size: 0 };
+        let stats = recompress_images(&mut doc, &[id], &params).unwrap();
+
         assert_eq!(stats.scanned, 0);
         assert_eq!(stats.recompressed, 0);
     }
