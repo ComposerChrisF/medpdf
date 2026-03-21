@@ -2,6 +2,7 @@
 // Integration tests for medpdf-image: load_image, add_image roundtrip, edge cases
 
 use lopdf::{dictionary, Document, Object, Stream};
+use medpdf_image::recompress::{recompress_images, RecompressParams};
 use medpdf_image::{add_image, load_image, DrawImageParams, ImageData, ImageFit};
 use std::io::Write;
 use tempfile::NamedTempFile;
@@ -525,4 +526,48 @@ fn test_add_image_zero_dpi_no_downsampling() {
     let params = DrawImageParams::new(img, 0.0, 0.0, 36.0, 36.0).max_dpi(0.0);
     add_image(&mut doc, page_id, params).unwrap();
     // Should succeed without downsampling
+}
+
+// ---------------------------------------------------------------------------
+// recompress_images tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_recompress_empty_object_list() {
+    let (mut doc, _page_id) = create_one_page_pdf();
+    let params = RecompressParams::default();
+    let stats = recompress_images(&mut doc, &[], &params).unwrap();
+    assert_eq!(stats.scanned, 0);
+    assert_eq!(stats.recompressed, 0);
+}
+
+#[test]
+fn test_recompress_params_defaults() {
+    let params = RecompressParams::default();
+    assert_eq!(params.quality, 85, "Default quality should be 85");
+    assert_eq!(params.min_size, 50_000, "Default min_size should be 50,000");
+}
+
+#[test]
+fn test_recompress_jpeg_roundtrip() {
+    let (mut doc, page_id) = create_one_page_pdf();
+
+    // Add a JPEG image to the document
+    let jpeg_bytes = create_minimal_jpeg();
+    let tmp = write_temp_file(&jpeg_bytes, ".jpg");
+    let img = load_image(tmp.path()).unwrap();
+    let draw_params = DrawImageParams::new(img, 0.0, 0.0, 100.0, 100.0);
+    add_image(&mut doc, page_id, draw_params).unwrap();
+
+    // Collect all object IDs
+    let object_ids: Vec<_> = doc.objects.keys().cloned().collect();
+
+    let params = RecompressParams::default();
+    let stats = recompress_images(&mut doc, &object_ids, &params).unwrap();
+    // Minimal 2x2 JPEG is tiny (below min_size threshold), so likely 0 recompressed
+    assert_eq!(stats.recompressed, 0, "Tiny JPEG should be below min_size threshold");
+
+    // Document should still be valid after recompress pass
+    let reloaded = save_and_reload(&mut doc);
+    assert_eq!(reloaded.get_pages().len(), 1);
 }

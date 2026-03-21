@@ -231,21 +231,6 @@ fn test_font_cache_caches_path() {
     // Skipping as it's platform-dependent
 }
 
-// --- font_helpers symbol font detection tests ---
-//
-// The font_helpers module now properly handles symbol fonts:
-//
-// 1. detect_is_symbolic() identifies symbol fonts by name or character coverage
-// 2. Symbol fonts get encoding=None (omitted from PDF), regular fonts get WinAnsiEncoding
-// 3. Symbol fonts scan for actual glyph coverage; regular fonts use 32-255
-
-#[test]
-fn test_font_helpers_symbol_detection_documented() {
-    // Symbol font detection is now implemented using:
-    // - Name-based detection for known symbol fonts (Symbol, Dingbats, Wingdings, etc.)
-    // - Character coverage heuristic (fonts with <20 Latin letters are considered symbolic)
-}
-
 // --- measure_text_width Tests ---
 
 #[test]

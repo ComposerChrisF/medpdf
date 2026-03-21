@@ -20,7 +20,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-medpdf = "0.9.2"
+medpdf = "0.10.0"
 ```
 
 ## Quick Start
@@ -157,7 +157,7 @@ add_text_params(&mut dest_doc, page_id, &params, &mut font_cache)?;
 
 #### `parse_page_spec`
 
-Parses page range specifications into a sorted vector of page numbers.
+Parses page range specifications into a vector of page numbers, preserving user-specified order with duplicates removed.
 
 ```rust
 use medpdf::parse_page_spec;

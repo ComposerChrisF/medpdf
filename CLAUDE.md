@@ -65,11 +65,11 @@ medpdf/                        # Repository root (workspace)
 | `medpdf::font_helpers` | TTF parsing, font metrics, PDF FontDescriptor generation, canonical WinAnsi encoding table |
 | `medpdf::pdf_copy_page` | `copy_page()` - copy pages between documents |
 | `medpdf::pdf_delete_page` | `delete_page()` - remove pages from documents |
-| `medpdf::pdf_encryption` | `encrypt_document()` - AES-256/AES-128 encryption with permission controls |
+| `medpdf::pdf_encryption` | `encrypt_document()` - AES-256/AES-128/RC4-128 encryption with permission controls |
 | `medpdf::pdf_blank_page` | `create_blank_page()` - add empty pages |
 | `medpdf::pdf_overlay` | `overlay_page()` - merge content with resource renaming |
 | `medpdf::pdf_overlay_helpers` | Shared helpers for overlay/place-page: resource key collection, renaming, content stream normalization |
-| `medpdf::pdf_place_page` | `place_page()` - place a source page at a specific position, scale, and rotation with optional clipping |
+| `medpdf::pdf_place_page` | `place_page()` - place a source page at a specific position, scale, and rotation (arbitrary angle) with optional clipping (default: enabled) |
 | `medpdf::pdf_watermark` | `add_text_params()` - text watermark rendering with color, alignment, rotation, alpha; `EmbeddedFontCache` for deduplicating embedded font objects across pages |
 | `medpdf_image` | Image embedding companion crate (JPEG, PNG, etc.) |
 

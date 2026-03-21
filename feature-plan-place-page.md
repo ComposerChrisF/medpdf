@@ -1,5 +1,7 @@
 # Feature Plan: Scaled/Positioned Page Placement
 
+> **Status: Implemented in v0.10.0** — The actual API includes additional fields beyond this plan: `rotation` (f64, arbitrary angle) and `clip` (bool, default true).
+
 ## Problem
 
 Both booklet imposition and N-up layout require placing a source PDF page onto a target page at a specific position and scale. The existing `overlay_page()` always places content at the origin (0,0) with no scaling. There is no way to compose multiple scaled source pages onto a single output sheet.

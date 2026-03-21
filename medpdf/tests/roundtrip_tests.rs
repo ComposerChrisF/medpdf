@@ -5,7 +5,7 @@ mod fixtures;
 
 use medpdf::pdf_helpers::get_page_media_box;
 use medpdf::types::{AddTextParams, PdfColor};
-use medpdf::{add_text_params, copy_page, create_blank_page, delete_page, subset_fonts, EmbeddedFontCache, FontData};
+use medpdf::{add_text_params, copy_page, create_blank_page, delete_page, place_page, subset_fonts, EmbeddedFontCache, FontData, PlacePageParams};
 use tempfile::NamedTempFile;
 
 /// Helper: saves a Document to a temp file and reloads it.
@@ -259,6 +259,39 @@ fn test_roundtrip_complex_pipeline() {
     assert!(
         content_str.contains("PAGE 1"),
         "Watermark should survive complex pipeline roundtrip"
+    );
+}
+
+// --- Place Page + Roundtrip ---
+
+#[test]
+fn test_roundtrip_place_page() {
+    let source = fixtures::create_pdf_with_content(b"q\n0 0 100 100 re f\nQ\n");
+    let mut doc = fixtures::create_pdf_with_pages(1);
+    let dest_page_id = fixtures::get_first_page_id(&doc);
+
+    place_page(
+        &mut doc,
+        dest_page_id,
+        &source,
+        1,
+        &PlacePageParams::new(100.0, 200.0, 0.5),
+    )
+    .unwrap();
+
+    let reloaded = save_and_reload(&mut doc);
+    assert_eq!(reloaded.get_pages().len(), 1);
+
+    // Verify the page has content streams and resources after roundtrip
+    let page_id = *reloaded.get_pages().get(&1).unwrap();
+    let page_dict = reloaded.get_dictionary(page_id).unwrap();
+    assert!(
+        page_dict.get(b"Contents").is_ok(),
+        "Page should have Contents after roundtrip"
+    );
+    assert!(
+        page_dict.get(b"Resources").is_ok(),
+        "Page should have Resources after roundtrip"
     );
 }
 

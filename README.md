@@ -14,8 +14,8 @@ A Rust workspace for medium-level PDF manipulation, built on [lopdf](https://git
 
 ```toml
 [dependencies]
-medpdf = "0.9.2"
-medpdf-image = "0.2.2"  # if you need image embedding
+medpdf = "0.10.0"
+medpdf-image = "0.4.1"  # if you need image embedding
 ```
 
 ```rust

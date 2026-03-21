@@ -659,7 +659,10 @@ fn test_copy_same_page_multiple_times_without_cache() {
 #[test]
 fn test_copy_same_page_with_cache_returns_cached_id() {
     // When the same source page is copied twice with the same cache,
-    // deep_copy returns the cached ObjectId (resource deduplication).
+    // deep_copy returns the cached ObjectId (the same page object is reused).
+    // However, the page reference IS still added to Kids again, so the document
+    // has 2 page entries pointing to the same underlying page object.
+    // This deduplicates the page's resources (fonts, images, etc.), not the page entry itself.
     let source = fixtures::create_pdf_with_shared_font(1);
     let mut dest = fixtures::create_empty_pdf();
     let mut cache = BTreeMap::new();

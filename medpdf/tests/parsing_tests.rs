@@ -241,11 +241,10 @@ fn test_error_leading_comma() {
 
 #[test]
 fn test_error_negative_number() {
+    // "-1-3" is ambiguous: the parser consumes "-1" as an open-start range (pages 1..=1)
+    // but then fails on the remaining "-3" which can't be parsed as a valid separator+spec.
     let result = parse_page_spec("-1-3", 5);
-    // This is ambiguous - could be interpreted as open range or negative
-    // The parser interprets "-1" as open range from 1, which should work
-    // So we just check it doesn't panic and either succeeds or fails cleanly
-    let _ = result;
+    assert!(result.is_err(), "Ambiguous spec '-1-3' should fail to parse");
 }
 
 // --- Edge Cases ---

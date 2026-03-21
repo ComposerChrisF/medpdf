@@ -6,7 +6,8 @@ mod fixtures;
 
 use lopdf::{dictionary, Object, Stream};
 use medpdf::{
-    insert_content_stream, overlay_page, register_extgstate_in_page_resources, EmbeddedFontCache,
+    insert_content_stream, overlay_page, register_extgstate_in_page_resources,
+    register_in_page_resources, EmbeddedFontCache,
 };
 
 // ---------------------------------------------------------------------------
@@ -223,6 +224,62 @@ fn test_register_extgstate_on_page_with_no_resources() {
 
     let result = register_extgstate_in_page_resources(&mut doc, page_id, gs_id);
     assert!(result.is_ok(), "Should create Resources if missing");
+}
+
+// ---------------------------------------------------------------------------
+// register_in_page_resources tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_register_in_page_resources_creates_font_entry() {
+    let mut doc = fixtures::create_pdf_with_pages(1);
+    let page_id = fixtures::get_first_page_id(&doc);
+
+    let font_dict = dictionary! {
+        "Type" => "Font",
+        "Subtype" => "Type1",
+        "BaseFont" => "Helvetica",
+    };
+    let font_id = doc.add_object(font_dict);
+
+    register_in_page_resources(&mut doc, page_id, b"Font", b"F99", font_id).unwrap();
+
+    // Verify the font was registered under Resources/Font/F99
+    let page_dict = doc.get_dictionary(page_id).unwrap();
+    let resources = page_dict.get(b"Resources").unwrap();
+    let res_id = resources.as_reference().unwrap();
+    let res_dict = doc.get_dictionary(res_id).unwrap();
+    let font_sub = res_dict.get(b"Font").unwrap().as_dict().unwrap();
+    assert!(
+        font_sub.get(b"F99").is_ok(),
+        "Font/F99 should exist in page resources"
+    );
+}
+
+#[test]
+fn test_register_in_page_resources_multiple_categories() {
+    let mut doc = fixtures::create_pdf_with_pages(1);
+    let page_id = fixtures::get_first_page_id(&doc);
+
+    let font_id = doc.add_object(dictionary! {
+        "Type" => "Font",
+        "Subtype" => "Type1",
+        "BaseFont" => "Courier",
+    });
+    let gs_id = doc.add_object(dictionary! {
+        "Type" => "ExtGState",
+        "ca" => 0.5,
+    });
+
+    register_in_page_resources(&mut doc, page_id, b"Font", b"MyFont", font_id).unwrap();
+    register_in_page_resources(&mut doc, page_id, b"ExtGState", b"MyGS", gs_id).unwrap();
+
+    let page_dict = doc.get_dictionary(page_id).unwrap();
+    let res_id = page_dict.get(b"Resources").unwrap().as_reference().unwrap();
+    let res_dict = doc.get_dictionary(res_id).unwrap();
+
+    assert!(res_dict.get(b"Font").unwrap().as_dict().unwrap().get(b"MyFont").is_ok());
+    assert!(res_dict.get(b"ExtGState").unwrap().as_dict().unwrap().get(b"MyGS").is_ok());
 }
 
 // ---------------------------------------------------------------------------

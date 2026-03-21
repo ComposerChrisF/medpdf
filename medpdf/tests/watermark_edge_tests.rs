@@ -112,6 +112,14 @@ fn test_watermark_valign_baseline() {
     assert!(result.is_ok(), "VAlign::Baseline should succeed: {:?}", result.err());
 }
 
+#[test]
+fn test_watermark_valign_cap_top() {
+    let (mut dest_doc, page_id) = setup_dest_doc();
+    let params = builtin_font_params("CAPTOP").v_align(VAlign::CapTop);
+    let result = add_text_params(&mut dest_doc, page_id, &params, &mut EmbeddedFontCache::new());
+    assert!(result.is_ok(), "VAlign::CapTop should succeed: {:?}", result.err());
+}
+
 // --- Combined strikeout + underline ---
 
 #[test]

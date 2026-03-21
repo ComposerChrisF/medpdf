@@ -778,3 +778,50 @@ fn test_watermark_both_underline_and_strikeout() {
         re_ops.len()
     );
 }
+
+// --- Default value verification ---
+
+#[test]
+fn test_draw_line_default_width_is_one() {
+    let mut doc = fixtures::create_pdf_with_pages(1);
+    let page_id = fixtures::get_first_page_id(&doc);
+
+    // Use DrawLineParams with no explicit line_width — should default to 1.0
+    let params = DrawLineParams::new(0.0, 0.0, 100.0, 100.0);
+    add_line(&mut doc, page_id, &params).unwrap();
+
+    let page_dict = doc.get_dictionary(page_id).unwrap();
+    let contents = page_dict.get(b"Contents").unwrap().as_array().unwrap();
+    let last_ref = contents.last().unwrap().as_reference().unwrap();
+    let stream = doc.get_object(last_ref).unwrap().as_stream().unwrap();
+    let decoded = stream.decode_content().unwrap();
+
+    let w_ops: Vec<_> = decoded
+        .operations
+        .iter()
+        .filter(|op| op.operator == "w")
+        .collect();
+    assert_eq!(w_ops.len(), 1, "Should have exactly one w operator");
+    let width = w_ops[0].operands[0].as_float().unwrap();
+    assert!(
+        (width - 1.0).abs() < 0.01,
+        "Default line width should be 1.0, got {width}"
+    );
+}
+
+#[test]
+fn test_draw_rect_default_color_is_black() {
+    let mut doc = fixtures::create_pdf_with_pages(1);
+    let page_id = fixtures::get_first_page_id(&doc);
+
+    // Use DrawRectParams with no explicit color — should default to black
+    let params = DrawRectParams::new(10.0, 20.0, 100.0, 50.0);
+    add_rect(&mut doc, page_id, &params).unwrap();
+
+    let content = get_first_page_content(&doc);
+    assert!(
+        content.contains("0 0 0 rg"),
+        "Default rect color should be black '0 0 0 rg', got: {}",
+        content
+    );
+}

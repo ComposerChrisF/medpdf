@@ -483,3 +483,91 @@ fn test_overlay_with_empty_content_stream() {
     let result = overlay_page(&mut dest_doc, dest_page_id, &overlay_doc, 1);
     assert!(result.is_ok(), "Overlay with empty content should succeed: {:?}", result.err());
 }
+
+// --- Overlay resource _o suffix verification ---
+
+#[test]
+fn test_overlay_resource_names_use_o_suffix() {
+    // Both dest and overlay have font "F1" — overlay should rename with _o suffix
+    let source_doc = create_pdf_with_named_resources(&["F1"]);
+    let mut dest_doc = fixtures::create_empty_pdf();
+    let dest_page_id = copy_page(&mut dest_doc, &source_doc, 1).unwrap();
+
+    let overlay_doc = create_pdf_with_named_resources(&["F1"]);
+    overlay_page(&mut dest_doc, dest_page_id, &overlay_doc, 1).unwrap();
+
+    // Check that the destination page's font resources contain a key with _o suffix
+    let page = dest_doc.get_dictionary(dest_page_id).unwrap();
+    let resources_ref = page.get(b"Resources").unwrap().as_reference().unwrap();
+    let resources = dest_doc.get_dictionary(resources_ref).unwrap();
+    let fonts = resources.get(b"Font").unwrap().as_dict().unwrap();
+
+    assert!(fonts.has(b"F1"), "Original F1 should remain");
+    let has_o_suffix = fonts.iter().any(|(k, _)| {
+        let key_str = String::from_utf8_lossy(k);
+        key_str.contains("_o")
+    });
+    assert!(
+        has_o_suffix,
+        "Overlay font should be renamed with _o suffix, got keys: {:?}",
+        fonts.iter().map(|(k, _)| String::from_utf8_lossy(k).to_string()).collect::<Vec<_>>()
+    );
+}
+
+// --- Overlay with inherited resources from parent Pages node ---
+
+#[test]
+fn test_overlay_with_inherited_font_resources() {
+    // Create a dest doc where font resources are inherited from the /Pages node
+    let mut dest_doc = Document::with_version("1.7");
+    let pages_id = dest_doc.new_object_id();
+
+    // Shared font on the Pages node (inherited by all pages)
+    let font_obj_id = dest_doc.add_object(dictionary! {
+        "Type" => "Font",
+        "Subtype" => "Type1",
+        "BaseFont" => "Helvetica",
+    });
+
+    let content_id = dest_doc.add_object(lopdf::Stream::new(dictionary! {}, b"BT /F1 12 Tf ET".to_vec()));
+    let media_box = vec![0.0.into(), 0.0.into(), 612.0.into(), 792.0.into()];
+
+    // Page has NO Resources — inherits from parent
+    let page = dictionary! {
+        "Type" => "Page",
+        "Parent" => pages_id,
+        "MediaBox" => media_box,
+        "Contents" => Object::Reference(content_id),
+    };
+    let page_id = dest_doc.add_object(page);
+
+    // Pages node has the font resources
+    let pages = dictionary! {
+        "Type" => "Pages",
+        "Kids" => vec![Object::Reference(page_id)],
+        "Count" => Object::Integer(1),
+        "Resources" => dictionary! {
+            "Font" => dictionary! {
+                "F1" => Object::Reference(font_obj_id),
+            },
+        },
+    };
+    dest_doc.objects.insert(pages_id, Object::Dictionary(pages));
+
+    let catalog_id = dest_doc.add_object(dictionary! {
+        "Type" => "Catalog",
+        "Pages" => pages_id,
+    });
+    dest_doc.trailer.set("Root", catalog_id);
+
+    // Create overlay with a conflicting "F1" font
+    let overlay_doc = create_pdf_with_named_resources(&["F1"]);
+
+    // Apply overlay — should succeed even though dest's resources are inherited
+    let result = overlay_page(&mut dest_doc, page_id, &overlay_doc, 1);
+    assert!(
+        result.is_ok(),
+        "Overlay with inherited resources should succeed: {:?}",
+        result.err()
+    );
+}
