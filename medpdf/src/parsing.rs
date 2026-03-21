@@ -8,7 +8,7 @@ use nom::{
     sequence::{delimited, separated_pair},
     IResult,
 };
-use std::collections::BTreeSet;
+use std::collections::HashSet;
 
 use crate::error::{MedpdfError, Result};
 
@@ -41,9 +41,11 @@ fn parse_spec_list(input: &str) -> IResult<&str, Vec<PageItem>> {
     separated_list1(delimited(multispace0, char(','), multispace0), parse_item)(input)
 }
 
-/// Parses a page specification string into a sorted vector of 1-based page numbers.
+/// Parses a page specification string into a vector of 1-based page numbers,
+/// preserving user-specified order. Duplicates are dropped (first occurrence wins).
 pub fn parse_page_spec(spec: &str, max_pages: u32) -> Result<Vec<u32>> {
-    let mut pages = BTreeSet::new();
+    let mut pages = Vec::new();
+    let mut seen = HashSet::new();
     let trimmed_spec = spec.trim();
 
     if trimmed_spec.eq_ignore_ascii_case("all") {
@@ -61,8 +63,8 @@ pub fn parse_page_spec(spec: &str, max_pages: u32) -> Result<Vec<u32>> {
                             return Err(MedpdfError::new("Page numbers must be 1 or greater."));
                         }
                         // Skip pages beyond the document — acts as a filter
-                        if num <= max_pages {
-                            pages.insert(num);
+                        if num <= max_pages && seen.insert(num) {
+                            pages.push(num);
                         }
                     }
                     PageItem::Range(start_opt, end_opt) => {
@@ -87,7 +89,9 @@ pub fn parse_page_spec(spec: &str, max_pages: u32) -> Result<Vec<u32>> {
                         let clamped_end = end.min(max_pages);
                         if start <= clamped_end {
                             for i in start..=clamped_end {
-                                pages.insert(i);
+                                if seen.insert(i) {
+                                    pages.push(i);
+                                }
                             }
                         }
                     }
@@ -101,7 +105,7 @@ pub fn parse_page_spec(spec: &str, max_pages: u32) -> Result<Vec<u32>> {
             )))
         }
     }
-    Ok(pages.into_iter().collect())
+    Ok(pages)
 }
 
 #[cfg(test)]
@@ -182,5 +186,16 @@ mod tests {
     #[test]
     fn test_parse_open_range_zero_pages_error() {
         assert!(parse_page_spec("1-", 0).is_err());
+    }
+
+    #[test]
+    fn test_parse_preserves_user_order() {
+        assert_eq!(parse_page_spec("5,3,1", 5).unwrap(), vec![5, 3, 1]);
+    }
+
+    #[test]
+    fn test_parse_order_with_range_dedup() {
+        // 3 first, then range 1-4 adds 1,2,4 (3 already seen)
+        assert_eq!(parse_page_spec("3,1-4", 5).unwrap(), vec![3, 1, 2, 4]);
     }
 }

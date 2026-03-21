@@ -129,10 +129,10 @@ fn test_range_equals_single() {
 }
 
 #[test]
-fn test_sorted_output() {
-    // Even if specified out of order, output should be sorted
+fn test_preserves_user_order() {
+    // Output preserves user-specified order; duplicates dropped (first wins)
     let result = parse_page_spec("5,1,3", 5).unwrap();
-    assert_eq!(result, vec![1, 3, 5]);
+    assert_eq!(result, vec![5, 1, 3]);
 }
 
 // --- Error Cases ---
