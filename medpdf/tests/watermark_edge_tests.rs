@@ -728,21 +728,21 @@ fn test_embedded_font_data_is_compressed() {
     // Find the font file stream (has Length1 key) and verify it's compressed
     let mut found_compressed = false;
     for (_id, obj) in dest_doc.objects.iter() {
-        if let Ok(stream) = obj.as_stream() {
-            if stream.dict.has(b"Length1") {
-                assert!(
-                    stream.dict.has(b"Filter"),
-                    "Font file stream should have a Filter (compression)"
-                );
-                // Compressed data should be smaller than original
-                assert!(
-                    stream.content.len() < font_arc.len(),
-                    "Compressed font ({}) should be smaller than original ({})",
-                    stream.content.len(),
-                    font_arc.len()
-                );
-                found_compressed = true;
-            }
+        if let Ok(stream) = obj.as_stream()
+            && stream.dict.has(b"Length1")
+        {
+            assert!(
+                stream.dict.has(b"Filter"),
+                "Font file stream should have a Filter (compression)"
+            );
+            // Compressed data should be smaller than original
+            assert!(
+                stream.content.len() < font_arc.len(),
+                "Compressed font ({}) should be smaller than original ({})",
+                stream.content.len(),
+                font_arc.len()
+            );
+            found_compressed = true;
         }
     }
     assert!(found_compressed, "Should find a compressed font file stream");

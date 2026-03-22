@@ -121,13 +121,13 @@ pub fn overlay_page(
         let reference = item.as_reference()?;
         dest_contents_arr_new.push(Object::Reference(reference));
     }
-    if log::log_enabled!(log::Level::Trace) {
-        if let Some(first) = overlay_contents_arr_new.first() {
-            let obj = dest_doc.get_object(first.as_reference()?)?;
-            if let Ok(stream) = obj.as_stream() {
-                let ops = stream.decode_content()?.operations;
-                trace!("First overlay stream: {} ops", ops.len());
-            }
+    if log::log_enabled!(log::Level::Trace)
+        && let Some(first) = overlay_contents_arr_new.first()
+    {
+        let obj = dest_doc.get_object(first.as_reference()?)?;
+        if let Ok(stream) = obj.as_stream() {
+            let ops = stream.decode_content()?.operations;
+            trace!("First overlay stream: {} ops", ops.len());
         }
     }
     let dest_page_dict = dest_doc.get_object_mut(dest_page_id)?.as_dict_mut()?;
@@ -302,22 +302,21 @@ mod tests {
         let mut total_q = 0i32;
         let mut total_big_q = 0i32;
         for item in contents {
-            if let Ok(id) = item.as_reference() {
-                if let Ok(obj) = dest.get_object(id) {
-                    if let Ok(stream) = obj.as_stream() {
-                        let bytes = if stream.is_compressed() {
-                            stream.decompressed_content().unwrap_or_default()
-                        } else {
-                            stream.content.clone()
-                        };
-                        if let Ok(content) = lopdf::content::Content::decode(&bytes) {
-                            for op in &content.operations {
-                                match op.operator.as_str() {
-                                    "q" => total_q += 1,
-                                    "Q" => total_big_q += 1,
-                                    _ => {}
-                                }
-                            }
+            if let Ok(id) = item.as_reference()
+                && let Ok(obj) = dest.get_object(id)
+                && let Ok(stream) = obj.as_stream()
+            {
+                let bytes = if stream.is_compressed() {
+                    stream.decompressed_content().unwrap_or_default()
+                } else {
+                    stream.content.clone()
+                };
+                if let Ok(content) = lopdf::content::Content::decode(&bytes) {
+                    for op in &content.operations {
+                        match op.operator.as_str() {
+                            "q" => total_q += 1,
+                            "Q" => total_big_q += 1,
+                            _ => {}
                         }
                     }
                 }

@@ -23,16 +23,15 @@ pub const KEY_XOBJECT: &[u8] = b"XObject";
 pub fn get_page_media_box(doc: &Document, page_id: ObjectId) -> Option<[f32; 4]> {
     let mut current_id = page_id;
     while let Ok(dict) = doc.get_dictionary(current_id) {
-        if let Ok(mb) = dict.get(KEY_MEDIA_BOX) {
-            if let Ok(arr) = mb.as_array() {
-                if arr.len() >= 4 {
-                    let x0 = obj_as_f32(&arr[0])?;
-                    let y0 = obj_as_f32(&arr[1])?;
-                    let x1 = obj_as_f32(&arr[2])?;
-                    let y1 = obj_as_f32(&arr[3])?;
-                    return Some([x0, y0, x1, y1]);
-                }
-            }
+        if let Ok(mb) = dict.get(KEY_MEDIA_BOX)
+            && let Ok(arr) = mb.as_array()
+            && arr.len() >= 4
+        {
+            let x0 = obj_as_f32(&arr[0])?;
+            let y0 = obj_as_f32(&arr[1])?;
+            let x1 = obj_as_f32(&arr[2])?;
+            let y1 = obj_as_f32(&arr[3])?;
+            return Some([x0, y0, x1, y1]);
         }
         // Follow /Parent up the page tree
         match dict.get(KEY_PARENT) {
@@ -84,11 +83,11 @@ pub(crate) const KEY_ROTATE: &[u8] = b"Rotate";
 pub fn get_page_rotation(doc: &Document, page_id: ObjectId) -> u32 {
     let mut current_id = page_id;
     while let Ok(dict) = doc.get_dictionary(current_id) {
-        if let Ok(obj) = dict.get(KEY_ROTATE) {
-            if let Ok(val) = obj.as_i64() {
-                // Normalize to 0/90/180/270
-                return ((val % 360 + 360) % 360) as u32;
-            }
+        if let Ok(obj) = dict.get(KEY_ROTATE)
+            && let Ok(val) = obj.as_i64()
+        {
+            // Normalize to 0/90/180/270
+            return ((val % 360 + 360) % 360) as u32;
         }
         match dict.get(KEY_PARENT) {
             Ok(Object::Reference(parent_id)) => current_id = *parent_id,

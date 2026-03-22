@@ -136,11 +136,11 @@ fn test_find_font_system_default() {
     let mut found_font = None;
     for font_name in font_candidates {
         let result = find_font(&PathBuf::from(font_name));
-        if let Ok(FontPath::Path(path)) = result {
-            if path.exists() {
-                found_font = Some((font_name, path));
-                break;
-            }
+        if let Ok(FontPath::Path(path)) = result
+            && path.exists()
+        {
+            found_font = Some((font_name, path));
+            break;
         }
     }
 

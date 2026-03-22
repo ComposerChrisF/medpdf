@@ -288,13 +288,13 @@ fn rasterize_pdftoppm(
 
     // pdftoppm names output as {prefix}-{page_number}.png
     // The page number is zero-padded to match the total page count
-    let pattern = format!("page-");
+    let pattern = "page-";
     let mut candidates: Vec<_> = std::fs::read_dir(tmp_dir)?
         .filter_map(|e| e.ok())
         .filter(|e| {
             e.file_name()
                 .to_str()
-                .is_some_and(|n| n.starts_with(&pattern) && n.ends_with(".png"))
+                .is_some_and(|n| n.starts_with(pattern) && n.ends_with(".png"))
         })
         .collect();
     candidates.sort_by_key(|e| e.file_name());

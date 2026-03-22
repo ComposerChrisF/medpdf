@@ -348,12 +348,12 @@ fn test_roundtrip_subsetted_preserves_pages_and_font() {
     // Verify BaseFont has TAG+ prefix
     let mut found_tagged = false;
     for (_id, obj) in reloaded.objects.iter() {
-        if let Ok(dict) = obj.as_dict() {
-            if let Ok(lopdf::Object::Name(n)) = dict.get(b"BaseFont") {
-                let name = String::from_utf8_lossy(n);
-                if name.contains('+') {
-                    found_tagged = true;
-                }
+        if let Ok(dict) = obj.as_dict()
+            && let Ok(lopdf::Object::Name(n)) = dict.get(b"BaseFont")
+        {
+            let name = String::from_utf8_lossy(n);
+            if name.contains('+') {
+                found_tagged = true;
             }
         }
     }
@@ -362,11 +362,11 @@ fn test_roundtrip_subsetted_preserves_pages_and_font() {
     // Verify font stream has Length1 and Filter
     let mut found_font_stream = false;
     for (_id, obj) in reloaded.objects.iter() {
-        if let Ok(stream) = obj.as_stream() {
-            if stream.dict.has(b"Length1") {
-                assert!(stream.dict.has(b"Filter"), "Font stream should have Filter");
-                found_font_stream = true;
-            }
+        if let Ok(stream) = obj.as_stream()
+            && stream.dict.has(b"Length1")
+        {
+            assert!(stream.dict.has(b"Filter"), "Font stream should have Filter");
+            found_font_stream = true;
         }
     }
     assert!(found_font_stream, "Should find font stream with Length1 after roundtrip");

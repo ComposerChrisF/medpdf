@@ -268,9 +268,11 @@ pub(crate) fn get_pdf_info_of_face(face: &Face) -> (FontPdfInfo, FontDescriptorP
     let (first_char, last_char) = compute_char_range(face, is_symbolic);
     let encoding = determine_pdf_encoding(is_symbolic);
 
+    let ps_name = get_name(face, name_id::POST_SCRIPT_NAME).unwrap_or_else(|| "Unknown".to_string());
+
     (
         FontPdfInfo {
-            base_font: get_name(face, name_id::POST_SCRIPT_NAME).unwrap_or_else(|| "Unknown".to_string()),
+            base_font: ps_name.clone(),
             encoding,
             first_char: first_char.into(),
             last_char: last_char.into(),
@@ -278,7 +280,7 @@ pub(crate) fn get_pdf_info_of_face(face: &Face) -> (FontPdfInfo, FontDescriptorP
             subtype: get_pdf_font_subtype(face),
         },
         FontDescriptorPdfInfo {
-            font_name: get_name(face, name_id::POST_SCRIPT_NAME).unwrap_or_else(|| "Unknown".to_string()),
+            font_name: ps_name,
             flags: compute_pdf_font_flags_internal(face, is_symbolic),
             font_bbox: get_pdf_font_bbox(face),
             italic_angle: face.italic_angle().round() as i16,

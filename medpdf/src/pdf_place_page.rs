@@ -65,6 +65,10 @@ pub fn place_page(
 
     // Deep-copy source /Resources
     debug!("Deep-copying source /Resources for place_page");
+    // The `Err` arm creates a temporary `Object::Dictionary` whose reference is valid for
+    // the duration of the surrounding `let` statement (temporary lifetime extension).
+    // This is safe because `source_resources` is consumed immediately below and never
+    // outlives this scope.
     let source_resources = match source_page.get(KEY_RESOURCES) {
         Ok(res) => res,
         Err(_) => {

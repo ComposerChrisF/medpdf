@@ -412,13 +412,15 @@ pub(crate) fn unique_xobject_name(doc: &Document, page_id: ObjectId, prefix: &st
     })()
     .unwrap_or_default();
 
-    for i in 0u32.. {
+    for i in 0u32..10_000 {
         let name = format!("{prefix}{i}");
         if !existing.contains(name.as_bytes()) {
             return name;
         }
     }
-    unreachable!()
+    // Fallback: with 10,000 candidates exhausted, use a name that is extremely
+    // unlikely to collide.
+    format!("{prefix}99999")
 }
 
 // ---------------------------------------------------------------------------

@@ -169,23 +169,23 @@ fn generate_subset_tag() -> String {
 
 /// Prefixes `/BaseFont` in a Font dictionary with `"TAG+"`.
 fn prefix_base_font(doc: &mut Document, font_id: lopdf::ObjectId, tag: &str) {
-    if let Ok(Object::Dictionary(dict)) = doc.get_object_mut(font_id) {
-        if let Ok(Object::Name(name)) = dict.get(b"BaseFont") {
-            let old_name = String::from_utf8_lossy(name).to_string();
-            let new_name = format!("{tag}+{old_name}");
-            dict.set("BaseFont", Object::Name(new_name.into_bytes()));
-        }
+    if let Ok(Object::Dictionary(dict)) = doc.get_object_mut(font_id)
+        && let Ok(Object::Name(name)) = dict.get(b"BaseFont")
+    {
+        let old_name = String::from_utf8_lossy(name).to_string();
+        let new_name = format!("{tag}+{old_name}");
+        dict.set("BaseFont", Object::Name(new_name.into_bytes()));
     }
 }
 
 /// Prefixes `/FontName` in a FontDescriptor dictionary with `"TAG+"`.
 fn prefix_font_name(doc: &mut Document, descriptor_id: lopdf::ObjectId, tag: &str) {
-    if let Ok(Object::Dictionary(dict)) = doc.get_object_mut(descriptor_id) {
-        if let Ok(Object::Name(name)) = dict.get(b"FontName") {
-            let old_name = String::from_utf8_lossy(name).to_string();
-            let new_name = format!("{tag}+{old_name}");
-            dict.set("FontName", Object::Name(new_name.into_bytes()));
-        }
+    if let Ok(Object::Dictionary(dict)) = doc.get_object_mut(descriptor_id)
+        && let Ok(Object::Name(name)) = dict.get(b"FontName")
+    {
+        let old_name = String::from_utf8_lossy(name).to_string();
+        let new_name = format!("{tag}+{old_name}");
+        dict.set("FontName", Object::Name(new_name.into_bytes()));
     }
 }
 
@@ -205,7 +205,7 @@ fn add_windows_cmap(font_data: &[u8]) -> std::result::Result<Vec<u8>, String> {
     if font_data.len() < 12 {
         return Err("font too small".into());
     }
-    let num_tables = be_u16(font_data, 4) as usize;
+    let num_tables = be_u16(font_data, 4).ok_or("cannot read numTables")? as usize;
     let dir_end = 12 + num_tables * 16;
     if font_data.len() < dir_end {
         return Err("truncated table directory".into());
@@ -220,14 +220,14 @@ fn add_windows_cmap(font_data: &[u8]) -> std::result::Result<Vec<u8>, String> {
         }
     }
     let cmap_dir_idx = cmap_dir_idx.ok_or("no cmap table")?;
-    let cmap_offset = be_u32(font_data, 12 + cmap_dir_idx * 16 + 8) as usize;
-    let cmap_length = be_u32(font_data, 12 + cmap_dir_idx * 16 + 12) as usize;
+    let cmap_offset = be_u32(font_data, 12 + cmap_dir_idx * 16 + 8).ok_or("cannot read cmap offset")? as usize;
+    let cmap_length = be_u32(font_data, 12 + cmap_dir_idx * 16 + 12).ok_or("cannot read cmap length")? as usize;
     if font_data.len() < cmap_offset + cmap_length || cmap_length < 4 {
         return Err("cmap table out of bounds".into());
     }
 
     let cmap = &font_data[cmap_offset..cmap_offset + cmap_length];
-    let cmap_num_recs = be_u16(cmap, 2) as usize;
+    let cmap_num_recs = be_u16(cmap, 2).ok_or("cannot read cmap numRecords")? as usize;
     if cmap.len() < 4 + cmap_num_recs * 8 {
         return Err("truncated cmap encoding records".into());
     }
@@ -236,13 +236,13 @@ fn add_windows_cmap(font_data: &[u8]) -> std::result::Result<Vec<u8>, String> {
     let mut unicode_bmp_off = None;
     for i in 0..cmap_num_recs {
         let base = 4 + i * 8;
-        let plat = be_u16(cmap, base);
-        let enc = be_u16(cmap, base + 2);
+        let plat = be_u16(cmap, base).ok_or("cannot read cmap platform")?;
+        let enc = be_u16(cmap, base + 2).ok_or("cannot read cmap encoding")?;
         if plat == 3 {
             return Err("font already has platform=3 cmap".into());
         }
         if plat == 0 && enc == 3 {
-            unicode_bmp_off = Some(be_u32(cmap, base + 4));
+            unicode_bmp_off = Some(be_u32(cmap, base + 4).ok_or("cannot read cmap subtable offset")?);
         }
     }
     let unicode_bmp_off = unicode_bmp_off.ok_or("no platform=0 encoding=3 cmap subtable")?;
@@ -257,7 +257,7 @@ fn add_windows_cmap(font_data: &[u8]) -> std::result::Result<Vec<u8>, String> {
     for i in 0..cmap_num_recs {
         let base = 4 + i * 8;
         new_cmap.extend_from_slice(&cmap[base..base + 4]); // platform + encoding
-        push_be_u32(&mut new_cmap, be_u32(cmap, base + 4) + extra);
+        push_be_u32(&mut new_cmap, be_u32(cmap, base + 4).ok_or("cannot read cmap subtable offset")? + extra);
     }
 
     // New Windows record sharing the same subtable.
@@ -283,9 +283,9 @@ fn rebuild_ttf(
     let mut tables: Vec<(u32, &[u8])> = Vec::with_capacity(num_tables);
     for i in 0..num_tables {
         let base = 12 + i * 16;
-        let tag = be_u32(font_data, base);
-        let off = be_u32(font_data, base + 8) as usize;
-        let len = be_u32(font_data, base + 12) as usize;
+        let tag = be_u32(font_data, base).ok_or_else(|| format!("cannot read tag for table {i}"))?;
+        let off = be_u32(font_data, base + 8).ok_or_else(|| format!("cannot read offset for table {i}"))? as usize;
+        let len = be_u32(font_data, base + 12).ok_or_else(|| format!("cannot read length for table {i}"))? as usize;
         if i == replace_idx {
             tables.push((tag, new_table));
         } else {
@@ -362,12 +362,12 @@ fn ttf_checksum(data: &[u8]) -> u32 {
     sum
 }
 
-fn be_u16(data: &[u8], off: usize) -> u16 {
-    u16::from_be_bytes(data[off..off + 2].try_into().unwrap())
+fn be_u16(data: &[u8], off: usize) -> Option<u16> {
+    Some(u16::from_be_bytes(data.get(off..off + 2)?.try_into().ok()?))
 }
 
-fn be_u32(data: &[u8], off: usize) -> u32 {
-    u32::from_be_bytes(data[off..off + 4].try_into().unwrap())
+fn be_u32(data: &[u8], off: usize) -> Option<u32> {
+    Some(u32::from_be_bytes(data.get(off..off + 4)?.try_into().ok()?))
 }
 
 fn push_be_u16(buf: &mut Vec<u8>, val: u16) {

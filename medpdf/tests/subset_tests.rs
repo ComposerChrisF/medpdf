@@ -15,15 +15,15 @@ use medpdf::{subset_fonts, EmbeddedFontCache, FontData};
 fn find_font_streams(doc: &lopdf::Document) -> Vec<(ObjectId, Vec<u8>)> {
     let mut result = Vec::new();
     for (id, obj) in doc.objects.iter() {
-        if let Ok(stream) = obj.as_stream() {
-            if stream.dict.has(b"Length1") {
-                let bytes = if stream.is_compressed() {
-                    stream.decompressed_content().unwrap_or_else(|_| stream.content.clone())
-                } else {
-                    stream.content.clone()
-                };
-                result.push((*id, bytes));
-            }
+        if let Ok(stream) = obj.as_stream()
+            && stream.dict.has(b"Length1")
+        {
+            let bytes = if stream.is_compressed() {
+                stream.decompressed_content().unwrap_or_else(|_| stream.content.clone())
+            } else {
+                stream.content.clone()
+            };
+            result.push((*id, bytes));
         }
     }
     result
@@ -33,10 +33,10 @@ fn find_font_streams(doc: &lopdf::Document) -> Vec<(ObjectId, Vec<u8>)> {
 fn total_font_stream_compressed_size(doc: &lopdf::Document) -> usize {
     let mut total = 0;
     for (_id, obj) in doc.objects.iter() {
-        if let Ok(stream) = obj.as_stream() {
-            if stream.dict.has(b"Length1") {
-                total += stream.content.len();
-            }
+        if let Ok(stream) = obj.as_stream()
+            && stream.dict.has(b"Length1")
+        {
+            total += stream.content.len();
         }
     }
     total
@@ -46,10 +46,10 @@ fn total_font_stream_compressed_size(doc: &lopdf::Document) -> usize {
 fn find_base_font_names(doc: &lopdf::Document) -> Vec<String> {
     let mut names = Vec::new();
     for (_id, obj) in doc.objects.iter() {
-        if let Ok(dict) = obj.as_dict() {
-            if let Ok(Object::Name(n)) = dict.get(b"BaseFont") {
-                names.push(String::from_utf8_lossy(n).to_string());
-            }
+        if let Ok(dict) = obj.as_dict()
+            && let Ok(Object::Name(n)) = dict.get(b"BaseFont")
+        {
+            names.push(String::from_utf8_lossy(n).to_string());
         }
     }
     names
@@ -59,12 +59,11 @@ fn find_base_font_names(doc: &lopdf::Document) -> Vec<String> {
 fn find_font_descriptor_names(doc: &lopdf::Document) -> Vec<String> {
     let mut names = Vec::new();
     for (_id, obj) in doc.objects.iter() {
-        if let Ok(dict) = obj.as_dict() {
-            if dict.get(b"Type").ok().and_then(|v| v.as_name().ok()) == Some(b"FontDescriptor") {
-                if let Ok(Object::Name(n)) = dict.get(b"FontName") {
-                    names.push(String::from_utf8_lossy(n).to_string());
-                }
-            }
+        if let Ok(dict) = obj.as_dict()
+            && dict.get(b"Type").ok().and_then(|v| v.as_name().ok()) == Some(b"FontDescriptor")
+            && let Ok(Object::Name(n)) = dict.get(b"FontName")
+        {
+            names.push(String::from_utf8_lossy(n).to_string());
         }
     }
     names
@@ -164,20 +163,20 @@ fn test_subset_length1_matches_decompressed_size() {
     subset_fonts(&mut doc, &cache).unwrap();
 
     for (id, obj) in doc.objects.iter() {
-        if let Ok(stream) = obj.as_stream() {
-            if stream.dict.has(b"Length1") {
-                let length1 = stream.dict.get(b"Length1").unwrap().as_i64().unwrap() as usize;
-                let decompressed = if stream.is_compressed() {
-                    stream.decompressed_content().unwrap()
-                } else {
-                    stream.content.clone()
-                };
-                assert_eq!(
-                    decompressed.len(),
-                    length1,
-                    "Length1 should match decompressed size for stream {id:?}"
-                );
-            }
+        if let Ok(stream) = obj.as_stream()
+            && stream.dict.has(b"Length1")
+        {
+            let length1 = stream.dict.get(b"Length1").unwrap().as_i64().unwrap() as usize;
+            let decompressed = if stream.is_compressed() {
+                stream.decompressed_content().unwrap()
+            } else {
+                stream.content.clone()
+            };
+            assert_eq!(
+                decompressed.len(),
+                length1,
+                "Length1 should match decompressed size for stream {id:?}"
+            );
         }
     }
 }
