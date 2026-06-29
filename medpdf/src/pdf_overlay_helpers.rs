@@ -188,7 +188,12 @@ pub(crate) fn modify_content_stream(
                 trace!("op {op:?}");
             }
         }
-        content_stream.content = content.encode()?;
+        // Use set_content (not a raw `content_stream.content = ...`) so the dictionary's
+        // /Length is re-synced to the new body. The re-encode changes the body length (the
+        // q/Q wrapper plus any resource renames), and a raw field assignment would leave the
+        // original /Length in place. lopdf's reader trusts /Length, so a stale value makes it
+        // drop the stream body on reload — silent loss of the overlaid content.
+        content_stream.set_content(content.encode()?);
         content_stream.compress()?;
     }
     Ok(())
