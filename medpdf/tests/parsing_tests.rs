@@ -244,7 +244,10 @@ fn test_error_negative_number() {
     // "-1-3" is ambiguous: the parser consumes "-1" as an open-start range (pages 1..=1)
     // but then fails on the remaining "-3" which can't be parsed as a valid separator+spec.
     let result = parse_page_spec("-1-3", 5);
-    assert!(result.is_err(), "Ambiguous spec '-1-3' should fail to parse");
+    assert!(
+        result.is_err(),
+        "Ambiguous spec '-1-3' should fail to parse"
+    );
 }
 
 // --- Edge Cases ---

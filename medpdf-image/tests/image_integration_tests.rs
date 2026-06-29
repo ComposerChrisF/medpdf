@@ -1,9 +1,9 @@
 // tests/image_integration_tests.rs
 // Integration tests for medpdf-image: load_image, add_image roundtrip, edge cases
 
-use lopdf::{dictionary, Document, Object, Stream};
-use medpdf_image::recompress::{recompress_images, RecompressParams};
-use medpdf_image::{add_image, load_image, DrawImageParams, ImageData, ImageFit};
+use lopdf::{Document, Object, Stream, dictionary};
+use medpdf_image::recompress::{RecompressParams, recompress_images};
+use medpdf_image::{DrawImageParams, ImageData, ImageFit, add_image, load_image};
 use std::io::Write;
 use tempfile::NamedTempFile;
 
@@ -43,16 +43,8 @@ fn create_one_page_pdf() -> (Document, lopdf::ObjectId) {
         "Resources" => Object::Reference(resources_id),
     };
     let page_id = doc.add_object(page);
-    let pages_obj = doc
-        .get_object_mut(pages_id)
-        .unwrap()
-        .as_dict_mut()
-        .unwrap();
-    let kids = pages_obj
-        .get_mut(b"Kids")
-        .unwrap()
-        .as_array_mut()
-        .unwrap();
+    let pages_obj = doc.get_object_mut(pages_id).unwrap().as_dict_mut().unwrap();
+    let kids = pages_obj.get_mut(b"Kids").unwrap().as_array_mut().unwrap();
     kids.push(Object::Reference(page_id));
     pages_obj.set("Count", Object::Integer(1));
     (doc, page_id)
@@ -179,7 +171,10 @@ fn test_load_image_png_rgba() {
             assert_eq!(*pixel_width, 4);
             assert_eq!(*pixel_height, 4);
             assert_eq!(*components, 3);
-            assert!(alpha_channel.is_some(), "RGBA PNG should have alpha channel");
+            assert!(
+                alpha_channel.is_some(),
+                "RGBA PNG should have alpha channel"
+            );
         }
         _ => panic!("Expected Decoded variant for PNG with alpha"),
     }
@@ -262,11 +257,7 @@ fn test_add_image_jpeg_roundtrip() {
     // Verify XObject was registered
     let page_id = *reloaded.get_pages().get(&1).unwrap();
     let page_dict = reloaded.get_dictionary(page_id).unwrap();
-    let res_ref = page_dict
-        .get(b"Resources")
-        .unwrap()
-        .as_reference()
-        .unwrap();
+    let res_ref = page_dict.get(b"Resources").unwrap().as_reference().unwrap();
     let res_dict = reloaded.get_dictionary(res_ref).unwrap();
     assert!(
         res_dict.get(b"XObject").is_ok(),
@@ -337,11 +328,7 @@ fn test_add_image_with_alpha_opacity_roundtrip() {
     // Verify ExtGState exists for alpha
     let page_id = *reloaded.get_pages().get(&1).unwrap();
     let page_dict = reloaded.get_dictionary(page_id).unwrap();
-    let res_ref = page_dict
-        .get(b"Resources")
-        .unwrap()
-        .as_reference()
-        .unwrap();
+    let res_ref = page_dict.get(b"Resources").unwrap().as_reference().unwrap();
     let res_dict = reloaded.get_dictionary(res_ref).unwrap();
     assert!(
         res_dict.get(b"ExtGState").is_ok(),
@@ -365,8 +352,7 @@ fn test_add_multiple_images_to_same_page() {
             pixel_height: 2,
             components: 3,
         };
-        let params =
-            DrawImageParams::new(img, 50.0 + (i as f32) * 100.0, 400.0, 80.0, 80.0);
+        let params = DrawImageParams::new(img, 50.0 + (i as f32) * 100.0, 400.0, 80.0, 80.0);
         add_image(&mut doc, page_id, params).unwrap();
     }
 
@@ -376,11 +362,7 @@ fn test_add_multiple_images_to_same_page() {
     // Should have 3 XObjects registered
     let page_id = *reloaded.get_pages().get(&1).unwrap();
     let page_dict = reloaded.get_dictionary(page_id).unwrap();
-    let res_ref = page_dict
-        .get(b"Resources")
-        .unwrap()
-        .as_reference()
-        .unwrap();
+    let res_ref = page_dict.get(b"Resources").unwrap().as_reference().unwrap();
     let res_dict = reloaded.get_dictionary(res_ref).unwrap();
     let xobj_dict = res_dict.get(b"XObject").unwrap().as_dict().unwrap();
     assert_eq!(xobj_dict.len(), 3, "Should have 3 XObject entries");
@@ -565,7 +547,10 @@ fn test_recompress_jpeg_roundtrip() {
     let params = RecompressParams::default();
     let stats = recompress_images(&mut doc, &object_ids, &params).unwrap();
     // Minimal 2x2 JPEG is tiny (below min_size threshold), so likely 0 recompressed
-    assert_eq!(stats.recompressed, 0, "Tiny JPEG should be below min_size threshold");
+    assert_eq!(
+        stats.recompressed, 0,
+        "Tiny JPEG should be below min_size threshold"
+    );
 
     // Document should still be valid after recompress pass
     let reloaded = save_and_reload(&mut doc);

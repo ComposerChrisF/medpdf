@@ -10,7 +10,7 @@ use crate::error::{MedpdfError, Result};
 use crate::font_helpers;
 use crate::pdf_helpers::{KEY_CONTENTS, KEY_EXTGSTATE, KEY_FONT, KEY_FONT_DESCRIPTOR};
 use lopdf::content::{Content, Operation};
-use lopdf::{dictionary, Document, Object, ObjectId, Stream, StringFormat};
+use lopdf::{Document, Object, ObjectId, Stream, StringFormat, dictionary};
 
 /// Per-font tracking entry for subsetting support.
 pub struct CachedFontEntry {
@@ -108,7 +108,9 @@ fn count_q_balance(dest_doc: &Document, content_refs: &[ObjectId]) -> Result<isi
                     }
                 }
                 Err(e) => {
-                    log::warn!("Failed to decode content stream {content_id:?}: {e}; assuming balanced q/Q");
+                    log::warn!(
+                        "Failed to decode content stream {content_id:?}: {e}; assuming balanced q/Q"
+                    );
                 }
             }
         }
@@ -167,7 +169,9 @@ fn add_font_objects(
 ) -> Result<String> {
     match font_data {
         crate::font_data::FontData::Hack(n) => Ok(format!("F{n}")),
-        crate::font_data::FontData::BuiltIn(_) => add_known_named_font(dest_doc, page_id, font_name),
+        crate::font_data::FontData::BuiltIn(_) => {
+            add_known_named_font(dest_doc, page_id, font_name)
+        }
         crate::font_data::FontData::Embedded(data) => {
             if let Some(entry) = font_cache.get(data) {
                 // Font already embedded — just register it in this page's resources
@@ -176,7 +180,13 @@ fn add_font_objects(
             } else {
                 let (font_id, font_key, font_stream_id, descriptor_id) =
                     add_embedded_font(dest_doc, page_id, data)?;
-                font_cache.insert(data, font_id, font_key.clone(), font_stream_id, descriptor_id);
+                font_cache.insert(
+                    data,
+                    font_id,
+                    font_key.clone(),
+                    font_stream_id,
+                    descriptor_id,
+                );
                 Ok(font_key)
             }
         }
@@ -191,7 +201,11 @@ fn register_font_in_page_resources(
 ) -> Result<String> {
     let font_key = format!("F{}", font_id.0);
     crate::pdf_helpers::register_in_page_resources(
-        dest_doc, page_id, KEY_FONT, font_key.as_bytes(), font_id,
+        dest_doc,
+        page_id,
+        KEY_FONT,
+        font_key.as_bytes(),
+        font_id,
     )?;
     Ok(font_key)
 }
@@ -204,7 +218,11 @@ pub fn register_extgstate_in_page_resources(
 ) -> Result<String> {
     let gs_key = format!("GS{}", gs_id.0);
     crate::pdf_helpers::register_in_page_resources(
-        dest_doc, page_id, KEY_EXTGSTATE, gs_key.as_bytes(), gs_id,
+        dest_doc,
+        page_id,
+        KEY_EXTGSTATE,
+        gs_key.as_bytes(),
+        gs_id,
     )?;
     Ok(gs_key)
 }
@@ -252,7 +270,9 @@ fn compute_text_metrics(params: &crate::types::AddTextParams) -> TextMetrics {
         || params.v_align != crate::types::VAlign::Baseline
         || params.strikeout
         || params.underline;
-    let face_opt = params.font_data.embedded_bytes()
+    let face_opt = params
+        .font_data
+        .embedded_bytes()
         .and_then(|bytes| ttf_parser::Face::parse(bytes, 0).ok());
 
     let text_width = if needs_width {
@@ -272,25 +292,30 @@ fn compute_text_metrics(params: &crate::types::AddTextParams) -> TextMetrics {
 
     // Compute vertical metrics from font data (scaled to font_size).
     // For built-in/hack fonts, use reasonable approximations.
-    let approx = (params.font_size * 0.7, params.font_size * -0.3, params.font_size * 0.5, params.font_size * 0.7, params.font_size * -0.3);
-    let (ascent, descent, x_height, cap_height, bbox_bottom) =
-        if let Some(face) = &face_opt {
-            let upem = face.units_per_em() as f32;
-            if upem > 0.0 {
-                let scale = params.font_size / upem;
-                (
-                    face.ascender() as f32 * scale,
-                    face.descender() as f32 * scale,
-                    face.x_height().unwrap_or((upem * 0.5) as i16) as f32 * scale,
-                    face.capital_height().unwrap_or(face.ascender()) as f32 * scale,
-                    face.global_bounding_box().y_min as f32 * scale,
-                )
-            } else {
-                approx
-            }
+    let approx = (
+        params.font_size * 0.7,
+        params.font_size * -0.3,
+        params.font_size * 0.5,
+        params.font_size * 0.7,
+        params.font_size * -0.3,
+    );
+    let (ascent, descent, x_height, cap_height, bbox_bottom) = if let Some(face) = &face_opt {
+        let upem = face.units_per_em() as f32;
+        if upem > 0.0 {
+            let scale = params.font_size / upem;
+            (
+                face.ascender() as f32 * scale,
+                face.descender() as f32 * scale,
+                face.x_height().unwrap_or((upem * 0.5) as i16) as f32 * scale,
+                face.capital_height().unwrap_or(face.ascender()) as f32 * scale,
+                face.global_bounding_box().y_min as f32 * scale,
+            )
         } else {
             approx
-        };
+        }
+    } else {
+        approx
+    };
     let dy = match params.v_align {
         crate::types::VAlign::Baseline => 0.0,
         crate::types::VAlign::DescentBottom => -descent,
@@ -352,14 +377,24 @@ fn build_text_ops(
         let sin = angle.sin();
         ops.push(Operation::new(
             "cm",
-            vec![cos.into(), sin.into(), (-sin).into(), cos.into(), params.x.into(), params.y.into()],
+            vec![
+                cos.into(),
+                sin.into(),
+                (-sin).into(),
+                cos.into(),
+                params.x.into(),
+                params.y.into(),
+            ],
         ));
     }
 
     ops.push(Operation::new("BT", vec![]));
     ops.push(Operation::new(
         "Tf",
-        vec![Object::Name(font_key.as_bytes().to_vec()), params.font_size.into()],
+        vec![
+            Object::Name(font_key.as_bytes().to_vec()),
+            params.font_size.into(),
+        ],
     ));
 
     let (tx, ty) = if has_rotation {
@@ -390,14 +425,27 @@ fn build_decoration_ops(
     // In rotated mode, cm is active so we use (dx, dy) offsets.
     // In non-rotated mode, we use absolute (params.x + dx, params.y + dy) coords.
     let has_rotation = params.rotation.abs() > 0.001;
-    let rect_x = if has_rotation { metrics.dx } else { params.x + metrics.dx };
-    let rect_base_y = if has_rotation { metrics.dy } else { params.y + metrics.dy };
+    let rect_x = if has_rotation {
+        metrics.dx
+    } else {
+        params.x + metrics.dx
+    };
+    let rect_base_y = if has_rotation {
+        metrics.dy
+    } else {
+        params.y + metrics.dy
+    };
     let line_height = params.font_size * 0.05;
     if params.underline {
         let line_y = rect_base_y - params.font_size * 0.15;
         ops.push(Operation::new(
             "re",
-            vec![rect_x.into(), line_y.into(), metrics.text_width.into(), line_height.into()],
+            vec![
+                rect_x.into(),
+                line_y.into(),
+                metrics.text_width.into(),
+                line_height.into(),
+            ],
         ));
         ops.push(Operation::new("f", vec![]));
     }
@@ -405,7 +453,12 @@ fn build_decoration_ops(
         let line_y = rect_base_y + params.font_size * 0.3;
         ops.push(Operation::new(
             "re",
-            vec![rect_x.into(), line_y.into(), metrics.text_width.into(), line_height.into()],
+            vec![
+                rect_x.into(),
+                line_y.into(),
+                metrics.text_width.into(),
+                line_height.into(),
+            ],
         ));
         ops.push(Operation::new("f", vec![]));
     }
@@ -436,7 +489,13 @@ pub fn add_text_params(
     params: &crate::types::AddTextParams,
     font_cache: &mut EmbeddedFontCache,
 ) -> Result<()> {
-    let font_key = add_font_objects(dest_doc, page_id, &params.font_data, &params.font_name, font_cache)?;
+    let font_key = add_font_objects(
+        dest_doc,
+        page_id,
+        &params.font_data,
+        &params.font_name,
+        font_cache,
+    )?;
     if let crate::font_data::FontData::Embedded(ref data) = params.font_data {
         font_cache.record_chars(data, &params.text);
     }
@@ -483,8 +542,11 @@ pub fn insert_content_stream(
         match contents {
             Object::Array(arr) => {
                 if layer_over {
-                    let q = q_id.ok_or_else(|| MedpdfError::new("Internal error: missing q stream ID"))?;
-                    let closing_q = closing_q_id.ok_or_else(|| MedpdfError::new("Internal error: missing closing q stream ID"))?;
+                    let q = q_id
+                        .ok_or_else(|| MedpdfError::new("Internal error: missing q stream ID"))?;
+                    let closing_q = closing_q_id.ok_or_else(|| {
+                        MedpdfError::new("Internal error: missing closing q stream ID")
+                    })?;
                     arr.insert(0, Object::Reference(q));
                     arr.push(Object::Reference(closing_q));
                     arr.push(Object::Reference(content_id));
@@ -495,8 +557,11 @@ pub fn insert_content_stream(
             Object::Reference(id) => {
                 let old_id = *id;
                 *contents = if layer_over {
-                    let q = q_id.ok_or_else(|| MedpdfError::new("Internal error: missing q stream ID"))?;
-                    let closing_q = closing_q_id.ok_or_else(|| MedpdfError::new("Internal error: missing closing q stream ID"))?;
+                    let q = q_id
+                        .ok_or_else(|| MedpdfError::new("Internal error: missing q stream ID"))?;
+                    let closing_q = closing_q_id.ok_or_else(|| {
+                        MedpdfError::new("Internal error: missing closing q stream ID")
+                    })?;
                     Object::Array(vec![
                         Object::Reference(q),
                         Object::Reference(old_id),
@@ -685,8 +750,7 @@ mod tests {
             "Kids" => vec![],
             "Count" => 0,
         };
-        doc.objects
-            .insert(pages_id, Object::Dictionary(pages));
+        doc.objects.insert(pages_id, Object::Dictionary(pages));
         let catalog_id = doc.add_object(dictionary! {
             "Type" => "Catalog",
             "Pages" => pages_id,
@@ -710,9 +774,13 @@ mod tests {
                 }
                 result
             }
-            Object::Reference(id) => {
-                doc.get_object(*id).unwrap().as_stream().unwrap().content.clone()
-            }
+            Object::Reference(id) => doc
+                .get_object(*id)
+                .unwrap()
+                .as_stream()
+                .unwrap()
+                .content
+                .clone(),
             _ => panic!("Unexpected Contents type"),
         }
     }
@@ -736,19 +804,24 @@ mod tests {
         add_rect(&mut doc, page_id, &params).unwrap();
         let content = get_all_content_bytes(&doc, page_id);
         let content_str = String::from_utf8_lossy(&content);
-        assert!(content_str.contains("gs"), "Should contain 'gs' operator for alpha");
+        assert!(
+            content_str.contains("gs"),
+            "Should contain 'gs' operator for alpha"
+        );
     }
 
     #[test]
     fn test_add_rect_layer_under() {
         let (mut doc, page_id) = create_test_doc_and_page();
-        let params = crate::types::DrawRectParams::new(0.0, 0.0, 50.0, 50.0)
-            .layer_over(false);
+        let params = crate::types::DrawRectParams::new(0.0, 0.0, 50.0, 50.0).layer_over(false);
         add_rect(&mut doc, page_id, &params).unwrap();
         // In layer_under mode, rect content is prepended
         let page = doc.get_dictionary(page_id).unwrap();
         let contents = page.get(b"Contents").unwrap().as_array().unwrap();
-        assert!(contents.len() >= 2, "Should have at least 2 content streams");
+        assert!(
+            contents.len() >= 2,
+            "Should have at least 2 content streams"
+        );
     }
 
     #[test]
@@ -771,14 +844,16 @@ mod tests {
         add_line(&mut doc, page_id, &params).unwrap();
         let content = get_all_content_bytes(&doc, page_id);
         let content_str = String::from_utf8_lossy(&content);
-        assert!(content_str.contains("gs"), "Should contain 'gs' operator for alpha");
+        assert!(
+            content_str.contains("gs"),
+            "Should contain 'gs' operator for alpha"
+        );
     }
 
     #[test]
     fn test_add_line_custom_width() {
         let (mut doc, page_id) = create_test_doc_and_page();
-        let params = crate::types::DrawLineParams::new(0.0, 0.0, 100.0, 100.0)
-            .line_width(3.0);
+        let params = crate::types::DrawLineParams::new(0.0, 0.0, 100.0, 100.0).line_width(3.0);
         add_line(&mut doc, page_id, &params).unwrap();
         let content = get_all_content_bytes(&doc, page_id);
         let content_str = String::from_utf8_lossy(&content);
@@ -788,12 +863,14 @@ mod tests {
     #[test]
     fn test_add_line_layer_under() {
         let (mut doc, page_id) = create_test_doc_and_page();
-        let params = crate::types::DrawLineParams::new(0.0, 0.0, 100.0, 100.0)
-            .layer_over(false);
+        let params = crate::types::DrawLineParams::new(0.0, 0.0, 100.0, 100.0).layer_over(false);
         add_line(&mut doc, page_id, &params).unwrap();
         let page = doc.get_dictionary(page_id).unwrap();
         let contents = page.get(b"Contents").unwrap().as_array().unwrap();
-        assert!(contents.len() >= 2, "Should have at least 2 content streams");
+        assert!(
+            contents.len() >= 2,
+            "Should have at least 2 content streams"
+        );
     }
 
     // --- utf8_to_winansi / unicode_to_winansi tests ---
@@ -880,7 +957,10 @@ mod tests {
         for cp in 0xA0u32..=0xFF {
             let ch = char::from_u32(cp).unwrap();
             let result = unicode_to_winansi(ch);
-            assert_eq!(result, cp as u8, "Latin-1 char U+{cp:04X} should map to {cp}");
+            assert_eq!(
+                result, cp as u8,
+                "Latin-1 char U+{cp:04X} should map to {cp}"
+            );
         }
     }
 

@@ -66,7 +66,9 @@ fn test_font_data_embedded_bytes_returns_data() {
     let raw = vec![0x00, 0x01, 0x00, 0x00, 0xFF, 0xFE];
     let data = Arc::new(raw.clone());
     let fd = FontData::Embedded(data);
-    let bytes = fd.embedded_bytes().expect("should return Some for Embedded");
+    let bytes = fd
+        .embedded_bytes()
+        .expect("should return Some for Embedded");
     assert_eq!(bytes, &raw);
 }
 
@@ -74,7 +76,9 @@ fn test_font_data_embedded_bytes_returns_data() {
 fn test_font_data_embedded_empty_data() {
     let data = Arc::new(vec![]);
     let fd = FontData::Embedded(data);
-    let bytes = fd.embedded_bytes().expect("should return Some even for empty");
+    let bytes = fd
+        .embedded_bytes()
+        .expect("should return Some even for empty");
     assert!(bytes.is_empty());
 }
 

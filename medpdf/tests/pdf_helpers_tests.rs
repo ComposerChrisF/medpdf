@@ -3,7 +3,7 @@
 
 mod fixtures;
 
-use lopdf::{dictionary, Object, Stream};
+use lopdf::{Object, Stream, dictionary};
 use medpdf::pdf_helpers::get_page_media_box;
 
 // --- get_page_media_box Tests ---
@@ -27,7 +27,10 @@ fn test_get_media_box_inherited_from_parent() {
     let pages = doc.get_pages();
     let page_id = *pages.get(&1).expect("Page 1 should exist");
     let mb = get_page_media_box(&doc, page_id);
-    assert!(mb.is_some(), "Should inherit MediaBox from parent Pages node");
+    assert!(
+        mb.is_some(),
+        "Should inherit MediaBox from parent Pages node"
+    );
     let [x0, y0, x1, y1] = mb.unwrap();
     assert!((x0 - 0.0).abs() < 0.01);
     assert!((y0 - 0.0).abs() < 0.01);
@@ -217,7 +220,10 @@ fn test_set_page_rotation_zero_removes_key() {
 
     // Verify the key is actually removed
     let page = doc.get_dictionary(page_id).unwrap();
-    assert!(page.get(b"Rotate").is_err(), "/Rotate key should be removed when set to 0");
+    assert!(
+        page.get(b"Rotate").is_err(),
+        "/Rotate key should be removed when set to 0"
+    );
 }
 
 #[test]
@@ -259,7 +265,11 @@ fn test_get_page_rotation_inherited_from_parent() {
     let parent_id = page_dict.get(b"Parent").unwrap().as_reference().unwrap();
 
     // Set Rotate on the parent Pages node
-    let parent = doc.get_object_mut(parent_id).unwrap().as_dict_mut().unwrap();
+    let parent = doc
+        .get_object_mut(parent_id)
+        .unwrap()
+        .as_dict_mut()
+        .unwrap();
     parent.set("Rotate", lopdf::Object::Integer(90));
 
     // Page should inherit the rotation from parent

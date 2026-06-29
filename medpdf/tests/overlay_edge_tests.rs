@@ -3,7 +3,7 @@
 
 mod fixtures;
 
-use lopdf::{dictionary, Document, Object, Stream};
+use lopdf::{Document, Object, Stream, dictionary};
 use medpdf::pdf_copy_page::copy_page;
 use medpdf::pdf_overlay::overlay_page;
 
@@ -49,11 +49,7 @@ fn create_pdf_with_named_resources(names: &[&str]) -> Document {
     };
     let page_id = doc.add_object(page);
 
-    let pages = doc
-        .get_object_mut(pages_id)
-        .unwrap()
-        .as_dict_mut()
-        .unwrap();
+    let pages = doc.get_object_mut(pages_id).unwrap().as_dict_mut().unwrap();
     let kids = pages.get_mut(b"Kids").unwrap().as_array_mut().unwrap();
     kids.push(page_id.into());
     pages.set("Count", Object::Integer(1));
@@ -70,7 +66,11 @@ fn test_overlay_with_same_resource_names() {
 
     let overlay_doc = create_pdf_with_named_resources(&["F1", "F2"]);
     let result = overlay_page(&mut dest_doc, dest_page_id, &overlay_doc, 1);
-    assert!(result.is_ok(), "Overlay with same resource names should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Overlay with same resource names should succeed: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -84,7 +84,11 @@ fn test_overlay_with_many_resources() {
 
     let overlay_doc = create_pdf_with_named_resources(&name_refs);
     let result = overlay_page(&mut dest_doc, dest_page_id, &overlay_doc, 1);
-    assert!(result.is_ok(), "Overlay with many resources should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Overlay with many resources should succeed: {:?}",
+        result.err()
+    );
 }
 
 // --- Overlay onto multi-page documents ---
@@ -102,7 +106,11 @@ fn test_overlay_onto_specific_page_in_multi_page() {
 
     let overlay_doc = fixtures::create_pdf_with_pages(1);
     let result = overlay_page(&mut dest_doc, page_ids[1], &overlay_doc, 1);
-    assert!(result.is_ok(), "Overlay onto page 2 should work: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Overlay onto page 2 should work: {:?}",
+        result.err()
+    );
     assert_eq!(dest_doc.get_pages().len(), 3, "Should still have 3 pages");
 }
 
@@ -137,7 +145,10 @@ fn test_overlay_invalid_dest_page_id() {
     // Use a bogus page ID that doesn't exist
     let bogus_id = (9999, 0);
     let result = overlay_page(&mut dest_doc, bogus_id, &overlay_doc, 1);
-    assert!(result.is_err(), "Overlay with invalid dest page id should fail");
+    assert!(
+        result.is_err(),
+        "Overlay with invalid dest page id should fail"
+    );
 }
 
 // --- Overlay with inline resources (embedded dict, not reference) ---
@@ -176,11 +187,7 @@ fn create_pdf_with_inline_resources() -> Document {
     };
     let page_id = doc.add_object(page);
 
-    let pages = doc
-        .get_object_mut(pages_id)
-        .unwrap()
-        .as_dict_mut()
-        .unwrap();
+    let pages = doc.get_object_mut(pages_id).unwrap().as_dict_mut().unwrap();
     let kids = pages.get_mut(b"Kids").unwrap().as_array_mut().unwrap();
     kids.push(page_id.into());
     pages.set("Count", Object::Integer(1));
@@ -197,7 +204,11 @@ fn test_overlay_with_inline_resources_on_dest() {
 
     let overlay_doc = fixtures::create_pdf_with_pages(1);
     let result = overlay_page(&mut dest_doc, dest_page_id, &overlay_doc, 1);
-    assert!(result.is_ok(), "Overlay with inline dest resources should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Overlay with inline dest resources should succeed: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -209,7 +220,11 @@ fn test_overlay_with_inline_resources_on_overlay() {
 
     let overlay_doc = create_pdf_with_inline_resources();
     let result = overlay_page(&mut dest_doc, dest_page_id, &overlay_doc, 1);
-    assert!(result.is_ok(), "Overlay with inline overlay resources should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Overlay with inline overlay resources should succeed: {:?}",
+        result.err()
+    );
 }
 
 // --- Content stream as inline stream (not reference) ---
@@ -238,11 +253,7 @@ fn create_pdf_with_inline_content_stream() -> Document {
     };
     let page_id = doc.add_object(page);
 
-    let pages = doc
-        .get_object_mut(pages_id)
-        .unwrap()
-        .as_dict_mut()
-        .unwrap();
+    let pages = doc.get_object_mut(pages_id).unwrap().as_dict_mut().unwrap();
     let kids = pages.get_mut(b"Kids").unwrap().as_array_mut().unwrap();
     kids.push(page_id.into());
     pages.set("Count", Object::Integer(1));
@@ -259,7 +270,11 @@ fn test_overlay_from_page_with_inline_content_stream() {
 
     let overlay_doc = create_pdf_with_inline_content_stream();
     let result = overlay_page(&mut dest_doc, dest_page_id, &overlay_doc, 1);
-    assert!(result.is_ok(), "Overlay with inline content stream should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Overlay with inline content stream should succeed: {:?}",
+        result.err()
+    );
 }
 
 // --- Content stream as array of references ---
@@ -293,11 +308,7 @@ fn create_pdf_with_content_array() -> Document {
     };
     let page_id = doc.add_object(page);
 
-    let pages = doc
-        .get_object_mut(pages_id)
-        .unwrap()
-        .as_dict_mut()
-        .unwrap();
+    let pages = doc.get_object_mut(pages_id).unwrap().as_dict_mut().unwrap();
     let kids = pages.get_mut(b"Kids").unwrap().as_array_mut().unwrap();
     kids.push(page_id.into());
     pages.set("Count", Object::Integer(1));
@@ -314,7 +325,11 @@ fn test_overlay_from_page_with_content_array() {
 
     let overlay_doc = create_pdf_with_content_array();
     let result = overlay_page(&mut dest_doc, dest_page_id, &overlay_doc, 1);
-    assert!(result.is_ok(), "Overlay with content array should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Overlay with content array should succeed: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -326,7 +341,11 @@ fn test_overlay_dest_with_content_array() {
 
     let overlay_doc = fixtures::create_pdf_with_pages(1);
     let result = overlay_page(&mut dest_doc, dest_page_id, &overlay_doc, 1);
-    assert!(result.is_ok(), "Overlay on dest with content array should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Overlay on dest with content array should succeed: {:?}",
+        result.err()
+    );
 }
 
 // --- Multiple overlays accumulate correctly ---
@@ -401,11 +420,7 @@ fn create_pdf_with_xobject_resources() -> Document {
     };
     let page_id = doc.add_object(page);
 
-    let pages = doc
-        .get_object_mut(pages_id)
-        .unwrap()
-        .as_dict_mut()
-        .unwrap();
+    let pages = doc.get_object_mut(pages_id).unwrap().as_dict_mut().unwrap();
     let kids = pages.get_mut(b"Kids").unwrap().as_array_mut().unwrap();
     kids.push(page_id.into());
     pages.set("Count", Object::Integer(1));
@@ -422,14 +437,21 @@ fn test_overlay_with_xobject_resources() {
 
     let overlay_doc = create_pdf_with_xobject_resources();
     let result = overlay_page(&mut dest_doc, dest_page_id, &overlay_doc, 1);
-    assert!(result.is_ok(), "Overlay with XObject resources should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Overlay with XObject resources should succeed: {:?}",
+        result.err()
+    );
 
     // Verify XObject resources were merged into dest page
     let page = dest_doc.get_dictionary(dest_page_id).unwrap();
     let resources_ref = page.get(b"Resources").unwrap().as_reference().unwrap();
     let resources = dest_doc.get_dictionary(resources_ref).unwrap();
     let xobject = resources.get(b"XObject");
-    assert!(xobject.is_ok(), "Dest should have XObject resources after overlay");
+    assert!(
+        xobject.is_ok(),
+        "Dest should have XObject resources after overlay"
+    );
 }
 
 // --- Overlay preserves page count ---
@@ -445,7 +467,11 @@ fn test_overlay_does_not_change_page_count() {
     let overlay_doc = fixtures::create_pdf_with_pages(1);
     overlay_page(&mut dest_doc, page1, &overlay_doc, 1).unwrap();
 
-    assert_eq!(dest_doc.get_pages().len(), 2, "Overlay should not change page count");
+    assert_eq!(
+        dest_doc.get_pages().len(),
+        2,
+        "Overlay should not change page count"
+    );
 }
 
 // --- Overlay with unbalanced q/Q from content array ---
@@ -459,7 +485,11 @@ fn test_overlay_q_balance_with_content_array_source() {
 
     let overlay_doc = fixtures::create_pdf_with_pages(1);
     let result = overlay_page(&mut dest_doc, dest_page_id, &overlay_doc, 1);
-    assert!(result.is_ok(), "Overlay should handle unbalanced q from dest: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Overlay should handle unbalanced q from dest: {:?}",
+        result.err()
+    );
 
     // Check q/Q balance in final output
     let content = fixtures::get_page_content_bytes(&dest_doc, dest_page_id);
@@ -481,7 +511,11 @@ fn test_overlay_with_empty_content_stream() {
 
     let overlay_doc = fixtures::create_pdf_with_content(b"");
     let result = overlay_page(&mut dest_doc, dest_page_id, &overlay_doc, 1);
-    assert!(result.is_ok(), "Overlay with empty content should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Overlay with empty content should succeed: {:?}",
+        result.err()
+    );
 }
 
 // --- Overlay resource _o suffix verification ---
@@ -510,7 +544,10 @@ fn test_overlay_resource_names_use_o_suffix() {
     assert!(
         has_o_suffix,
         "Overlay font should be renamed with _o suffix, got keys: {:?}",
-        fonts.iter().map(|(k, _)| String::from_utf8_lossy(k).to_string()).collect::<Vec<_>>()
+        fonts
+            .iter()
+            .map(|(k, _)| String::from_utf8_lossy(k).to_string())
+            .collect::<Vec<_>>()
     );
 }
 
@@ -529,7 +566,10 @@ fn test_overlay_with_inherited_font_resources() {
         "BaseFont" => "Helvetica",
     });
 
-    let content_id = dest_doc.add_object(lopdf::Stream::new(dictionary! {}, b"BT /F1 12 Tf ET".to_vec()));
+    let content_id = dest_doc.add_object(lopdf::Stream::new(
+        dictionary! {},
+        b"BT /F1 12 Tf ET".to_vec(),
+    ));
     let media_box = vec![0.0.into(), 0.0.into(), 612.0.into(), 792.0.into()];
 
     // Page has NO Resources — inherits from parent

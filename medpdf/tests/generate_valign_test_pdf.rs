@@ -11,7 +11,7 @@
 ///   - Bottom:   the lowest descender touches the red line
 ///   - Center:   the x-height midpoint of the text aligns with the red line
 ///   - Top:      the top of ascenders touches the red line
-use lopdf::{dictionary, Document, Object};
+use lopdf::{Document, Object, dictionary};
 
 fn create_test_doc() -> Document {
     let mut doc = Document::with_version("1.7");
@@ -39,7 +39,8 @@ fn generate_valign_test_pdf() {
     // Create a US Letter page (612 x 792 points)
     let page_id = medpdf::create_blank_page(&mut doc, 612.0, 792.0).unwrap();
 
-    let font_path = medpdf::find_font(std::path::Path::new("/Library/Fonts/CrimsonPro-Light.ttf")).unwrap();
+    let font_path =
+        medpdf::find_font(std::path::Path::new("/Library/Fonts/CrimsonPro-Light.ttf")).unwrap();
     let mut cache = medpdf::FontCache::new();
     let font_data = cache.get_data(&font_path).unwrap();
     let font_name = font_path.get_name();
@@ -66,7 +67,13 @@ fn generate_valign_test_pdf() {
     .font_size(14.0)
     .position(50.0, 750.0)
     .color(PdfColor::rgb(0.3, 0.3, 0.3));
-    medpdf::add_text_params(&mut doc, page_id, &title_params, &mut EmbeddedFontCache::new()).unwrap();
+    medpdf::add_text_params(
+        &mut doc,
+        page_id,
+        &title_params,
+        &mut EmbeddedFontCache::new(),
+    )
+    .unwrap();
 
     for (valign, label, y) in &alignments {
         // Draw a red horizontal reference line via add_rect()
@@ -84,20 +91,28 @@ fn generate_valign_test_pdf() {
         .font_size(10.0)
         .position(35.0, *y + 20.0)
         .color(PdfColor::rgb(0.5, 0.5, 0.5));
-        medpdf::add_text_params(&mut doc, page_id, &label_params, &mut EmbeddedFontCache::new()).unwrap();
+        medpdf::add_text_params(
+            &mut doc,
+            page_id,
+            &label_params,
+            &mut EmbeddedFontCache::new(),
+        )
+        .unwrap();
 
         // Draw the sample text with this VAlign
-        let text_params = AddTextParams::new(
-            sample_text,
-            font_data.clone(),
-            font_name.clone(),
+        let text_params = AddTextParams::new(sample_text, font_data.clone(), font_name.clone())
+            .font_size(font_size)
+            .position(150.0, *y)
+            .color(PdfColor::BLACK)
+            .h_align(HAlign::Left)
+            .v_align(*valign);
+        medpdf::add_text_params(
+            &mut doc,
+            page_id,
+            &text_params,
+            &mut EmbeddedFontCache::new(),
         )
-        .font_size(font_size)
-        .position(150.0, *y)
-        .color(PdfColor::BLACK)
-        .h_align(HAlign::Left)
-        .v_align(*valign);
-        medpdf::add_text_params(&mut doc, page_id, &text_params, &mut EmbeddedFontCache::new()).unwrap();
+        .unwrap();
     }
 
     // --- WinAnsi encoding spot-check ---
@@ -105,16 +120,16 @@ fn generate_valign_test_pdf() {
     // If the encoding/width mapping is wrong, these will show as wrong glyphs,
     // have zero-width spacing, or overlap each other.
     let winansi_test = concat!(
-        "\u{201C}curly quotes\u{201D} ",  // left/right double quotes (0x93/0x94)
+        "\u{201C}curly quotes\u{201D} ", // left/right double quotes (0x93/0x94)
         "\u{2018}single quotes\u{2019} ", // left/right single quotes (0x91/0x92)
-        "\u{2013} en dash \u{2013} ",      // en dash (0x96)
-        "\u{2014} em dash \u{2014} ",      // em dash (0x97)
-        "\u{20AC}100 ",                     // Euro sign (0x80)
-        "\u{2022} bullet ",                 // bullet (0x95)
-        "\u{2026} ellipsis ",              // horizontal ellipsis (0x85)
-        "\u{2122} TM ",                     // trade mark (0x99)
-        "\u{0152}\u{0153} ",               // OE/oe ligatures (0x8C/0x9C)
-        "\u{0160}\u{0161}",                // S/s with caron (0x8A/0x9A)
+        "\u{2013} en dash \u{2013} ",    // en dash (0x96)
+        "\u{2014} em dash \u{2014} ",    // em dash (0x97)
+        "\u{20AC}100 ",                  // Euro sign (0x80)
+        "\u{2022} bullet ",              // bullet (0x95)
+        "\u{2026} ellipsis ",            // horizontal ellipsis (0x85)
+        "\u{2122} TM ",                  // trade mark (0x99)
+        "\u{0152}\u{0153} ",             // OE/oe ligatures (0x8C/0x9C)
+        "\u{0160}\u{0161}",              // S/s with caron (0x8A/0x9A)
     );
 
     let section_y = 120.0;
@@ -126,17 +141,25 @@ fn generate_valign_test_pdf() {
     .font_size(11.0)
     .position(50.0, section_y + 30.0)
     .color(PdfColor::rgb(0.3, 0.3, 0.3));
-    medpdf::add_text_params(&mut doc, page_id, &heading_params, &mut EmbeddedFontCache::new()).unwrap();
-
-    let winansi_params = AddTextParams::new(
-        winansi_test,
-        font_data.clone(),
-        font_name.clone(),
+    medpdf::add_text_params(
+        &mut doc,
+        page_id,
+        &heading_params,
+        &mut EmbeddedFontCache::new(),
     )
-    .font_size(13.0)
-    .position(50.0, section_y)
-    .color(PdfColor::BLACK);
-    medpdf::add_text_params(&mut doc, page_id, &winansi_params, &mut EmbeddedFontCache::new()).unwrap();
+    .unwrap();
+
+    let winansi_params = AddTextParams::new(winansi_test, font_data.clone(), font_name.clone())
+        .font_size(13.0)
+        .position(50.0, section_y)
+        .color(PdfColor::BLACK);
+    medpdf::add_text_params(
+        &mut doc,
+        page_id,
+        &winansi_params,
+        &mut EmbeddedFontCache::new(),
+    )
+    .unwrap();
 
     // Save to a known location
     let output_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))

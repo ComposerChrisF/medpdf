@@ -4,10 +4,10 @@
 // NOTE: Some tests require system fonts to be available.
 // Font embedding tests are limited without actual font files.
 
-use medpdf::font_helpers::measure_text_width;
-use medpdf::pdf_font::{find_font, find_font_with_style, FontCache, FontPath};
-use medpdf::types::{FontStyle, FontWeight};
 use medpdf::FontData;
+use medpdf::font_helpers::measure_text_width;
+use medpdf::pdf_font::{FontCache, FontPath, find_font, find_font_with_style};
+use medpdf::types::{FontStyle, FontWeight};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -277,11 +277,7 @@ fn test_measure_text_width_single_char_builtin() {
 
 #[test]
 fn test_find_font_with_style_hack_ignores_style() {
-    let result = find_font_with_style(
-        &PathBuf::from("5"),
-        FontWeight::BOLD,
-        FontStyle::Italic,
-    );
+    let result = find_font_with_style(&PathBuf::from("5"), FontWeight::BOLD, FontStyle::Italic);
     assert!(result.is_ok());
     if let FontPath::Hack(n) = result.unwrap() {
         assert_eq!(n, 5);
@@ -318,11 +314,7 @@ fn test_find_font_with_style_nonexistent_falls_back() {
 
 #[test]
 fn test_find_font_with_style_numeric_zero() {
-    let result = find_font_with_style(
-        &PathBuf::from("0"),
-        FontWeight::NORMAL,
-        FontStyle::Normal,
-    );
+    let result = find_font_with_style(&PathBuf::from("0"), FontWeight::NORMAL, FontStyle::Normal);
     assert!(result.is_ok());
     if let FontPath::Hack(n) = result.unwrap() {
         assert_eq!(n, 0);
@@ -392,7 +384,11 @@ fn test_find_font_by_family_name_system() {
             }
         }
     }
-    assert!(found, "No system font found by name. Tried: {:?}", font_candidates);
+    assert!(
+        found,
+        "No system font found by name. Tried: {:?}",
+        font_candidates
+    );
 }
 
 #[test]
@@ -406,11 +402,9 @@ fn test_find_font_with_style_bold_system() {
     };
 
     for name in font_candidates {
-        if let Ok(path) = find_font_with_style(
-            &PathBuf::from(name),
-            FontWeight::BOLD,
-            FontStyle::Normal,
-        ) {
+        if let Ok(path) =
+            find_font_with_style(&PathBuf::from(name), FontWeight::BOLD, FontStyle::Normal)
+        {
             let font_name = path.get_name();
             println!("Found bold variant of '{}': {}", name, font_name);
             return;

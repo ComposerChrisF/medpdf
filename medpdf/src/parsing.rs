@@ -1,12 +1,12 @@
 //! Page specification parsing (e.g. `"1-3,5,7-"`, `"all"`).
 
 use nom::{
+    IResult,
     branch::alt,
     character::complete::{char, digit1, multispace0},
     combinator::{all_consuming, map, map_res, opt},
     multi::separated_list1,
     sequence::{delimited, separated_pair},
-    IResult,
 };
 use std::collections::HashSet;
 
@@ -70,7 +70,7 @@ pub fn parse_page_spec(spec: &str, max_pages: u32) -> Result<Vec<u32>> {
                     PageItem::Range(start_opt, end_opt) => {
                         if max_pages == 0 && (start_opt.is_none() || end_opt.is_none()) {
                             return Err(MedpdfError::new(
-                                "Cannot use open ranges on a document with no pages."
+                                "Cannot use open ranges on a document with no pages.",
                             ));
                         }
                         let start = start_opt.unwrap_or(1);
@@ -102,7 +102,7 @@ pub fn parse_page_spec(spec: &str, max_pages: u32) -> Result<Vec<u32>> {
             return Err(MedpdfError::new(format!(
                 "Failed to parse page specification '{}': {}",
                 spec, e
-            )))
+            )));
         }
     }
     Ok(pages)

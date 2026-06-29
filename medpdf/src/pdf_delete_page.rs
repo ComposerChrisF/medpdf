@@ -2,7 +2,7 @@
 
 use crate::{
     error::{MedpdfError, Result},
-    pdf_helpers::{get_page_object_id_from_doc, KEY_COUNT, KEY_KIDS},
+    pdf_helpers::{KEY_COUNT, KEY_KIDS, get_page_object_id_from_doc},
 };
 use lopdf::{Document, Object, ObjectId};
 

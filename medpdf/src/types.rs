@@ -149,7 +149,11 @@ pub struct AddTextParams {
 }
 
 impl AddTextParams {
-    pub fn new(text: impl Into<String>, font_data: crate::font_data::FontData, font_name: impl Into<String>) -> Self {
+    pub fn new(
+        text: impl Into<String>,
+        font_data: crate::font_data::FontData,
+        font_name: impl Into<String>,
+    ) -> Self {
         Self {
             text: text.into(),
             font_data,
@@ -371,14 +375,18 @@ mod tests {
 
     #[test]
     fn test_add_text_params_builder() {
-        let params = AddTextParams::new("Hello", FontData::Embedded(std::sync::Arc::new(vec![1, 2, 3])), "TestFont")
-            .font_size(24.0)
-            .position(100.0, 200.0)
-            .color(PdfColor::RED)
-            .rotation(45.0)
-            .h_align(HAlign::Center)
-            .v_align(VAlign::Top)
-            .layer_over(false);
+        let params = AddTextParams::new(
+            "Hello",
+            FontData::Embedded(std::sync::Arc::new(vec![1, 2, 3])),
+            "TestFont",
+        )
+        .font_size(24.0)
+        .position(100.0, 200.0)
+        .color(PdfColor::RED)
+        .rotation(45.0)
+        .h_align(HAlign::Center)
+        .v_align(VAlign::Top)
+        .layer_over(false);
 
         assert_eq!(params.text, "Hello");
         assert!((params.font_size - 24.0).abs() < f32::EPSILON);

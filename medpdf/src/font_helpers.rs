@@ -1,6 +1,6 @@
 //! TTF/OTF font parsing, metrics extraction, and PDF font descriptor generation.
 
-use ttf_parser::{name_id, Face};
+use ttf_parser::{Face, name_id};
 
 use crate::error::MedpdfError;
 
@@ -75,7 +75,10 @@ const WINANSI_SPECIAL: [(u8, char); 27] = [
 fn winansi_to_unicode(byte: u8) -> Option<char> {
     match byte {
         0x00..=0x7F | 0xA0..=0xFF => Some(byte as char),
-        _ => WINANSI_SPECIAL.iter().find(|(b, _)| *b == byte).map(|(_, c)| *c),
+        _ => WINANSI_SPECIAL
+            .iter()
+            .find(|(b, _)| *b == byte)
+            .map(|(_, c)| *c),
     }
 }
 
@@ -94,7 +97,10 @@ pub(crate) fn unicode_to_winansi(c: char) -> u8 {
 }
 
 pub(crate) fn get_font_widths(face: &Face, first_char: u8, last_char: u8) -> Vec<u16> {
-    debug_assert!(last_char >= first_char, "last_char ({last_char}) must be >= first_char ({first_char})");
+    debug_assert!(
+        last_char >= first_char,
+        "last_char ({last_char}) must be >= first_char ({first_char})"
+    );
     let mut widths = vec![0; (last_char - first_char + 1) as usize];
     for ch in first_char..=last_char {
         let unicode_char = match winansi_to_unicode(ch) {
@@ -103,10 +109,15 @@ pub(crate) fn get_font_widths(face: &Face, first_char: u8, last_char: u8) -> Vec
         };
         let glyph_index = face.glyph_index(unicode_char);
         if let Some(glyph_index) = glyph_index {
-            widths[(ch - first_char) as usize] = face.glyph_hor_advance(glyph_index).unwrap_or_else(|| {
-                log::trace!("Missing glyph advance for glyph {:?} (char {})", glyph_index, ch);
-                0
-            });
+            widths[(ch - first_char) as usize] =
+                face.glyph_hor_advance(glyph_index).unwrap_or_else(|| {
+                    log::trace!(
+                        "Missing glyph advance for glyph {:?} (char {})",
+                        glyph_index,
+                        ch
+                    );
+                    0
+                });
         }
     }
     widths
@@ -253,7 +264,11 @@ pub fn measure_text_width(
             for ch in text.chars() {
                 if let Some(glyph_id) = face.glyph_index(ch) {
                     width += face.glyph_hor_advance(glyph_id).unwrap_or_else(|| {
-                        log::trace!("Missing glyph advance for glyph {:?} (char '{}')", glyph_id, ch);
+                        log::trace!(
+                            "Missing glyph advance for glyph {:?} (char '{}')",
+                            glyph_id,
+                            ch
+                        );
                         0
                     }) as f32;
                 }
@@ -268,7 +283,8 @@ pub(crate) fn get_pdf_info_of_face(face: &Face) -> (FontPdfInfo, FontDescriptorP
     let (first_char, last_char) = compute_char_range(face, is_symbolic);
     let encoding = determine_pdf_encoding(is_symbolic);
 
-    let ps_name = get_name(face, name_id::POST_SCRIPT_NAME).unwrap_or_else(|| "Unknown".to_string());
+    let ps_name =
+        get_name(face, name_id::POST_SCRIPT_NAME).unwrap_or_else(|| "Unknown".to_string());
 
     (
         FontPdfInfo {
@@ -287,7 +303,9 @@ pub(crate) fn get_pdf_info_of_face(face: &Face) -> (FontPdfInfo, FontDescriptorP
             ascent: face.ascender(),
             descent: face.descender(),
             leading: face.line_gap(),
-            x_height: face.x_height().unwrap_or((face.units_per_em() as f32 * 0.5) as i16),
+            x_height: face
+                .x_height()
+                .unwrap_or((face.units_per_em() as f32 * 0.5) as i16),
             stem_v: guess_pdf_stem_v_for_font(face),
             cap_height: face.capital_height().unwrap_or(face.ascender()),
             font_file_key: get_pdf_font_file_key(face),

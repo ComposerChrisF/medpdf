@@ -117,11 +117,7 @@ pub fn rasterizer_available() -> bool {
 /// Rasterize a single page of a PDF to PNG bytes.
 ///
 /// `page` is 1-indexed. `dpi` defaults to 150 if set to 0.
-pub fn rasterize_page(
-    pdf_path: &Path,
-    page: u32,
-    dpi: u32,
-) -> Result<Vec<u8>, VisualTestError> {
+pub fn rasterize_page(pdf_path: &Path, page: u32, dpi: u32) -> Result<Vec<u8>, VisualTestError> {
     rasterize_page_impl(pdf_path, page, dpi, None)
 }
 
@@ -158,10 +154,7 @@ fn rasterize_page_impl(
 }
 
 /// Rasterize all pages of a PDF to PNG bytes. Returns one `Vec<u8>` per page.
-pub fn rasterize_all_pages(
-    pdf_path: &Path,
-    dpi: u32,
-) -> Result<Vec<Vec<u8>>, VisualTestError> {
+pub fn rasterize_all_pages(pdf_path: &Path, dpi: u32) -> Result<Vec<Vec<u8>>, VisualTestError> {
     let page_count = count_pages(pdf_path, None)?;
     let mut pages = Vec::with_capacity(page_count as usize);
     for p in 1..=page_count {
@@ -178,17 +171,15 @@ fn count_pages(pdf_path: &Path, password: Option<&str>) -> Result<u32, VisualTes
             if let Some(pw) = password {
                 cmd.args(["-upw", pw]);
             }
-            let output = cmd
-                .arg(pdf_path)
-                .output()
-                .map_err(|e| VisualTestError::RasterizationFailed(format!("pdfinfo failed: {e}")))?;
+            let output = cmd.arg(pdf_path).output().map_err(|e| {
+                VisualTestError::RasterizationFailed(format!("pdfinfo failed: {e}"))
+            })?;
             let stdout = String::from_utf8_lossy(&output.stdout);
             for line in stdout.lines() {
                 if let Some(rest) = line.strip_prefix("Pages:") {
-                    return rest
-                        .trim()
-                        .parse::<u32>()
-                        .map_err(|e| VisualTestError::RasterizationFailed(format!("bad page count: {e}")));
+                    return rest.trim().parse::<u32>().map_err(|e| {
+                        VisualTestError::RasterizationFailed(format!("bad page count: {e}"))
+                    });
                 }
             }
             Err(VisualTestError::RasterizationFailed(
@@ -202,16 +193,15 @@ fn count_pages(pdf_path: &Path, password: Option<&str>) -> Result<u32, VisualTes
                 cmd.args(["-p", pw]);
             }
             cmd.arg(pdf_path.to_str().unwrap_or(""));
-            let output = cmd
-                .output()
-                .map_err(|e| VisualTestError::RasterizationFailed(format!("mutool info failed: {e}")))?;
+            let output = cmd.output().map_err(|e| {
+                VisualTestError::RasterizationFailed(format!("mutool info failed: {e}"))
+            })?;
             let stdout = String::from_utf8_lossy(&output.stdout);
             for line in stdout.lines() {
                 if let Some(rest) = line.strip_prefix("Pages:") {
-                    return rest
-                        .trim()
-                        .parse::<u32>()
-                        .map_err(|e| VisualTestError::RasterizationFailed(format!("bad page count: {e}")));
+                    return rest.trim().parse::<u32>().map_err(|e| {
+                        VisualTestError::RasterizationFailed(format!("bad page count: {e}"))
+                    });
                 }
             }
             Err(VisualTestError::RasterizationFailed(
@@ -221,7 +211,10 @@ fn count_pages(pdf_path: &Path, password: Option<&str>) -> Result<u32, VisualTes
     }
 }
 
-fn run_with_timeout(cmd: &mut Command, timeout_secs: u64) -> Result<std::process::Output, VisualTestError> {
+fn run_with_timeout(
+    cmd: &mut Command,
+    timeout_secs: u64,
+) -> Result<std::process::Output, VisualTestError> {
     let mut child = cmd
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -234,29 +227,43 @@ fn run_with_timeout(cmd: &mut Command, timeout_secs: u64) -> Result<std::process
     loop {
         match child.try_wait() {
             Ok(Some(status)) => {
-                let stdout = child.stdout.take().map(|mut s| {
-                    let mut buf = Vec::new();
-                    std::io::Read::read_to_end(&mut s, &mut buf).ok();
-                    buf
-                }).unwrap_or_default();
-                let stderr = child.stderr.take().map(|mut s| {
-                    let mut buf = Vec::new();
-                    std::io::Read::read_to_end(&mut s, &mut buf).ok();
-                    buf
-                }).unwrap_or_default();
-                return Ok(std::process::Output { status, stdout, stderr });
+                let stdout = child
+                    .stdout
+                    .take()
+                    .map(|mut s| {
+                        let mut buf = Vec::new();
+                        std::io::Read::read_to_end(&mut s, &mut buf).ok();
+                        buf
+                    })
+                    .unwrap_or_default();
+                let stderr = child
+                    .stderr
+                    .take()
+                    .map(|mut s| {
+                        let mut buf = Vec::new();
+                        std::io::Read::read_to_end(&mut s, &mut buf).ok();
+                        buf
+                    })
+                    .unwrap_or_default();
+                return Ok(std::process::Output {
+                    status,
+                    stdout,
+                    stderr,
+                });
             }
             Ok(None) => {
                 if start.elapsed() > timeout {
                     let _ = child.kill();
-                    return Err(VisualTestError::RasterizationFailed(
-                        format!("timed out after {timeout_secs}s"),
-                    ));
+                    return Err(VisualTestError::RasterizationFailed(format!(
+                        "timed out after {timeout_secs}s"
+                    )));
                 }
                 std::thread::sleep(std::time::Duration::from_millis(50));
             }
             Err(e) => {
-                return Err(VisualTestError::RasterizationFailed(format!("wait failed: {e}")));
+                return Err(VisualTestError::RasterizationFailed(format!(
+                    "wait failed: {e}"
+                )));
             }
         }
     }
@@ -271,14 +278,19 @@ fn rasterize_pdftoppm(
 ) -> Result<Vec<u8>, VisualTestError> {
     let prefix = tmp_dir.join("page");
     let mut cmd = Command::new("pdftoppm");
-    cmd.args(["-png", "-r", &dpi.to_string(), "-f", &page.to_string(), "-l", &page.to_string()]);
+    cmd.args([
+        "-png",
+        "-r",
+        &dpi.to_string(),
+        "-f",
+        &page.to_string(),
+        "-l",
+        &page.to_string(),
+    ]);
     if let Some(pw) = password {
         cmd.args(["-upw", pw]);
     }
-    let output = run_with_timeout(
-        cmd.arg(pdf_path).arg(&prefix),
-        30,
-    )?;
+    let output = run_with_timeout(cmd.arg(pdf_path).arg(&prefix), 30)?;
 
     if !output.status.success() {
         return Err(VisualTestError::RasterizationFailed(
@@ -328,10 +340,7 @@ fn rasterize_mutool(
         cmd.args(["-p", pw]);
     }
     cmd.args([pdf_path.to_str().unwrap_or(""), &page.to_string()]);
-    let output = run_with_timeout(
-        &mut cmd,
-        30,
-    )?;
+    let output = run_with_timeout(&mut cmd, 30)?;
 
     if !output.status.success() {
         return Err(VisualTestError::RasterizationFailed(
@@ -499,10 +508,7 @@ fn handle_golden_creation(
 ///
 /// On mismatch, writes the actual image next to the golden file with an `-actual` suffix.
 /// On first run (golden missing), creates the golden image and passes.
-pub fn assert_images_exact(
-    golden_path: &Path,
-    actual_png: &[u8],
-) -> Result<(), VisualTestError> {
+pub fn assert_images_exact(golden_path: &Path, actual_png: &[u8]) -> Result<(), VisualTestError> {
     if let Some(()) = handle_golden_creation(golden_path, actual_png)? {
         return Ok(());
     }
@@ -598,10 +604,18 @@ pub fn assert_images_ssim(
         .collect();
 
     let golden_img = attr
-        .create_image_rgba(&golden_pixels, golden.width as usize, golden.height as usize)
+        .create_image_rgba(
+            &golden_pixels,
+            golden.width as usize,
+            golden.height as usize,
+        )
         .ok_or_else(|| VisualTestError::PngError("failed to create DSSIM golden image".into()))?;
     let actual_img = attr
-        .create_image_rgba(&actual_pixels, actual.width as usize, actual.height as usize)
+        .create_image_rgba(
+            &actual_pixels,
+            actual.width as usize,
+            actual.height as usize,
+        )
         .ok_or_else(|| VisualTestError::PngError("failed to create DSSIM actual image".into()))?;
 
     let (dssim_val, _) = attr.compare(&golden_img, &actual_img);
@@ -739,7 +753,11 @@ mod tests {
         let _ = std::fs::remove_file(&golden_path);
 
         // Create a small PNG
-        let png_bytes = create_test_png(2, 2, &[255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 0, 0, 0, 255]);
+        let png_bytes = create_test_png(
+            2,
+            2,
+            &[255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 0, 0, 0, 255],
+        );
 
         // First run: creates golden
         assert_images_exact(&golden_path, &png_bytes).unwrap();
@@ -759,8 +777,16 @@ mod tests {
         let golden_path = tmp.join("mismatch.png");
         let _ = std::fs::remove_file(&golden_path);
 
-        let png1 = create_test_png(2, 2, &[255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 0, 0, 0, 255]);
-        let png2 = create_test_png(2, 2, &[0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255]);
+        let png1 = create_test_png(
+            2,
+            2,
+            &[255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 0, 0, 0, 255],
+        );
+        let png2 = create_test_png(
+            2,
+            2,
+            &[0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255],
+        );
 
         // Create golden
         assert_images_exact(&golden_path, &png1).unwrap();

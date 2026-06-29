@@ -12,15 +12,17 @@
 //! **Maintenance note:** svg2pdf's primary maintainer (Typst) migrated to `krilla`
 //! in 2025. Monitor `krilla-svg` as a potential future alternative.
 
-use lopdf::{dictionary, Document, Object, ObjectId, Stream};
+use lopdf::{Document, Object, ObjectId, Stream, dictionary};
 use medpdf::{
-    deep_copy_object, deep_copy_object_by_id, insert_content_stream,
-    register_extgstate_in_page_resources, MedpdfError, Result,
+    MedpdfError, Result, deep_copy_object, deep_copy_object_by_id, insert_content_stream,
+    register_extgstate_in_page_resources,
 };
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use crate::{compute_fit, fmt_f32, register_xobject_in_page_resources, unique_xobject_name, ImageFit};
+use crate::{
+    ImageFit, compute_fit, fmt_f32, register_xobject_in_page_resources, unique_xobject_name,
+};
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -167,10 +169,7 @@ fn default_usvg_options() -> usvg::Options<'static> {
 /// Load an SVG from a file path.
 pub fn load_svg(path: &Path) -> Result<SvgData> {
     let data = std::fs::read(path).map_err(|e| {
-        MedpdfError::new(format!(
-            "Failed to read SVG file '{}': {e}",
-            path.display()
-        ))
+        MedpdfError::new(format!("Failed to read SVG file '{}': {e}", path.display()))
     })?;
     load_svg_bytes(&data)
 }
@@ -341,13 +340,10 @@ fn extract_form_xobject(
     let resources_obj = if let Ok(res) = page_dict.get(b"Resources") {
         match res {
             Object::Reference(id) => {
-                let new_id =
-                    deep_copy_object_by_id(dest_doc, svg_doc, *id, &mut copied_objects)?;
+                let new_id = deep_copy_object_by_id(dest_doc, svg_doc, *id, &mut copied_objects)?;
                 Object::Reference(new_id)
             }
-            Object::Dictionary(_) => {
-                deep_copy_object(dest_doc, svg_doc, res, &mut copied_objects)?
-            }
+            Object::Dictionary(_) => deep_copy_object(dest_doc, svg_doc, res, &mut copied_objects)?,
             _ => Object::Dictionary(dictionary! {}),
         }
     } else {
@@ -374,10 +370,7 @@ fn extract_form_xobject(
 }
 
 /// Read MediaBox dimensions from a page dictionary.
-fn get_media_box_dimensions(
-    doc: &Document,
-    page_dict: &lopdf::Dictionary,
-) -> Result<(f32, f32)> {
+fn get_media_box_dimensions(doc: &Document, page_dict: &lopdf::Dictionary) -> Result<(f32, f32)> {
     let media_box = page_dict
         .get(b"MediaBox")
         .map_err(|_| MedpdfError::new("SVG PDF page has no MediaBox"))?;
@@ -530,11 +523,7 @@ mod tests {
             "Resources" => Object::Reference(resources_id),
         };
         let page_id = doc.add_object(page);
-        let pages_obj = doc
-            .get_object_mut(pages_id)
-            .unwrap()
-            .as_dict_mut()
-            .unwrap();
+        let pages_obj = doc.get_object_mut(pages_id).unwrap().as_dict_mut().unwrap();
         let kids = pages_obj.get_mut(b"Kids").unwrap().as_array_mut().unwrap();
         kids.push(Object::Reference(page_id));
         pages_obj.set("Count", Object::Integer(1));
@@ -566,11 +555,7 @@ mod tests {
     }
 
     /// Look up the Form XObject registered as `name` in the page's resources.
-    fn get_form_xobject<'a>(
-        doc: &'a Document,
-        page_id: ObjectId,
-        name: &[u8],
-    ) -> &'a Stream {
+    fn get_form_xobject<'a>(doc: &'a Document, page_id: ObjectId, name: &[u8]) -> &'a Stream {
         let page_dict = doc.get_dictionary(page_id).unwrap();
         let res_id = page_dict
             .get(medpdf::KEY_RESOURCES)
@@ -804,8 +789,14 @@ mod tests {
         add_svg(&mut doc, page_id, params).unwrap();
 
         let text = get_content_text(&doc, page_id);
-        assert!(text.contains("Do"), "Content stream should contain 'Do' operator");
-        assert!(text.contains("cm"), "Content stream should contain 'cm' operator");
+        assert!(
+            text.contains("Do"),
+            "Content stream should contain 'Do' operator"
+        );
+        assert!(
+            text.contains("cm"),
+            "Content stream should contain 'cm' operator"
+        );
     }
 
     #[test]
@@ -818,7 +809,10 @@ mod tests {
         let text = get_content_text(&doc, page_id);
         // Find the SVG content stream (the one with Do)
         assert!(text.contains("q\n"), "Content should start with save state");
-        assert!(text.contains("Q\n"), "Content should end with restore state");
+        assert!(
+            text.contains("Q\n"),
+            "Content should end with restore state"
+        );
 
         // q must appear before Do, and Q must appear after
         let q_pos = text.find("q\n").unwrap();
@@ -892,7 +886,10 @@ mod tests {
         );
 
         let text = get_content_text(&doc, page_id);
-        assert!(!text.contains("gs\n"), "Should NOT have gs operator at full alpha");
+        assert!(
+            !text.contains("gs\n"),
+            "Should NOT have gs operator at full alpha"
+        );
     }
 
     // -----------------------------------------------------------------------

@@ -10,11 +10,11 @@
 //! streams, and WinAnsiEncoding to remain unchanged. `subsetter` removes the cmap,
 //! which would require rewriting font embedding to use CIDFont/Type0 composite fonts.
 
-use lopdf::{dictionary, Document, Object, Stream};
+use lopdf::{Document, Object, Stream, dictionary};
 use rand::Rng;
 
-use crate::pdf_watermark::{CachedFontEntry, EmbeddedFontCache};
 use crate::Result;
+use crate::pdf_watermark::{CachedFontEntry, EmbeddedFontCache};
 
 /// Subsets all embedded fonts in the document, replacing full font streams
 /// with minimal versions containing only used glyphs.
@@ -55,9 +55,9 @@ fn subset_single_font(
     use allsorts::binary::read::ReadScope;
     use allsorts::font::read_cmap_subtable;
     use allsorts::font_data::FontData;
-    use allsorts::subset::{subset, CmapTarget, SubsetProfile};
-    use allsorts::tables::cmap::Cmap;
+    use allsorts::subset::{CmapTarget, SubsetProfile, subset};
     use allsorts::tables::FontTableProvider;
+    use allsorts::tables::cmap::Cmap;
     use allsorts::tag;
 
     let data = &entry.data;
@@ -78,10 +78,9 @@ fn subset_single_font(
     let cmap = ReadScope::new(&cmap_data)
         .read::<Cmap>()
         .map_err(|e| format!("cmap parse error: {e}"))?;
-    let (_encoding, cmap_subtable) =
-        read_cmap_subtable(&cmap)
-            .map_err(|e| format!("cmap subtable error: {e}"))?
-            .ok_or_else(|| "no suitable cmap subtable found".to_string())?;
+    let (_encoding, cmap_subtable) = read_cmap_subtable(&cmap)
+        .map_err(|e| format!("cmap subtable error: {e}"))?
+        .ok_or_else(|| "no suitable cmap subtable found".to_string())?;
 
     let mut glyph_ids: Vec<u16> = vec![0]; // .notdef always first
     for ch in &entry.used_chars {
@@ -117,10 +116,18 @@ fn subset_single_font(
         &glyph_ids,
         &SubsetProfile::Custom(vec![
             // Minimal profile tables (required for valid OpenType)
-            tag::CMAP, tag::HEAD, tag::HHEA, tag::HMTX,
-            tag::MAXP, tag::NAME, tag::OS_2, tag::POST,
+            tag::CMAP,
+            tag::HEAD,
+            tag::HHEA,
+            tag::HMTX,
+            tag::MAXP,
+            tag::NAME,
+            tag::OS_2,
+            tag::POST,
             // TrueType hinting tables
-            tag::CVT, tag::FPGM, tag::PREP,
+            tag::CVT,
+            tag::FPGM,
+            tag::PREP,
         ]),
         CmapTarget::Unicode,
     )
@@ -164,7 +171,9 @@ fn subset_single_font(
 /// Generates a random 6-letter uppercase ASCII tag for subset font naming.
 fn generate_subset_tag() -> String {
     let mut rng = rand::rng();
-    (0..6).map(|_| (rng.random_range(b'A'..=b'Z')) as char).collect()
+    (0..6)
+        .map(|_| (rng.random_range(b'A'..=b'Z')) as char)
+        .collect()
 }
 
 /// Prefixes `/BaseFont` in a Font dictionary with `"TAG+"`.
@@ -220,8 +229,10 @@ fn add_windows_cmap(font_data: &[u8]) -> std::result::Result<Vec<u8>, String> {
         }
     }
     let cmap_dir_idx = cmap_dir_idx.ok_or("no cmap table")?;
-    let cmap_offset = be_u32(font_data, 12 + cmap_dir_idx * 16 + 8).ok_or("cannot read cmap offset")? as usize;
-    let cmap_length = be_u32(font_data, 12 + cmap_dir_idx * 16 + 12).ok_or("cannot read cmap length")? as usize;
+    let cmap_offset =
+        be_u32(font_data, 12 + cmap_dir_idx * 16 + 8).ok_or("cannot read cmap offset")? as usize;
+    let cmap_length =
+        be_u32(font_data, 12 + cmap_dir_idx * 16 + 12).ok_or("cannot read cmap length")? as usize;
     if font_data.len() < cmap_offset + cmap_length || cmap_length < 4 {
         return Err("cmap table out of bounds".into());
     }
@@ -242,7 +253,8 @@ fn add_windows_cmap(font_data: &[u8]) -> std::result::Result<Vec<u8>, String> {
             return Err("font already has platform=3 cmap".into());
         }
         if plat == 0 && enc == 3 {
-            unicode_bmp_off = Some(be_u32(cmap, base + 4).ok_or("cannot read cmap subtable offset")?);
+            unicode_bmp_off =
+                Some(be_u32(cmap, base + 4).ok_or("cannot read cmap subtable offset")?);
         }
     }
     let unicode_bmp_off = unicode_bmp_off.ok_or("no platform=0 encoding=3 cmap subtable")?;
@@ -257,7 +269,10 @@ fn add_windows_cmap(font_data: &[u8]) -> std::result::Result<Vec<u8>, String> {
     for i in 0..cmap_num_recs {
         let base = 4 + i * 8;
         new_cmap.extend_from_slice(&cmap[base..base + 4]); // platform + encoding
-        push_be_u32(&mut new_cmap, be_u32(cmap, base + 4).ok_or("cannot read cmap subtable offset")? + extra);
+        push_be_u32(
+            &mut new_cmap,
+            be_u32(cmap, base + 4).ok_or("cannot read cmap subtable offset")? + extra,
+        );
     }
 
     // New Windows record sharing the same subtable.
@@ -283,9 +298,12 @@ fn rebuild_ttf(
     let mut tables: Vec<(u32, &[u8])> = Vec::with_capacity(num_tables);
     for i in 0..num_tables {
         let base = 12 + i * 16;
-        let tag = be_u32(font_data, base).ok_or_else(|| format!("cannot read tag for table {i}"))?;
-        let off = be_u32(font_data, base + 8).ok_or_else(|| format!("cannot read offset for table {i}"))? as usize;
-        let len = be_u32(font_data, base + 12).ok_or_else(|| format!("cannot read length for table {i}"))? as usize;
+        let tag =
+            be_u32(font_data, base).ok_or_else(|| format!("cannot read tag for table {i}"))?;
+        let off = be_u32(font_data, base + 8)
+            .ok_or_else(|| format!("cannot read offset for table {i}"))? as usize;
+        let len = be_u32(font_data, base + 12)
+            .ok_or_else(|| format!("cannot read length for table {i}"))? as usize;
         if i == replace_idx {
             tables.push((tag, new_table));
         } else {
@@ -417,7 +435,10 @@ mod tests {
     #[test]
     fn test_generate_subset_tag_varies() {
         let tags: HashSet<String> = (0..50).map(|_| generate_subset_tag()).collect();
-        assert!(tags.len() > 1, "50 calls should produce more than 1 distinct tag");
+        assert!(
+            tags.len() > 1,
+            "50 calls should produce more than 1 distinct tag"
+        );
     }
 
     // A3: prefix_base_font adds TAG+ prefix
@@ -435,10 +456,7 @@ mod tests {
         let dict = doc.get_dictionary(font_id).unwrap();
         let base_font = dict.get(b"BaseFont").unwrap();
         if let Object::Name(name) = base_font {
-            assert_eq!(
-                String::from_utf8_lossy(name).as_ref(),
-                "ABCDEF+Verdana"
-            );
+            assert_eq!(String::from_utf8_lossy(name).as_ref(), "ABCDEF+Verdana");
         } else {
             panic!("BaseFont should be a Name");
         }
@@ -486,10 +504,7 @@ mod tests {
         let dict = doc.get_dictionary(desc_id).unwrap();
         let font_name = dict.get(b"FontName").unwrap();
         if let Object::Name(name) = font_name {
-            assert_eq!(
-                String::from_utf8_lossy(name).as_ref(),
-                "XYZABC+Arial"
-            );
+            assert_eq!(String::from_utf8_lossy(name).as_ref(), "XYZABC+Arial");
         } else {
             panic!("FontName should be a Name");
         }
@@ -515,7 +530,10 @@ mod tests {
     fn test_subset_single_font_reduces_size() {
         let font_data = match load_system_ttf() {
             Some(f) => f,
-            None => { eprintln!("Skipping: no system TTF font found"); return; }
+            None => {
+                eprintln!("Skipping: no system TTF font found");
+                return;
+            }
         };
 
         let mut doc = Document::with_version("1.7");
@@ -556,7 +574,11 @@ mod tests {
         };
 
         let result = subset_single_font(&mut doc, &entry);
-        assert!(result.is_ok(), "subset_single_font should succeed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "subset_single_font should succeed: {:?}",
+            result.err()
+        );
         let saved = result.unwrap();
         assert!(saved > 0, "Should save some bytes, saved: {saved}");
 
@@ -596,7 +618,10 @@ mod tests {
         let result = subset_single_font(&mut doc, &entry);
         assert!(result.is_err(), "Should fail with garbage font data");
         let err = result.unwrap_err();
-        assert!(err.contains("parse error"), "Error should mention parse error: {err}");
+        assert!(
+            err.contains("parse error"),
+            "Error should mention parse error: {err}"
+        );
     }
 
     // A10: subset_single_font with unmappable chars returns error
@@ -604,7 +629,10 @@ mod tests {
     fn test_subset_single_font_no_mapped_glyphs() {
         let font_data = match load_system_ttf() {
             Some(f) => f,
-            None => { eprintln!("Skipping: no system TTF font found"); return; }
+            None => {
+                eprintln!("Skipping: no system TTF font found");
+                return;
+            }
         };
 
         let mut doc = Document::with_version("1.7");

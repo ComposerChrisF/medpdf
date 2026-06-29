@@ -4,9 +4,9 @@
 
 mod fixtures;
 
-use medpdf::types::{AddTextParams, DrawLineParams, DrawRectParams, HAlign, PdfColor, VAlign};
-use medpdf::{add_line, add_rect, add_text_params, EmbeddedFontCache};
 use medpdf::FontData;
+use medpdf::types::{AddTextParams, DrawLineParams, DrawRectParams, HAlign, PdfColor, VAlign};
+use medpdf::{EmbeddedFontCache, add_line, add_rect, add_text_params};
 
 /// Helper: extract all content stream bytes from the first page.
 fn get_first_page_content(doc: &lopdf::Document) -> String {
@@ -30,8 +30,14 @@ fn test_watermark_contains_q_and_big_q() {
 
     let content = get_first_page_content(&doc);
     let (q_count, big_q_count) = fixtures::count_q_operators(content.as_bytes());
-    assert!(q_count >= 1, "Should have at least one 'q' operator, got {q_count}");
-    assert!(big_q_count >= 1, "Should have at least one 'Q' operator, got {big_q_count}");
+    assert!(
+        q_count >= 1,
+        "Should have at least one 'q' operator, got {q_count}"
+    );
+    assert!(
+        big_q_count >= 1,
+        "Should have at least one 'Q' operator, got {big_q_count}"
+    );
 }
 
 #[test]
@@ -56,9 +62,13 @@ fn test_watermark_contains_tf_operator() {
     let mut doc = fixtures::create_pdf_with_pages(1);
     let page_id = fixtures::get_first_page_id(&doc);
 
-    let params = AddTextParams::new("Font test", FontData::BuiltIn("Helvetica".into()), "@Helvetica")
-        .font_size(36.0)
-        .position(72.0, 72.0);
+    let params = AddTextParams::new(
+        "Font test",
+        FontData::BuiltIn("Helvetica".into()),
+        "@Helvetica",
+    )
+    .font_size(36.0)
+    .position(72.0, 72.0);
     add_text_params(&mut doc, page_id, &params, &mut EmbeddedFontCache::new()).unwrap();
 
     let content = get_first_page_content(&doc);
@@ -72,14 +82,21 @@ fn test_watermark_contains_tj_with_text() {
     let mut doc = fixtures::create_pdf_with_pages(1);
     let page_id = fixtures::get_first_page_id(&doc);
 
-    let params = AddTextParams::new("SAMPLE", FontData::BuiltIn("Helvetica".into()), "@Helvetica")
-        .font_size(12.0)
-        .position(0.0, 0.0);
+    let params = AddTextParams::new(
+        "SAMPLE",
+        FontData::BuiltIn("Helvetica".into()),
+        "@Helvetica",
+    )
+    .font_size(12.0)
+    .position(0.0, 0.0);
     add_text_params(&mut doc, page_id, &params, &mut EmbeddedFontCache::new()).unwrap();
 
     let content = get_first_page_content(&doc);
     assert!(content.contains("Tj"), "Should contain Tj (show text)");
-    assert!(content.contains("SAMPLE"), "Should contain the text 'SAMPLE'");
+    assert!(
+        content.contains("SAMPLE"),
+        "Should contain the text 'SAMPLE'"
+    );
 }
 
 #[test]
@@ -90,9 +107,13 @@ fn test_watermark_contains_td_position() {
 
     let x = 150.0_f32;
     let y = 300.0_f32;
-    let params = AddTextParams::new("Positioned", FontData::BuiltIn("Helvetica".into()), "@Helvetica")
-        .font_size(12.0)
-        .position(x, y);
+    let params = AddTextParams::new(
+        "Positioned",
+        FontData::BuiltIn("Helvetica".into()),
+        "@Helvetica",
+    )
+    .font_size(12.0)
+    .position(x, y);
     add_text_params(&mut doc, page_id, &params, &mut EmbeddedFontCache::new()).unwrap();
 
     let content = get_first_page_content(&doc);
@@ -108,16 +129,26 @@ fn test_watermark_color_rg_operator() {
     let mut doc = fixtures::create_pdf_with_pages(1);
     let page_id = fixtures::get_first_page_id(&doc);
 
-    let params = AddTextParams::new("Red text", FontData::BuiltIn("Helvetica".into()), "@Helvetica")
-        .font_size(12.0)
-        .position(72.0, 72.0)
-        .color(PdfColor::RED);
+    let params = AddTextParams::new(
+        "Red text",
+        FontData::BuiltIn("Helvetica".into()),
+        "@Helvetica",
+    )
+    .font_size(12.0)
+    .position(72.0, 72.0)
+    .color(PdfColor::RED);
     add_text_params(&mut doc, page_id, &params, &mut EmbeddedFontCache::new()).unwrap();
 
     let content = get_first_page_content(&doc);
-    assert!(content.contains("rg"), "Should contain 'rg' (set fill color)");
+    assert!(
+        content.contains("rg"),
+        "Should contain 'rg' (set fill color)"
+    );
     // Red = (1, 0, 0)
-    assert!(content.contains("1 0 0 rg"), "Should contain '1 0 0 rg' for red color");
+    assert!(
+        content.contains("1 0 0 rg"),
+        "Should contain '1 0 0 rg' for red color"
+    );
 }
 
 #[test]
@@ -126,14 +157,21 @@ fn test_watermark_custom_color() {
     let page_id = fixtures::get_first_page_id(&doc);
 
     // Use a distinctive color
-    let params = AddTextParams::new("Custom", FontData::BuiltIn("Helvetica".into()), "@Helvetica")
-        .font_size(12.0)
-        .position(72.0, 72.0)
-        .color(PdfColor::rgb(0.0, 1.0, 0.0)); // Green
+    let params = AddTextParams::new(
+        "Custom",
+        FontData::BuiltIn("Helvetica".into()),
+        "@Helvetica",
+    )
+    .font_size(12.0)
+    .position(72.0, 72.0)
+    .color(PdfColor::rgb(0.0, 1.0, 0.0)); // Green
     add_text_params(&mut doc, page_id, &params, &mut EmbeddedFontCache::new()).unwrap();
 
     let content = get_first_page_content(&doc);
-    assert!(content.contains("0 1 0 rg"), "Should contain '0 1 0 rg' for green color");
+    assert!(
+        content.contains("0 1 0 rg"),
+        "Should contain '0 1 0 rg' for green color"
+    );
 }
 
 // --- Alpha / ExtGState ---
@@ -143,14 +181,21 @@ fn test_watermark_alpha_emits_gs_operator() {
     let mut doc = fixtures::create_pdf_with_pages(1);
     let page_id = fixtures::get_first_page_id(&doc);
 
-    let params = AddTextParams::new("Transparent", FontData::BuiltIn("Helvetica".into()), "@Helvetica")
-        .font_size(12.0)
-        .position(72.0, 72.0)
-        .color(PdfColor::rgba(0.0, 0.0, 0.0, 0.5));
+    let params = AddTextParams::new(
+        "Transparent",
+        FontData::BuiltIn("Helvetica".into()),
+        "@Helvetica",
+    )
+    .font_size(12.0)
+    .position(72.0, 72.0)
+    .color(PdfColor::rgba(0.0, 0.0, 0.0, 0.5));
     add_text_params(&mut doc, page_id, &params, &mut EmbeddedFontCache::new()).unwrap();
 
     let content = get_first_page_content(&doc);
-    assert!(content.contains("gs"), "Should contain 'gs' operator for alpha < 1.0");
+    assert!(
+        content.contains("gs"),
+        "Should contain 'gs' operator for alpha < 1.0"
+    );
 }
 
 #[test]
@@ -159,10 +204,14 @@ fn test_watermark_full_alpha_no_gs_operator() {
     let page_id = fixtures::get_first_page_id(&doc);
 
     // Alpha = 1.0 (fully opaque): should NOT emit gs
-    let params = AddTextParams::new("Opaque", FontData::BuiltIn("Helvetica".into()), "@Helvetica")
-        .font_size(12.0)
-        .position(72.0, 72.0)
-        .color(PdfColor::rgba(0.0, 0.0, 0.0, 1.0));
+    let params = AddTextParams::new(
+        "Opaque",
+        FontData::BuiltIn("Helvetica".into()),
+        "@Helvetica",
+    )
+    .font_size(12.0)
+    .position(72.0, 72.0)
+    .color(PdfColor::rgba(0.0, 0.0, 0.0, 1.0));
     add_text_params(&mut doc, page_id, &params, &mut EmbeddedFontCache::new()).unwrap();
 
     // Check the watermark stream specifically (last content stream added)
@@ -172,7 +221,10 @@ fn test_watermark_full_alpha_no_gs_operator() {
     let last_ref = contents.last().unwrap().as_reference().unwrap();
     let stream = doc.get_object(last_ref).unwrap().as_stream().unwrap();
     let watermark_content = String::from_utf8_lossy(&stream.content);
-    assert!(!watermark_content.contains("gs"), "Opaque text should not emit gs operator");
+    assert!(
+        !watermark_content.contains("gs"),
+        "Opaque text should not emit gs operator"
+    );
 }
 
 // --- Rotation ---
@@ -182,14 +234,21 @@ fn test_watermark_rotation_emits_cm_operator() {
     let mut doc = fixtures::create_pdf_with_pages(1);
     let page_id = fixtures::get_first_page_id(&doc);
 
-    let params = AddTextParams::new("Rotated", FontData::BuiltIn("Helvetica".into()), "@Helvetica")
-        .font_size(24.0)
-        .position(100.0, 200.0)
-        .rotation(45.0);
+    let params = AddTextParams::new(
+        "Rotated",
+        FontData::BuiltIn("Helvetica".into()),
+        "@Helvetica",
+    )
+    .font_size(24.0)
+    .position(100.0, 200.0)
+    .rotation(45.0);
     add_text_params(&mut doc, page_id, &params, &mut EmbeddedFontCache::new()).unwrap();
 
     let content = get_first_page_content(&doc);
-    assert!(content.contains("cm"), "Rotated text should contain 'cm' (concat matrix)");
+    assert!(
+        content.contains("cm"),
+        "Rotated text should contain 'cm' (concat matrix)"
+    );
 }
 
 #[test]
@@ -239,7 +298,10 @@ fn test_watermark_no_rotation_no_cm() {
     let last_ref = contents.last().unwrap().as_reference().unwrap();
     let stream = doc.get_object(last_ref).unwrap().as_stream().unwrap();
     let watermark_content = String::from_utf8_lossy(&stream.content);
-    assert!(!watermark_content.contains("cm"), "Non-rotated text should not have cm operator");
+    assert!(
+        !watermark_content.contains("cm"),
+        "Non-rotated text should not have cm operator"
+    );
 }
 
 // --- Horizontal Alignment ---
@@ -251,10 +313,14 @@ fn test_watermark_center_align_offsets_position() {
     let page_id = fixtures::get_first_page_id(&doc);
 
     let x = 300.0_f32;
-    let params = AddTextParams::new("Center", FontData::BuiltIn("Helvetica".into()), "@Helvetica")
-        .font_size(24.0)
-        .position(x, 400.0)
-        .h_align(HAlign::Center);
+    let params = AddTextParams::new(
+        "Center",
+        FontData::BuiltIn("Helvetica".into()),
+        "@Helvetica",
+    )
+    .font_size(24.0)
+    .position(x, 400.0)
+    .h_align(HAlign::Center);
     add_text_params(&mut doc, page_id, &params, &mut EmbeddedFontCache::new()).unwrap();
 
     // The Td x-coordinate should be less than 300 (shifted left by half text width)
@@ -363,10 +429,14 @@ fn test_watermark_valign_top_shifts_down() {
     let page_id = fixtures::get_first_page_id(&doc);
 
     let y = 700.0_f32;
-    let params = AddTextParams::new("TopAlign", FontData::BuiltIn("Helvetica".into()), "@Helvetica")
-        .font_size(24.0)
-        .position(72.0, y)
-        .v_align(VAlign::Top);
+    let params = AddTextParams::new(
+        "TopAlign",
+        FontData::BuiltIn("Helvetica".into()),
+        "@Helvetica",
+    )
+    .font_size(24.0)
+    .position(72.0, y)
+    .v_align(VAlign::Top);
     add_text_params(&mut doc, page_id, &params, &mut EmbeddedFontCache::new()).unwrap();
 
     let page_dict = doc.get_dictionary(page_id).unwrap();
@@ -397,10 +467,14 @@ fn test_watermark_valign_center_adjusts_y() {
     let page_id = fixtures::get_first_page_id(&doc);
 
     let y = 400.0_f32;
-    let params = AddTextParams::new("CenterV", FontData::BuiltIn("Helvetica".into()), "@Helvetica")
-        .font_size(24.0)
-        .position(72.0, y)
-        .v_align(VAlign::Center);
+    let params = AddTextParams::new(
+        "CenterV",
+        FontData::BuiltIn("Helvetica".into()),
+        "@Helvetica",
+    )
+    .font_size(24.0)
+    .position(72.0, y)
+    .v_align(VAlign::Center);
     add_text_params(&mut doc, page_id, &params, &mut EmbeddedFontCache::new()).unwrap();
 
     let page_dict = doc.get_dictionary(page_id).unwrap();
@@ -441,7 +515,11 @@ fn test_add_rect_operators() {
     let last_ref = contents.last().unwrap().as_reference().unwrap();
     let stream = doc.get_object(last_ref).unwrap().as_stream().unwrap();
     let decoded = stream.decode_content().unwrap();
-    let ops: Vec<&str> = decoded.operations.iter().map(|o| o.operator.as_str()).collect();
+    let ops: Vec<&str> = decoded
+        .operations
+        .iter()
+        .map(|o| o.operator.as_str())
+        .collect();
 
     assert!(ops.contains(&"rg"), "Should set fill color with rg");
     assert!(ops.contains(&"re"), "Should draw rectangle with re");
@@ -517,7 +595,10 @@ fn test_add_rect_with_alpha_has_extgstate() {
         _ => panic!("Unexpected Resources type"),
     };
     let extgstate = resources_dict.get(b"ExtGState");
-    assert!(extgstate.is_ok(), "Should have ExtGState resource for alpha rect");
+    assert!(
+        extgstate.is_ok(),
+        "Should have ExtGState resource for alpha rect"
+    );
 }
 
 // --- add_line: Content Stream Operators ---
@@ -536,7 +617,11 @@ fn test_add_line_operators() {
     let last_ref = contents.last().unwrap().as_reference().unwrap();
     let stream = doc.get_object(last_ref).unwrap().as_stream().unwrap();
     let decoded = stream.decode_content().unwrap();
-    let ops: Vec<&str> = decoded.operations.iter().map(|o| o.operator.as_str()).collect();
+    let ops: Vec<&str> = decoded
+        .operations
+        .iter()
+        .map(|o| o.operator.as_str())
+        .collect();
 
     assert!(ops.contains(&"RG"), "Should set stroke color with RG");
     assert!(ops.contains(&"w"), "Should set line width with w");
@@ -605,7 +690,10 @@ fn test_add_line_custom_width_value() {
         .collect();
     assert_eq!(w_ops.len(), 1, "Should have exactly one w operator");
     let width = w_ops[0].operands[0].as_float().unwrap();
-    assert!((width - 5.0).abs() < 0.01, "Line width should be 5.0, got {width}");
+    assert!(
+        (width - 5.0).abs() < 0.01,
+        "Line width should be 5.0, got {width}"
+    );
 }
 
 #[test]
@@ -613,8 +701,7 @@ fn test_add_line_stroke_color() {
     let mut doc = fixtures::create_pdf_with_pages(1);
     let page_id = fixtures::get_first_page_id(&doc);
 
-    let params =
-        DrawLineParams::new(0.0, 0.0, 100.0, 100.0).color(PdfColor::rgb(0.0, 1.0, 0.0));
+    let params = DrawLineParams::new(0.0, 0.0, 100.0, 100.0).color(PdfColor::rgb(0.0, 1.0, 0.0));
     add_line(&mut doc, page_id, &params).unwrap();
 
     let content = get_first_page_content(&doc);
@@ -686,7 +773,10 @@ fn test_multiple_watermarks_on_same_page() {
 
     let content = get_first_page_content(&doc);
     assert!(content.contains("FIRST"), "Should contain first watermark");
-    assert!(content.contains("SECOND"), "Should contain second watermark");
+    assert!(
+        content.contains("SECOND"),
+        "Should contain second watermark"
+    );
 }
 
 // --- Underline / Strikeout ---
@@ -696,10 +786,14 @@ fn test_watermark_underline_emits_re_f() {
     let mut doc = fixtures::create_pdf_with_pages(1);
     let page_id = fixtures::get_first_page_id(&doc);
 
-    let params = AddTextParams::new("Underlined", FontData::BuiltIn("Helvetica".into()), "@Helvetica")
-        .font_size(24.0)
-        .position(72.0, 400.0)
-        .underline(true);
+    let params = AddTextParams::new(
+        "Underlined",
+        FontData::BuiltIn("Helvetica".into()),
+        "@Helvetica",
+    )
+    .font_size(24.0)
+    .position(72.0, 400.0)
+    .underline(true);
     add_text_params(&mut doc, page_id, &params, &mut EmbeddedFontCache::new()).unwrap();
 
     // The watermark stream should contain re + f for the underline rectangle
@@ -725,10 +819,14 @@ fn test_watermark_strikeout_emits_re_f() {
     let mut doc = fixtures::create_pdf_with_pages(1);
     let page_id = fixtures::get_first_page_id(&doc);
 
-    let params = AddTextParams::new("Struck", FontData::BuiltIn("Helvetica".into()), "@Helvetica")
-        .font_size(24.0)
-        .position(72.0, 400.0)
-        .strikeout(true);
+    let params = AddTextParams::new(
+        "Struck",
+        FontData::BuiltIn("Helvetica".into()),
+        "@Helvetica",
+    )
+    .font_size(24.0)
+    .position(72.0, 400.0)
+    .strikeout(true);
     add_text_params(&mut doc, page_id, &params, &mut EmbeddedFontCache::new()).unwrap();
 
     let page_dict = doc.get_dictionary(page_id).unwrap();

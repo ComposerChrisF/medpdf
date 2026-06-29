@@ -157,7 +157,9 @@ pub fn find_font(font_path: &Path) -> Result<FontPath> {
 fn extract_font_name(data: &[u8]) -> String {
     ttf_parser::Face::parse(data, 0)
         .ok()
-        .and_then(|face| crate::font_helpers::get_name(&face, ttf_parser::name_id::POST_SCRIPT_NAME))
+        .and_then(|face| {
+            crate::font_helpers::get_name(&face, ttf_parser::name_id::POST_SCRIPT_NAME)
+        })
         .unwrap_or_else(|| "EmbeddedFont".to_string())
 }
 
@@ -184,6 +186,5 @@ fn find_font_with_source(font_path: &Path, source: &SystemSource) -> Result<Font
         &properties,
     )?;
 
-    handle_to_font_path(handle)
-        .ok_or_else(|| format!("Font {font_path:?} not found").into())
+    handle_to_font_path(handle).ok_or_else(|| format!("Font {font_path:?} not found").into())
 }

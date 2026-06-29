@@ -1,7 +1,6 @@
-use lopdf::{dictionary, Document, Object, ObjectId, Stream};
+use lopdf::{Document, Object, ObjectId, Stream, dictionary};
 use medpdf::{
-    insert_content_stream, register_extgstate_in_page_resources, MedpdfError, Result,
-    KEY_XOBJECT,
+    KEY_XOBJECT, MedpdfError, Result, insert_content_stream, register_extgstate_in_page_resources,
 };
 use std::path::Path;
 
@@ -11,7 +10,9 @@ pub mod recompress;
 mod svg;
 
 #[cfg(feature = "svg")]
-pub use svg::{add_svg, load_svg, load_svg_bytes, load_svg_str, DrawSvgParams, SvgData, SvgOptions};
+pub use svg::{
+    DrawSvgParams, SvgData, SvgOptions, add_svg, load_svg, load_svg_bytes, load_svg_str,
+};
 
 /// Fit mode when both width and height are specified.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -194,9 +195,7 @@ fn parse_jpeg_sof(data: &[u8]) -> Result<(u32, u32, u8)> {
         i += length;
     }
 
-    Err(MedpdfError::new(
-        "Could not find SOF marker in JPEG file",
-    ))
+    Err(MedpdfError::new("Could not find SOF marker in JPEG file"))
 }
 
 // ---------------------------------------------------------------------------
@@ -208,8 +207,13 @@ fn parse_jpeg_sof(data: &[u8]) -> Result<(u32, u32, u8)> {
 /// JPEG files are kept as raw bytes (for DCTDecode passthrough).
 /// All other formats are decoded via the `image` crate.
 pub fn load_image(path: &Path) -> Result<ImageData> {
-    let data = std::fs::read(path)
-        .map_err(|e| MedpdfError::new(format!("Failed to read image file '{}': {}", path.display(), e)))?;
+    let data = std::fs::read(path).map_err(|e| {
+        MedpdfError::new(format!(
+            "Failed to read image file '{}': {}",
+            path.display(),
+            e
+        ))
+    })?;
 
     // Check for JPEG magic bytes
     if data.len() >= 2 && data[0] == 0xFF && data[1] == 0xD8 {
@@ -223,14 +227,22 @@ pub fn load_image(path: &Path) -> Result<ImageData> {
     }
 
     // Decode via image crate
-    let img = image::load_from_memory(&data)
-        .map_err(|e| MedpdfError::new(format!("Failed to decode image '{}': {}", path.display(), e)))?;
+    let img = image::load_from_memory(&data).map_err(|e| {
+        MedpdfError::new(format!(
+            "Failed to decode image '{}': {}",
+            path.display(),
+            e
+        ))
+    })?;
 
     let color = img.color();
     let has_alpha = color.has_alpha();
     let is_grayscale = matches!(
         color,
-        image::ColorType::L8 | image::ColorType::L16 | image::ColorType::La8 | image::ColorType::La16
+        image::ColorType::L8
+            | image::ColorType::L16
+            | image::ColorType::La8
+            | image::ColorType::La16
     );
 
     if has_alpha {
@@ -298,7 +310,12 @@ pub fn load_image(path: &Path) -> Result<ImageData> {
 
 /// Downsample image data if effective DPI exceeds max_dpi.
 /// Returns the (possibly modified) image data.
-fn maybe_downsample(image_data: ImageData, output_w_pts: f32, output_h_pts: f32, max_dpi: f32) -> Result<ImageData> {
+fn maybe_downsample(
+    image_data: ImageData,
+    output_w_pts: f32,
+    output_h_pts: f32,
+    max_dpi: f32,
+) -> Result<ImageData> {
     if max_dpi <= 0.0 {
         return Ok(image_data);
     }
@@ -317,18 +334,32 @@ fn maybe_downsample(image_data: ImageData, output_w_pts: f32, output_h_pts: f32,
     let new_w = (pw * scale).round().max(1.0) as u32;
     let new_h = (ph * scale).round().max(1.0) as u32;
 
-    log::info!("Downsampling image from {}x{} to {}x{} (effective DPI {:.0} -> {:.0})",
-        image_data.pixel_width(), image_data.pixel_height(), new_w, new_h, eff_dpi, max_dpi);
+    log::info!(
+        "Downsampling image from {}x{} to {}x{} (effective DPI {:.0} -> {:.0})",
+        image_data.pixel_width(),
+        image_data.pixel_height(),
+        new_w,
+        new_h,
+        eff_dpi,
+        max_dpi
+    );
 
     match image_data {
-        ImageData::Jpeg { data, pixel_width: _, pixel_height: _, components } => {
+        ImageData::Jpeg {
+            data,
+            pixel_width: _,
+            pixel_height: _,
+            components,
+        } => {
             // Decode JPEG, resize, re-encode as JPEG
-            let img = image::load_from_memory(&data)
-                .map_err(|e| MedpdfError::new(format!("Failed to decode JPEG for downsampling: {e}")))?;
+            let img = image::load_from_memory(&data).map_err(|e| {
+                MedpdfError::new(format!("Failed to decode JPEG for downsampling: {e}"))
+            })?;
             let resized = img.resize_exact(new_w, new_h, image::imageops::FilterType::Lanczos3);
 
             let mut jpeg_buf = std::io::Cursor::new(Vec::new());
-            resized.write_to(&mut jpeg_buf, image::ImageFormat::Jpeg)
+            resized
+                .write_to(&mut jpeg_buf, image::ImageFormat::Jpeg)
                 .map_err(|e| MedpdfError::new(format!("Failed to re-encode JPEG: {e}")))?;
 
             // Re-parse the new JPEG to get exact dimensions
@@ -342,25 +373,46 @@ fn maybe_downsample(image_data: ImageData, output_w_pts: f32, output_h_pts: f32,
                 components: if components == 4 { 3 } else { actual_c }, // CMYK gets converted to RGB
             })
         }
-        ImageData::Decoded { pixels, alpha_channel, pixel_width, pixel_height, components } => {
+        ImageData::Decoded {
+            pixels,
+            alpha_channel,
+            pixel_width,
+            pixel_height,
+            components,
+        } => {
             // Resize the pixel buffer
             let resized_pixels = if components == 3 {
                 let img = image::RgbImage::from_raw(pixel_width, pixel_height, pixels)
                     .ok_or_else(|| MedpdfError::new("Invalid RGB pixel buffer dimensions"))?;
-                let resized = image::imageops::resize(&img, new_w, new_h, image::imageops::FilterType::Lanczos3);
+                let resized = image::imageops::resize(
+                    &img,
+                    new_w,
+                    new_h,
+                    image::imageops::FilterType::Lanczos3,
+                );
                 resized.into_raw()
             } else {
                 // Grayscale
                 let img = image::GrayImage::from_raw(pixel_width, pixel_height, pixels)
                     .ok_or_else(|| MedpdfError::new("Invalid Gray pixel buffer dimensions"))?;
-                let resized = image::imageops::resize(&img, new_w, new_h, image::imageops::FilterType::Lanczos3);
+                let resized = image::imageops::resize(
+                    &img,
+                    new_w,
+                    new_h,
+                    image::imageops::FilterType::Lanczos3,
+                );
                 resized.into_raw()
             };
 
             let resized_alpha = if let Some(alpha) = alpha_channel {
                 let alpha_img = image::GrayImage::from_raw(pixel_width, pixel_height, alpha)
                     .ok_or_else(|| MedpdfError::new("Invalid alpha channel dimensions"))?;
-                let resized = image::imageops::resize(&alpha_img, new_w, new_h, image::imageops::FilterType::Lanczos3);
+                let resized = image::imageops::resize(
+                    &alpha_img,
+                    new_w,
+                    new_h,
+                    image::imageops::FilterType::Lanczos3,
+                );
                 Some(resized.into_raw())
             } else {
                 None
@@ -627,8 +679,8 @@ pub fn add_image(doc: &mut Document, page_id: ObjectId, params: DrawImageParams)
 }
 
 fn flate_compress(data: &[u8]) -> Result<Vec<u8>> {
-    use flate2::write::ZlibEncoder;
     use flate2::Compression;
+    use flate2::write::ZlibEncoder;
     use std::io::Write;
 
     let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
@@ -861,7 +913,11 @@ mod tests {
 
         // Verify it was registered
         let page_dict = doc.get_dictionary(page_id).unwrap();
-        let res_id = page_dict.get(medpdf::KEY_RESOURCES).unwrap().as_reference().unwrap();
+        let res_id = page_dict
+            .get(medpdf::KEY_RESOURCES)
+            .unwrap()
+            .as_reference()
+            .unwrap();
         let res_dict = doc.get_dictionary(res_id).unwrap();
         let xobj_dict = res_dict.get(KEY_XOBJECT).unwrap().as_dict().unwrap();
         let ref_obj = xobj_dict.get(b"Img1").unwrap();
@@ -891,7 +947,7 @@ mod tests {
         let (mut doc, page_id) = create_test_doc_and_page();
         let image_data = ImageData::Decoded {
             pixels: vec![255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 255], // 2x2 RGB
-            alpha_channel: Some(vec![255, 128, 64, 0]), // 2x2 alpha
+            alpha_channel: Some(vec![255, 128, 64, 0]),                   // 2x2 alpha
             pixel_width: 2,
             pixel_height: 2,
             components: 3,
@@ -901,7 +957,11 @@ mod tests {
 
         // Verify XObject was registered in resources
         let page_dict = doc.get_dictionary(page_id).unwrap();
-        let res_id = page_dict.get(medpdf::KEY_RESOURCES).unwrap().as_reference().unwrap();
+        let res_id = page_dict
+            .get(medpdf::KEY_RESOURCES)
+            .unwrap()
+            .as_reference()
+            .unwrap();
         let res_dict = doc.get_dictionary(res_id).unwrap();
         let xobj_dict = res_dict.get(KEY_XOBJECT).unwrap().as_dict().unwrap();
         // Find the image XObject
@@ -923,9 +983,16 @@ mod tests {
 
         // Verify ExtGState was created for alpha
         let page_dict = doc.get_dictionary(page_id).unwrap();
-        let res_id = page_dict.get(medpdf::KEY_RESOURCES).unwrap().as_reference().unwrap();
+        let res_id = page_dict
+            .get(medpdf::KEY_RESOURCES)
+            .unwrap()
+            .as_reference()
+            .unwrap();
         let res_dict = doc.get_dictionary(res_id).unwrap();
-        assert!(res_dict.get(medpdf::KEY_EXTGSTATE).is_ok(), "Should have ExtGState for alpha");
+        assert!(
+            res_dict.get(medpdf::KEY_EXTGSTATE).is_ok(),
+            "Should have ExtGState for alpha"
+        );
     }
 
     #[test]
@@ -957,8 +1024,7 @@ mod tests {
             pixel_height: 1,
             components: 3,
         };
-        let params =
-            DrawImageParams::new(image_data, 0.0, 0.0, 72.0, 72.0).layer_over(false);
+        let params = DrawImageParams::new(image_data, 0.0, 0.0, 72.0, 72.0).layer_over(false);
         add_image(&mut doc, page_id, params).unwrap();
 
         // In layer_under mode, content is prepended
@@ -1140,7 +1206,12 @@ mod tests {
             components: 3,
         };
         let result = maybe_downsample(data, 72.0, 72.0, 300.0).unwrap();
-        if let ImageData::Decoded { alpha_channel, pixel_width, .. } = &result {
+        if let ImageData::Decoded {
+            alpha_channel,
+            pixel_width,
+            ..
+        } = &result
+        {
             assert!(alpha_channel.is_some(), "Alpha should be preserved");
             assert!(*pixel_width < 600, "Should be downsampled");
         } else {

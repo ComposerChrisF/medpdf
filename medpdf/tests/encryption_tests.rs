@@ -2,7 +2,7 @@ mod fixtures;
 
 use lopdf::encryption::Permissions;
 use lopdf::{Object, StringFormat};
-use medpdf::pdf_encryption::{encrypt_document, EncryptionAlgorithm, EncryptionParams};
+use medpdf::pdf_encryption::{EncryptionAlgorithm, EncryptionParams, encrypt_document};
 use medpdf::{parse_permission_name, parse_permissions};
 
 /// Helper: adds a trailer ID entry required by AES-128 (V4) encryption.
@@ -25,16 +25,34 @@ fn ensure_trailer_id(doc: &mut lopdf::Document) {
 
 #[test]
 fn test_parse_permission_name_valid() {
-    assert_eq!(parse_permission_name("print").unwrap(), Permissions::PRINTABLE);
-    assert_eq!(parse_permission_name("modify").unwrap(), Permissions::MODIFIABLE);
-    assert_eq!(parse_permission_name("copy").unwrap(), Permissions::COPYABLE);
-    assert_eq!(parse_permission_name("annotate").unwrap(), Permissions::ANNOTABLE);
-    assert_eq!(parse_permission_name("fill").unwrap(), Permissions::FILLABLE);
+    assert_eq!(
+        parse_permission_name("print").unwrap(),
+        Permissions::PRINTABLE
+    );
+    assert_eq!(
+        parse_permission_name("modify").unwrap(),
+        Permissions::MODIFIABLE
+    );
+    assert_eq!(
+        parse_permission_name("copy").unwrap(),
+        Permissions::COPYABLE
+    );
+    assert_eq!(
+        parse_permission_name("annotate").unwrap(),
+        Permissions::ANNOTABLE
+    );
+    assert_eq!(
+        parse_permission_name("fill").unwrap(),
+        Permissions::FILLABLE
+    );
     assert_eq!(
         parse_permission_name("accessibility").unwrap(),
         Permissions::COPYABLE_FOR_ACCESSIBILITY
     );
-    assert_eq!(parse_permission_name("assemble").unwrap(), Permissions::ASSEMBLABLE);
+    assert_eq!(
+        parse_permission_name("assemble").unwrap(),
+        Permissions::ASSEMBLABLE
+    );
     assert_eq!(
         parse_permission_name("print_hq").unwrap(),
         Permissions::PRINTABLE_IN_HIGH_QUALITY
@@ -43,16 +61,34 @@ fn test_parse_permission_name_valid() {
 
 #[test]
 fn test_parse_permission_name_aliases() {
-    assert_eq!(parse_permission_name("printable").unwrap(), Permissions::PRINTABLE);
-    assert_eq!(parse_permission_name("modifiable").unwrap(), Permissions::MODIFIABLE);
-    assert_eq!(parse_permission_name("copyable").unwrap(), Permissions::COPYABLE);
-    assert_eq!(parse_permission_name("annotable").unwrap(), Permissions::ANNOTABLE);
-    assert_eq!(parse_permission_name("fillable").unwrap(), Permissions::FILLABLE);
+    assert_eq!(
+        parse_permission_name("printable").unwrap(),
+        Permissions::PRINTABLE
+    );
+    assert_eq!(
+        parse_permission_name("modifiable").unwrap(),
+        Permissions::MODIFIABLE
+    );
+    assert_eq!(
+        parse_permission_name("copyable").unwrap(),
+        Permissions::COPYABLE
+    );
+    assert_eq!(
+        parse_permission_name("annotable").unwrap(),
+        Permissions::ANNOTABLE
+    );
+    assert_eq!(
+        parse_permission_name("fillable").unwrap(),
+        Permissions::FILLABLE
+    );
     assert_eq!(
         parse_permission_name("copyable_for_accessibility").unwrap(),
         Permissions::COPYABLE_FOR_ACCESSIBILITY
     );
-    assert_eq!(parse_permission_name("assemblable").unwrap(), Permissions::ASSEMBLABLE);
+    assert_eq!(
+        parse_permission_name("assemblable").unwrap(),
+        Permissions::ASSEMBLABLE
+    );
     assert_eq!(
         parse_permission_name("printable_in_high_quality").unwrap(),
         Permissions::PRINTABLE_IN_HIGH_QUALITY
@@ -61,8 +97,14 @@ fn test_parse_permission_name_aliases() {
 
 #[test]
 fn test_parse_permission_name_case_insensitive() {
-    assert_eq!(parse_permission_name("PRINT").unwrap(), Permissions::PRINTABLE);
-    assert_eq!(parse_permission_name("Print").unwrap(), Permissions::PRINTABLE);
+    assert_eq!(
+        parse_permission_name("PRINT").unwrap(),
+        Permissions::PRINTABLE
+    );
+    assert_eq!(
+        parse_permission_name("Print").unwrap(),
+        Permissions::PRINTABLE
+    );
     assert_eq!(parse_permission_name("ALL").unwrap(), Permissions::all());
     assert_eq!(parse_permission_name("None").unwrap(), Permissions::empty());
 }

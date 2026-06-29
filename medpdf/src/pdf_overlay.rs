@@ -27,7 +27,10 @@ pub fn overlay_page(
     debug!("Standardizing and cloning overlay's /Contents");
     let overlay_contents = overlay_page.get(KEY_CONTENTS)?;
     let overlay_contents_arr_new = resolve_contents_to_ref_array(
-        dest_doc, Some(overlay_doc), overlay_contents, &mut copied_objects,
+        dest_doc,
+        Some(overlay_doc),
+        overlay_contents,
+        &mut copied_objects,
         &format!("Page {overlay_page_id:?}"),
     )?;
 
@@ -51,7 +54,7 @@ pub fn overlay_page(
         _ => {
             return Err(MedpdfError::Message(format!(
                 "Page {overlay_page_id:?} /Resources must be dictionary or reference to dictionary"
-            )))
+            )));
         }
     };
 
@@ -109,7 +112,10 @@ pub fn overlay_page(
         Ok(dest_contents) => {
             let dest_contents = dest_contents.clone();
             resolve_contents_to_ref_array(
-                dest_doc, None, &dest_contents, &mut copied_objects,
+                dest_doc,
+                None,
+                &dest_contents,
+                &mut copied_objects,
                 &format!("Page {dest_page_id:?}"),
             )?
         }
@@ -134,7 +140,9 @@ pub fn overlay_page(
     dest_page_dict.set(KEY_CONTENTS, Object::Array(dest_contents_arr_new));
 
     // Merge renamed /Resources into destination page's /Resources
-    debug!("Merge overlay's /Resources dictionary (with keys renamed) into destination page's /Resources");
+    debug!(
+        "Merge overlay's /Resources dictionary (with keys renamed) into destination page's /Resources"
+    );
     merge_resources_into_dest_page(dest_doc, dest_page_id, overlay_resources_dict_id_new)?;
 
     Ok(())
@@ -144,7 +152,7 @@ pub fn overlay_page(
 mod tests {
     use super::*;
     use crate::pdf_overlay_helpers::find_unique_name;
-    use lopdf::{dictionary, Dictionary, Object, Stream};
+    use lopdf::{Dictionary, Object, Stream, dictionary};
 
     /// Creates a minimal valid PDF document with one page that has `/Font` and `/XObject` resources.
     fn create_test_pdf_with_resources(
@@ -253,13 +261,25 @@ mod tests {
         let page_dict = dest.get_dictionary(dest_page_id).unwrap();
         let contents = page_dict.get(KEY_CONTENTS).unwrap();
         let arr = contents.as_array().unwrap();
-        assert!(arr.len() >= 2, "Should have multiple content streams after overlay, got {}", arr.len());
+        assert!(
+            arr.len() >= 2,
+            "Should have multiple content streams after overlay, got {}",
+            arr.len()
+        );
 
         // Verify resources were merged
-        let resources_ref = page_dict.get(KEY_RESOURCES).unwrap().as_reference().unwrap();
+        let resources_ref = page_dict
+            .get(KEY_RESOURCES)
+            .unwrap()
+            .as_reference()
+            .unwrap();
         let resources = dest.get_dictionary(resources_ref).unwrap();
         let fonts = resources.get(b"Font").unwrap().as_dict().unwrap();
-        assert!(fonts.len() >= 2, "Should have merged font resources, got {}", fonts.len());
+        assert!(
+            fonts.len() >= 2,
+            "Should have merged font resources, got {}",
+            fonts.len()
+        );
     }
 
     #[test]
@@ -272,19 +292,29 @@ mod tests {
         overlay_page(&mut dest, dest_page_id, &overlay, 1).unwrap();
 
         let page_dict = dest.get_dictionary(dest_page_id).unwrap();
-        let resources_ref = page_dict.get(KEY_RESOURCES).unwrap().as_reference().unwrap();
+        let resources_ref = page_dict
+            .get(KEY_RESOURCES)
+            .unwrap()
+            .as_reference()
+            .unwrap();
         let resources = dest.get_dictionary(resources_ref).unwrap();
         let fonts = resources.get(b"Font").unwrap().as_dict().unwrap();
 
         assert!(fonts.has(b"F1"), "Original font F1 should remain");
-        assert!(fonts.len() >= 2, "Should have at least 2 font entries after overlay");
+        assert!(
+            fonts.len() >= 2,
+            "Should have at least 2 font entries after overlay"
+        );
 
         // Verify that at least one key has the "_o" suffix (indicating renaming)
         let has_renamed = fonts.iter().any(|(k, _)| {
             let key_str = String::from_utf8_lossy(k);
             key_str.contains("_o")
         });
-        assert!(has_renamed, "Overlay font should have been renamed with _o suffix");
+        assert!(
+            has_renamed,
+            "Overlay font should have been renamed with _o suffix"
+        );
     }
 
     #[test]
@@ -322,6 +352,9 @@ mod tests {
                 }
             }
         }
-        assert_eq!(total_q, total_big_q, "q/Q should be balanced: q={total_q}, Q={total_big_q}");
+        assert_eq!(
+            total_q, total_big_q,
+            "q/Q should be balanced: q={total_q}, Q={total_big_q}"
+        );
     }
 }

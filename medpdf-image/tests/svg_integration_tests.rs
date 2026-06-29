@@ -3,10 +3,10 @@
 
 #![cfg(feature = "svg")]
 
-use lopdf::{dictionary, Document, Object, Stream};
+use lopdf::{Document, Object, Stream, dictionary};
 use medpdf_image::{
-    add_image, add_svg, load_svg, load_svg_bytes, load_svg_str, DrawImageParams, DrawSvgParams,
-    ImageData, ImageFit,
+    DrawImageParams, DrawSvgParams, ImageData, ImageFit, add_image, add_svg, load_svg,
+    load_svg_bytes, load_svg_str,
 };
 use std::io::Write;
 use tempfile::NamedTempFile;
@@ -69,16 +69,8 @@ fn create_one_page_pdf() -> (Document, lopdf::ObjectId) {
         "Resources" => Object::Reference(resources_id),
     };
     let page_id = doc.add_object(page);
-    let pages_obj = doc
-        .get_object_mut(pages_id)
-        .unwrap()
-        .as_dict_mut()
-        .unwrap();
-    let kids = pages_obj
-        .get_mut(b"Kids")
-        .unwrap()
-        .as_array_mut()
-        .unwrap();
+    let pages_obj = doc.get_object_mut(pages_id).unwrap().as_dict_mut().unwrap();
+    let kids = pages_obj.get_mut(b"Kids").unwrap().as_array_mut().unwrap();
     kids.push(Object::Reference(page_id));
     pages_obj.set("Count", Object::Integer(1));
     (doc, page_id)
@@ -164,11 +156,7 @@ fn test_add_svg_roundtrip_basic() {
     // Verify XObject exists in reloaded doc
     let page_id = *reloaded.get_pages().get(&1).unwrap();
     let page_dict = reloaded.get_dictionary(page_id).unwrap();
-    let res_ref = page_dict
-        .get(b"Resources")
-        .unwrap()
-        .as_reference()
-        .unwrap();
+    let res_ref = page_dict.get(b"Resources").unwrap().as_reference().unwrap();
     let res_dict = reloaded.get_dictionary(res_ref).unwrap();
     assert!(
         res_dict.get(b"XObject").is_ok(),
@@ -197,11 +185,7 @@ fn test_add_svg_roundtrip_with_alpha() {
     let reloaded = save_and_reload(&mut doc);
     let page_id = *reloaded.get_pages().get(&1).unwrap();
     let page_dict = reloaded.get_dictionary(page_id).unwrap();
-    let res_ref = page_dict
-        .get(b"Resources")
-        .unwrap()
-        .as_reference()
-        .unwrap();
+    let res_ref = page_dict.get(b"Resources").unwrap().as_reference().unwrap();
     let res_dict = reloaded.get_dictionary(res_ref).unwrap();
     assert!(
         res_dict.get(b"ExtGState").is_ok(),
@@ -244,11 +228,7 @@ fn test_add_svg_roundtrip_complex_svg() {
     // Form XObject should have non-trivial resources (fonts, patterns, etc.)
     let page_id = *reloaded.get_pages().get(&1).unwrap();
     let page_dict = reloaded.get_dictionary(page_id).unwrap();
-    let res_ref = page_dict
-        .get(b"Resources")
-        .unwrap()
-        .as_reference()
-        .unwrap();
+    let res_ref = page_dict.get(b"Resources").unwrap().as_reference().unwrap();
     let res_dict = reloaded.get_dictionary(res_ref).unwrap();
     assert!(res_dict.get(b"XObject").is_ok());
 }
@@ -263,13 +243,7 @@ fn test_add_multiple_svgs_roundtrip() {
 
     for i in 0..4 {
         let svg = load_svg_str(SIMPLE_SVG).unwrap();
-        let params = DrawSvgParams::new(
-            svg,
-            (i as f32) * 150.0,
-            0.0,
-            140.0,
-            70.0,
-        );
+        let params = DrawSvgParams::new(svg, (i as f32) * 150.0, 0.0, 140.0, 70.0);
         add_svg(&mut doc, page_id, params).unwrap();
     }
 
@@ -278,11 +252,7 @@ fn test_add_multiple_svgs_roundtrip() {
 
     let page_id = *reloaded.get_pages().get(&1).unwrap();
     let page_dict = reloaded.get_dictionary(page_id).unwrap();
-    let res_ref = page_dict
-        .get(b"Resources")
-        .unwrap()
-        .as_reference()
-        .unwrap();
+    let res_ref = page_dict.get(b"Resources").unwrap().as_reference().unwrap();
     let res_dict = reloaded.get_dictionary(res_ref).unwrap();
     let xobj_dict = res_dict.get(b"XObject").unwrap().as_dict().unwrap();
     assert!(
@@ -322,11 +292,7 @@ fn test_add_svg_and_image_same_page() {
     // Both XObjects should exist: Img0 and Svg0
     let page_id = *reloaded.get_pages().get(&1).unwrap();
     let page_dict = reloaded.get_dictionary(page_id).unwrap();
-    let res_ref = page_dict
-        .get(b"Resources")
-        .unwrap()
-        .as_reference()
-        .unwrap();
+    let res_ref = page_dict.get(b"Resources").unwrap().as_reference().unwrap();
     let res_dict = reloaded.get_dictionary(res_ref).unwrap();
     let xobj_dict = res_dict.get(b"XObject").unwrap().as_dict().unwrap();
     assert!(
@@ -348,7 +314,12 @@ fn test_add_image_then_svg_then_image() {
         pixel_height: 1,
         components: 3,
     };
-    add_image(&mut doc, page_id, DrawImageParams::new(img1, 0.0, 0.0, 50.0, 50.0)).unwrap();
+    add_image(
+        &mut doc,
+        page_id,
+        DrawImageParams::new(img1, 0.0, 0.0, 50.0, 50.0),
+    )
+    .unwrap();
 
     // SVG
     let svg = load_svg_str(SQUARE_SVG).unwrap();
@@ -377,11 +348,7 @@ fn test_add_image_then_svg_then_image() {
     let reloaded = save_and_reload(&mut doc);
     let page_id = *reloaded.get_pages().get(&1).unwrap();
     let page_dict = reloaded.get_dictionary(page_id).unwrap();
-    let res_ref = page_dict
-        .get(b"Resources")
-        .unwrap()
-        .as_reference()
-        .unwrap();
+    let res_ref = page_dict.get(b"Resources").unwrap().as_reference().unwrap();
     let res_dict = reloaded.get_dictionary(res_ref).unwrap();
     let xobj_dict = res_dict.get(b"XObject").unwrap().as_dict().unwrap();
 
@@ -440,11 +407,7 @@ fn test_add_svg_roundtrip_all_options() {
     // ExtGState should exist from alpha
     let page_id = *reloaded.get_pages().get(&1).unwrap();
     let page_dict = reloaded.get_dictionary(page_id).unwrap();
-    let res_ref = page_dict
-        .get(b"Resources")
-        .unwrap()
-        .as_reference()
-        .unwrap();
+    let res_ref = page_dict.get(b"Resources").unwrap().as_reference().unwrap();
     let res_dict = reloaded.get_dictionary(res_ref).unwrap();
     assert!(res_dict.get(b"ExtGState").is_ok());
     assert!(res_dict.get(b"XObject").is_ok());
@@ -464,30 +427,17 @@ fn test_form_xobject_structure_survives_roundtrip() {
     let reloaded = save_and_reload(&mut doc);
     let page_id = *reloaded.get_pages().get(&1).unwrap();
     let page_dict = reloaded.get_dictionary(page_id).unwrap();
-    let res_ref = page_dict
-        .get(b"Resources")
-        .unwrap()
-        .as_reference()
-        .unwrap();
+    let res_ref = page_dict.get(b"Resources").unwrap().as_reference().unwrap();
     let res_dict = reloaded.get_dictionary(res_ref).unwrap();
     let xobj_dict = res_dict.get(b"XObject").unwrap().as_dict().unwrap();
     let form_ref = xobj_dict.get(b"Svg0").unwrap().as_reference().unwrap();
 
-    let form_obj = reloaded
-        .get_object(form_ref)
-        .unwrap()
-        .as_stream()
-        .unwrap();
+    let form_obj = reloaded.get_object(form_ref).unwrap().as_stream().unwrap();
 
     // Verify Type and Subtype survived
     let type_val = form_obj.dict.get(b"Type").unwrap().as_name().unwrap();
     assert_eq!(type_val, b"XObject");
-    let subtype_val = form_obj
-        .dict
-        .get(b"Subtype")
-        .unwrap()
-        .as_name()
-        .unwrap();
+    let subtype_val = form_obj.dict.get(b"Subtype").unwrap().as_name().unwrap();
     assert_eq!(subtype_val, b"Form");
 
     // Verify BBox survived

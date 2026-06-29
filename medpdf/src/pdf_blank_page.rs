@@ -4,7 +4,7 @@ use crate::{
     error::Result,
     pdf_helpers::{KEY_COUNT, KEY_KIDS, KEY_PAGES, KEY_PARENT},
 };
-use lopdf::{dictionary, Document, Object, ObjectId, Stream};
+use lopdf::{Document, Object, ObjectId, Stream, dictionary};
 
 /// Creates a new, blank page with the specified dimensions and adds it to the document.
 pub fn create_blank_page(dest_doc: &mut Document, width: f32, height: f32) -> Result<ObjectId> {

@@ -5,7 +5,10 @@ mod fixtures;
 
 use medpdf::pdf_helpers::get_page_media_box;
 use medpdf::types::{AddTextParams, PdfColor};
-use medpdf::{add_text_params, copy_page, create_blank_page, delete_page, place_page, subset_fonts, EmbeddedFontCache, FontData, PlacePageParams};
+use medpdf::{
+    EmbeddedFontCache, FontData, PlacePageParams, add_text_params, copy_page, create_blank_page,
+    delete_page, place_page, subset_fonts,
+};
 use tempfile::NamedTempFile;
 
 /// Helper: saves a Document to a temp file and reloads it.
@@ -171,10 +174,14 @@ fn test_roundtrip_watermark_with_alpha() {
     let mut doc = fixtures::create_pdf_with_pages(1);
     let page_id = fixtures::get_first_page_id(&doc);
 
-    let params = AddTextParams::new("CONFIDENTIAL", FontData::BuiltIn("Helvetica".into()), "@Courier")
-        .font_size(36.0)
-        .position(72.0, 72.0)
-        .color(PdfColor::rgba(0.5, 0.5, 0.5, 0.3));
+    let params = AddTextParams::new(
+        "CONFIDENTIAL",
+        FontData::BuiltIn("Helvetica".into()),
+        "@Courier",
+    )
+    .font_size(36.0)
+    .position(72.0, 72.0)
+    .color(PdfColor::rgba(0.5, 0.5, 0.5, 0.3));
 
     add_text_params(&mut doc, page_id, &params, &mut EmbeddedFontCache::new()).unwrap();
 
@@ -239,9 +246,13 @@ fn test_roundtrip_complex_pipeline() {
 
     // Add watermark to page 1
     let page_id = *doc.get_pages().get(&1).unwrap();
-    let params = AddTextParams::new("PAGE 1", FontData::BuiltIn("Helvetica".into()), "@Helvetica")
-        .font_size(24.0)
-        .position(72.0, 720.0);
+    let params = AddTextParams::new(
+        "PAGE 1",
+        FontData::BuiltIn("Helvetica".into()),
+        "@Helvetica",
+    )
+    .font_size(24.0)
+    .position(72.0, 720.0);
     add_text_params(&mut doc, page_id, &params, &mut EmbeddedFontCache::new()).unwrap();
 
     // Delete page 2
@@ -327,7 +338,10 @@ fn test_roundtrip_preserves_content_stream() {
 fn test_roundtrip_subsetted_preserves_pages_and_font() {
     let font_data = match fixtures::load_system_ttf() {
         Some(f) => f,
-        None => { eprintln!("Skipping: no system TTF font found"); return; }
+        None => {
+            eprintln!("Skipping: no system TTF font found");
+            return;
+        }
     };
 
     let source_doc = fixtures::create_pdf_with_pages(1);
@@ -343,7 +357,11 @@ fn test_roundtrip_subsetted_preserves_pages_and_font() {
     subset_fonts(&mut doc, &cache).unwrap();
 
     let reloaded = save_and_reload(&mut doc);
-    assert_eq!(reloaded.get_pages().len(), 1, "Should have 1 page after roundtrip");
+    assert_eq!(
+        reloaded.get_pages().len(),
+        1,
+        "Should have 1 page after roundtrip"
+    );
 
     // Verify BaseFont has TAG+ prefix
     let mut found_tagged = false;
@@ -357,7 +375,10 @@ fn test_roundtrip_subsetted_preserves_pages_and_font() {
             }
         }
     }
-    assert!(found_tagged, "BaseFont should have TAG+ prefix after roundtrip");
+    assert!(
+        found_tagged,
+        "BaseFont should have TAG+ prefix after roundtrip"
+    );
 
     // Verify font stream has Length1 and Filter
     let mut found_font_stream = false;
@@ -369,7 +390,10 @@ fn test_roundtrip_subsetted_preserves_pages_and_font() {
             found_font_stream = true;
         }
     }
-    assert!(found_font_stream, "Should find font stream with Length1 after roundtrip");
+    assert!(
+        found_font_stream,
+        "Should find font stream with Length1 after roundtrip"
+    );
 }
 
 // C2: watermark text survives subsetting + roundtrip
@@ -377,7 +401,10 @@ fn test_roundtrip_subsetted_preserves_pages_and_font() {
 fn test_roundtrip_subsetted_watermark_text_survives() {
     let font_data = match fixtures::load_system_ttf() {
         Some(f) => f,
-        None => { eprintln!("Skipping: no system TTF font found"); return; }
+        None => {
+            eprintln!("Skipping: no system TTF font found");
+            return;
+        }
     };
 
     let source_doc = fixtures::create_pdf_with_pages(1);

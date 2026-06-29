@@ -70,7 +70,13 @@ pub fn recompress_images(
         }
 
         // Encode as JPEG
-        let jpeg_bytes = match encode_jpeg(&info.pixels, info.width, info.height, info.components, params.quality) {
+        let jpeg_bytes = match encode_jpeg(
+            &info.pixels,
+            info.width,
+            info.height,
+            info.components,
+            params.quality,
+        ) {
             Ok(bytes) => bytes,
             Err(_) => continue,
         };
@@ -218,7 +224,13 @@ fn resolve_colorspace_components(doc: &Document, cs: &Object) -> Option<u8> {
 }
 
 /// Encode raw pixels as JPEG at the given quality.
-fn encode_jpeg(pixels: &[u8], width: u32, height: u32, components: u8, quality: u8) -> Result<Vec<u8>> {
+fn encode_jpeg(
+    pixels: &[u8],
+    width: u32,
+    height: u32,
+    components: u8,
+    quality: u8,
+) -> Result<Vec<u8>> {
     let mut buf = Cursor::new(Vec::new());
 
     if components == 3 {
@@ -260,14 +272,18 @@ mod tests {
         }
 
         // Compress with flate2
-        use flate2::write::ZlibEncoder;
         use flate2::Compression;
+        use flate2::write::ZlibEncoder;
         use std::io::Write;
         let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
         encoder.write_all(&pixels).unwrap();
         let compressed = encoder.finish().unwrap();
 
-        let cs_name = if components == 3 { "DeviceRGB" } else { "DeviceGray" };
+        let cs_name = if components == 3 {
+            "DeviceRGB"
+        } else {
+            "DeviceGray"
+        };
         let dict = dictionary! {
             "Type" => "XObject",
             "Subtype" => "Image",
@@ -287,7 +303,10 @@ mod tests {
         let id = make_flate_image(&mut doc, 200, 200, 3);
 
         // Use min_size=0 because constant-value pixels compress very small
-        let params = RecompressParams { quality: 85, min_size: 0 };
+        let params = RecompressParams {
+            quality: 85,
+            min_size: 0,
+        };
         let stats = recompress_images(&mut doc, &[id], &params).unwrap();
 
         assert_eq!(stats.scanned, 1);
@@ -305,7 +324,10 @@ mod tests {
         let mut doc = Document::with_version("1.7");
         let id = make_flate_image(&mut doc, 200, 200, 1);
 
-        let params = RecompressParams { quality: 85, min_size: 0 };
+        let params = RecompressParams {
+            quality: 85,
+            min_size: 0,
+        };
         let stats = recompress_images(&mut doc, &[id], &params).unwrap();
 
         assert_eq!(stats.scanned, 1);
@@ -364,7 +386,10 @@ mod tests {
         };
         let id = doc.add_object(Stream::new(dict, vec![0u8; 1000]));
 
-        let params = RecompressParams { quality: 85, min_size: 0 };
+        let params = RecompressParams {
+            quality: 85,
+            min_size: 0,
+        };
         let stats = recompress_images(&mut doc, &[id], &params).unwrap();
 
         assert_eq!(stats.scanned, 0);
@@ -377,8 +402,8 @@ mod tests {
 
         let pixel_count = 100 * 100 * 4;
         let pixels = vec![128u8; pixel_count];
-        use flate2::write::ZlibEncoder;
         use flate2::Compression;
+        use flate2::write::ZlibEncoder;
         use std::io::Write;
         let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
         encoder.write_all(&pixels).unwrap();
@@ -396,7 +421,10 @@ mod tests {
         };
         let id = doc.add_object(Stream::new(dict, compressed));
 
-        let params = RecompressParams { quality: 85, min_size: 0 };
+        let params = RecompressParams {
+            quality: 85,
+            min_size: 0,
+        };
         let stats = recompress_images(&mut doc, &[id], &params).unwrap();
 
         assert_eq!(stats.scanned, 0);
@@ -422,8 +450,8 @@ mod tests {
     fn skip_non_image_xobject() {
         let mut doc = Document::with_version("1.7");
 
-        use flate2::write::ZlibEncoder;
         use flate2::Compression;
+        use flate2::write::ZlibEncoder;
         use std::io::Write;
         let content = vec![0u8; 60_000];
         let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
@@ -438,7 +466,10 @@ mod tests {
         };
         let id = doc.add_object(Stream::new(dict, compressed));
 
-        let params = RecompressParams { quality: 85, min_size: 0 };
+        let params = RecompressParams {
+            quality: 85,
+            min_size: 0,
+        };
         let stats = recompress_images(&mut doc, &[id], &params).unwrap();
 
         assert_eq!(stats.scanned, 0);
@@ -450,8 +481,8 @@ mod tests {
         let mut doc = Document::with_version("1.7");
         // Use constant-value pixels — flate compresses to ~20 bytes, JPEG can't beat that
         let pixels = vec![128u8; 200 * 200 * 3];
-        use flate2::write::ZlibEncoder;
         use flate2::Compression;
+        use flate2::write::ZlibEncoder;
         use std::io::Write;
         let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
         encoder.write_all(&pixels).unwrap();
@@ -469,7 +500,10 @@ mod tests {
         };
         let id = doc.add_object(Stream::new(dict, compressed));
 
-        let params = RecompressParams { quality: 85, min_size: 0 };
+        let params = RecompressParams {
+            quality: 85,
+            min_size: 0,
+        };
         let stats = recompress_images(&mut doc, &[id], &params).unwrap();
 
         // Constant-value FlateDecode is ~139 bytes; JPEG can't beat that
@@ -496,8 +530,8 @@ mod tests {
             pixels.push((val >> 16) as u8);
         }
 
-        use flate2::write::ZlibEncoder;
         use flate2::Compression;
+        use flate2::write::ZlibEncoder;
         use std::io::Write;
         let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
         encoder.write_all(&pixels).unwrap();
@@ -537,7 +571,10 @@ mod tests {
         let mut doc = Document::with_version("1.7");
         let id = make_iccbased_flate_image(&mut doc, 200, 200, 3);
 
-        let params = RecompressParams { quality: 85, min_size: 0 };
+        let params = RecompressParams {
+            quality: 85,
+            min_size: 0,
+        };
         let stats = recompress_images(&mut doc, &[id], &params).unwrap();
 
         assert_eq!(stats.scanned, 1);
@@ -556,7 +593,10 @@ mod tests {
         let mut doc = Document::with_version("1.7");
         let id = make_iccbased_flate_image(&mut doc, 200, 200, 1);
 
-        let params = RecompressParams { quality: 85, min_size: 0 };
+        let params = RecompressParams {
+            quality: 85,
+            min_size: 0,
+        };
         let stats = recompress_images(&mut doc, &[id], &params).unwrap();
 
         assert_eq!(stats.scanned, 1);
@@ -572,11 +612,13 @@ mod tests {
         let mut doc = Document::with_version("1.7");
         let id = make_iccbased_flate_image(&mut doc, 200, 200, 4);
 
-        let params = RecompressParams { quality: 85, min_size: 0 };
+        let params = RecompressParams {
+            quality: 85,
+            min_size: 0,
+        };
         let stats = recompress_images(&mut doc, &[id], &params).unwrap();
 
         assert_eq!(stats.scanned, 0);
         assert_eq!(stats.recompressed, 0);
     }
 }
-

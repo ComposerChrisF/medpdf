@@ -171,7 +171,10 @@ pub(crate) fn modify_content_stream(
             content.operations.push(Operation::new("Q", vec![]));
             // Balance any unmatched q operators across all streams
             if cumulative_q_balance < 0 {
-                warn!("Content streams have {} more Q than q operators (negative balance)", -cumulative_q_balance);
+                warn!(
+                    "Content streams have {} more Q than q operators (negative balance)",
+                    -cumulative_q_balance
+                );
             }
             trace!("cumulative_q_balance = {cumulative_q_balance}");
             for _ in 0..cumulative_q_balance {
@@ -216,7 +219,7 @@ pub(crate) fn normalize_contents_array(
             _ => {
                 return Err(MedpdfError::new(
                     "Page/Contents array must contain Streams or References",
-                ))
+                ));
             }
         };
         refs.push(Object::Reference(id));
@@ -241,7 +244,7 @@ pub(crate) fn merge_resources_into_dest_page(
         Ok(_) => {
             return Err(MedpdfError::new(
                 "Destination page /Resources was not a Dictionary nor Reference",
-            ))
+            ));
         }
         Err(_) => (Some(Dictionary::new()), None),
     };
@@ -253,7 +256,7 @@ pub(crate) fn merge_resources_into_dest_page(
         _ => {
             return Err(MedpdfError::new(
                 "Internal error: unexpected state in resources normalization",
-            ))
+            ));
         }
     };
     let dest_page_dict = dest_doc.get_object_mut(dest_page_id)?.as_dict_mut()?;

@@ -193,7 +193,11 @@ fn test_pt_fractional() {
 #[test]
 fn test_pt_large() {
     let points = Unit::Pt.to_points(10000.0);
-    assert!(approx_eq(points, 10000.0), "Expected 10000.0, got {}", points);
+    assert!(
+        approx_eq(points, 10000.0),
+        "Expected 10000.0, got {}",
+        points
+    );
 }
 
 // --- Centimeters to Points ---

@@ -3,7 +3,7 @@
 
 #![allow(dead_code)] // These are test utilities; not all are used in every test file
 
-use lopdf::{dictionary, Document, Object, ObjectId, Stream};
+use lopdf::{Document, Object, ObjectId, Stream, dictionary};
 use std::sync::Arc;
 
 /// Loads a system TTF font for embedded font testing.
@@ -288,8 +288,10 @@ pub fn create_pdf_with_nested_page_tree(width: f32, height: f32) -> Document {
         "Kids" => vec![Object::Reference(page_id)],
         "Count" => 1,
     };
-    doc.objects
-        .insert(intermediate_pages_id, Object::Dictionary(intermediate_pages));
+    doc.objects.insert(
+        intermediate_pages_id,
+        Object::Dictionary(intermediate_pages),
+    );
 
     // Root Pages node with MediaBox
     let root_pages = dictionary! {
@@ -341,9 +343,7 @@ pub fn create_pdf_without_media_box() -> Document {
 
 /// Creates a PDF with a non-zero origin MediaBox (e.g. [50, 100, 662, 892]).
 /// The visible page dimensions are (x1-x0) x (y1-y0).
-pub fn create_pdf_with_nonzero_origin_media_box(
-    x0: f32, y0: f32, x1: f32, y1: f32,
-) -> Document {
+pub fn create_pdf_with_nonzero_origin_media_box(x0: f32, y0: f32, x1: f32, y1: f32) -> Document {
     let mut doc = create_empty_pdf();
     let pages_id = doc
         .catalog()

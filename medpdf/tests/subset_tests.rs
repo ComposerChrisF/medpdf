@@ -7,7 +7,7 @@ use lopdf::{Object, ObjectId};
 use medpdf::pdf_copy_page::copy_page;
 use medpdf::pdf_watermark::add_text_params;
 use medpdf::types::AddTextParams;
-use medpdf::{subset_fonts, EmbeddedFontCache, FontData};
+use medpdf::{EmbeddedFontCache, FontData, subset_fonts};
 
 // --- Helpers ---
 
@@ -19,7 +19,9 @@ fn find_font_streams(doc: &lopdf::Document) -> Vec<(ObjectId, Vec<u8>)> {
             && stream.dict.has(b"Length1")
         {
             let bytes = if stream.is_compressed() {
-                stream.decompressed_content().unwrap_or_else(|_| stream.content.clone())
+                stream
+                    .decompressed_content()
+                    .unwrap_or_else(|_| stream.content.clone())
             } else {
                 stream.content.clone()
             };
@@ -104,7 +106,10 @@ fn setup_watermarked_doc(
 fn test_subset_reduces_font_stream_size() {
     let font_data = match fixtures::load_system_ttf() {
         Some(f) => f,
-        None => { eprintln!("Skipping: no system TTF font found"); return; }
+        None => {
+            eprintln!("Skipping: no system TTF font found");
+            return;
+        }
     };
 
     let (mut doc, _page_id, cache) = setup_watermarked_doc("DRAFT", &font_data);
@@ -124,7 +129,10 @@ fn test_subset_reduces_font_stream_size() {
 fn test_subset_tags_base_font_name() {
     let font_data = match fixtures::load_system_ttf() {
         Some(f) => f,
-        None => { eprintln!("Skipping: no system TTF font found"); return; }
+        None => {
+            eprintln!("Skipping: no system TTF font found");
+            return;
+        }
     };
 
     let (mut doc, _page_id, cache) = setup_watermarked_doc("ABC", &font_data);
@@ -132,7 +140,10 @@ fn test_subset_tags_base_font_name() {
 
     let names = find_base_font_names(&doc);
     let tagged: Vec<_> = names.iter().filter(|n| has_subset_tag(n)).collect();
-    assert!(!tagged.is_empty(), "At least one BaseFont should have TAG+ prefix: {names:?}");
+    assert!(
+        !tagged.is_empty(),
+        "At least one BaseFont should have TAG+ prefix: {names:?}"
+    );
 }
 
 // B3: subset tags FontName in FontDescriptor
@@ -140,7 +151,10 @@ fn test_subset_tags_base_font_name() {
 fn test_subset_tags_font_name_in_descriptor() {
     let font_data = match fixtures::load_system_ttf() {
         Some(f) => f,
-        None => { eprintln!("Skipping: no system TTF font found"); return; }
+        None => {
+            eprintln!("Skipping: no system TTF font found");
+            return;
+        }
     };
 
     let (mut doc, _page_id, cache) = setup_watermarked_doc("XYZ", &font_data);
@@ -148,7 +162,10 @@ fn test_subset_tags_font_name_in_descriptor() {
 
     let names = find_font_descriptor_names(&doc);
     let tagged: Vec<_> = names.iter().filter(|n| has_subset_tag(n)).collect();
-    assert!(!tagged.is_empty(), "At least one FontName should have TAG+ prefix: {names:?}");
+    assert!(
+        !tagged.is_empty(),
+        "At least one FontName should have TAG+ prefix: {names:?}"
+    );
 }
 
 // B4: Length1 matches decompressed stream size after subsetting
@@ -156,7 +173,10 @@ fn test_subset_tags_font_name_in_descriptor() {
 fn test_subset_length1_matches_decompressed_size() {
     let font_data = match fixtures::load_system_ttf() {
         Some(f) => f,
-        None => { eprintln!("Skipping: no system TTF font found"); return; }
+        None => {
+            eprintln!("Skipping: no system TTF font found");
+            return;
+        }
     };
 
     let (mut doc, _page_id, cache) = setup_watermarked_doc("Test", &font_data);
@@ -186,7 +206,10 @@ fn test_subset_length1_matches_decompressed_size() {
 fn test_subset_multiple_watermarks_same_font() {
     let font_data = match fixtures::load_system_ttf() {
         Some(f) => f,
-        None => { eprintln!("Skipping: no system TTF font found"); return; }
+        None => {
+            eprintln!("Skipping: no system TTF font found");
+            return;
+        }
     };
 
     let source_doc = fixtures::create_pdf_with_pages(1);
@@ -205,7 +228,11 @@ fn test_subset_multiple_watermarks_same_font() {
     add_text_params(&mut doc, page_id, &params2, &mut cache).unwrap();
 
     let streams_before = find_font_streams(&doc);
-    assert_eq!(streams_before.len(), 1, "Should have exactly 1 font stream (shared cache)");
+    assert_eq!(
+        streams_before.len(),
+        1,
+        "Should have exactly 1 font stream (shared cache)"
+    );
 
     subset_fonts(&mut doc, &cache).unwrap();
 
@@ -219,11 +246,17 @@ fn test_subset_multiple_watermarks_same_font() {
 fn test_subset_multiple_distinct_fonts() {
     let font_data1 = match fixtures::load_system_ttf() {
         Some(f) => f,
-        None => { eprintln!("Skipping: no system TTF font found"); return; }
+        None => {
+            eprintln!("Skipping: no system TTF font found");
+            return;
+        }
     };
     let font_data2 = match fixtures::load_second_system_ttf() {
         Some(f) => f,
-        None => { eprintln!("Skipping: need 2 different system fonts"); return; }
+        None => {
+            eprintln!("Skipping: need 2 different system fonts");
+            return;
+        }
     };
 
     let source_doc = fixtures::create_pdf_with_pages(1);
@@ -260,7 +293,11 @@ fn test_subset_empty_cache_noop() {
 
     subset_fonts(&mut doc, &cache).unwrap();
 
-    assert_eq!(doc.objects.len(), obj_count_before, "No objects should change");
+    assert_eq!(
+        doc.objects.len(),
+        obj_count_before,
+        "No objects should change"
+    );
 }
 
 // B8: built-in font unaffected by subsetting
@@ -292,7 +329,10 @@ fn test_subset_builtin_font_unaffected() {
 fn test_subset_multi_page_shared_font() {
     let font_data = match fixtures::load_system_ttf() {
         Some(f) => f,
-        None => { eprintln!("Skipping: no system TTF font found"); return; }
+        None => {
+            eprintln!("Skipping: no system TTF font found");
+            return;
+        }
     };
 
     let source_doc = fixtures::create_pdf_with_pages(3);
@@ -309,11 +349,19 @@ fn test_subset_multi_page_shared_font() {
         add_text_params(&mut doc, page_id, &params, &mut cache).unwrap();
     }
 
-    assert_eq!(find_font_streams(&doc).len(), 1, "Should share 1 font stream");
+    assert_eq!(
+        find_font_streams(&doc).len(),
+        1,
+        "Should share 1 font stream"
+    );
 
     subset_fonts(&mut doc, &cache).unwrap();
 
-    assert_eq!(find_font_streams(&doc).len(), 1, "Should still have 1 font stream after subsetting");
+    assert_eq!(
+        find_font_streams(&doc).len(),
+        1,
+        "Should still have 1 font stream after subsetting"
+    );
 
     let names = find_base_font_names(&doc);
     let tagged_count = names.iter().filter(|n| n.contains('+')).count();
@@ -325,7 +373,10 @@ fn test_subset_multi_page_shared_font() {
 fn test_subset_preserves_content_streams() {
     let font_data = match fixtures::load_system_ttf() {
         Some(f) => f,
-        None => { eprintln!("Skipping: no system TTF font found"); return; }
+        None => {
+            eprintln!("Skipping: no system TTF font found");
+            return;
+        }
     };
 
     let (mut doc, page_id, cache) = setup_watermarked_doc("DRAFT", &font_data);
@@ -348,7 +399,10 @@ fn test_subset_preserves_content_streams() {
 fn test_no_subset_leaves_font_unchanged() {
     let font_data = match fixtures::load_system_ttf() {
         Some(f) => f,
-        None => { eprintln!("Skipping: no system TTF font found"); return; }
+        None => {
+            eprintln!("Skipping: no system TTF font found");
+            return;
+        }
     };
 
     let (doc, _page_id, _cache) = setup_watermarked_doc("DRAFT", &font_data);

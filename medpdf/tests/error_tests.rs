@@ -67,10 +67,7 @@ fn test_display_face_variant() {
     let face_err = face_result.unwrap_err();
     let err = MedpdfError::Face(face_err);
     let display = format!("{err}");
-    assert!(
-        display.starts_with("Font parsing error:"),
-        "got: {display}"
-    );
+    assert!(display.starts_with("Font parsing error:"), "got: {display}");
 }
 
 // --- Debug trait ---

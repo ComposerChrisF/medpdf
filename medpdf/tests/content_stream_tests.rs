@@ -4,10 +4,10 @@
 
 mod fixtures;
 
-use lopdf::{dictionary, Object, Stream};
+use lopdf::{Object, Stream, dictionary};
 use medpdf::{
-    insert_content_stream, overlay_page, register_extgstate_in_page_resources,
-    register_in_page_resources, EmbeddedFontCache,
+    EmbeddedFontCache, insert_content_stream, overlay_page, register_extgstate_in_page_resources,
+    register_in_page_resources,
 };
 
 // ---------------------------------------------------------------------------
@@ -78,7 +78,10 @@ fn test_insert_content_stream_over_array() {
     let contents = page_dict.get(b"Contents").unwrap().as_array().unwrap();
     // Should keep growing; new content appended at end
     let last_ref = contents.last().unwrap().as_reference().unwrap();
-    assert_eq!(last_ref, second_id, "Latest content should be appended last");
+    assert_eq!(
+        last_ref, second_id,
+        "Latest content should be appended last"
+    );
 }
 
 #[test]
@@ -206,11 +209,7 @@ fn test_register_extgstate_on_page_with_no_resources() {
         "MediaBox" => vec![Object::Real(0.0), Object::Real(0.0), Object::Real(612.0), Object::Real(792.0)],
     };
     let page_id = doc.add_object(page);
-    let pages = doc
-        .get_object_mut(pages_id)
-        .unwrap()
-        .as_dict_mut()
-        .unwrap();
+    let pages = doc.get_object_mut(pages_id).unwrap().as_dict_mut().unwrap();
     pages
         .get_mut(b"Kids")
         .unwrap()
@@ -278,8 +277,24 @@ fn test_register_in_page_resources_multiple_categories() {
     let res_id = page_dict.get(b"Resources").unwrap().as_reference().unwrap();
     let res_dict = doc.get_dictionary(res_id).unwrap();
 
-    assert!(res_dict.get(b"Font").unwrap().as_dict().unwrap().get(b"MyFont").is_ok());
-    assert!(res_dict.get(b"ExtGState").unwrap().as_dict().unwrap().get(b"MyGS").is_ok());
+    assert!(
+        res_dict
+            .get(b"Font")
+            .unwrap()
+            .as_dict()
+            .unwrap()
+            .get(b"MyFont")
+            .is_ok()
+    );
+    assert!(
+        res_dict
+            .get(b"ExtGState")
+            .unwrap()
+            .as_dict()
+            .unwrap()
+            .get(b"MyGS")
+            .is_ok()
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -305,7 +320,13 @@ fn test_overlay_then_watermark() {
     )
     .font_size(36.0)
     .position(100.0, 400.0);
-    medpdf::add_text_params(&mut dest, dest_page_id, &params, &mut EmbeddedFontCache::new()).unwrap();
+    medpdf::add_text_params(
+        &mut dest,
+        dest_page_id,
+        &params,
+        &mut EmbeddedFontCache::new(),
+    )
+    .unwrap();
 
     // Verify both operations are reflected in content
     let content = fixtures::get_page_content_bytes(&dest, dest_page_id);
@@ -348,11 +369,7 @@ fn test_overlay_with_font_resources() {
 
     // Destination page should now have font resources
     let page_dict = dest.get_dictionary(dest_page_id).unwrap();
-    let res_ref = page_dict
-        .get(b"Resources")
-        .unwrap()
-        .as_reference()
-        .unwrap();
+    let res_ref = page_dict.get(b"Resources").unwrap().as_reference().unwrap();
     let res_dict = dest.get_dictionary(res_ref).unwrap();
     assert!(
         res_dict.get(b"Font").is_ok(),

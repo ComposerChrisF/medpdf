@@ -92,7 +92,7 @@ pub fn place_page(
         _ => {
             return Err(MedpdfError::Message(format!(
                 "Source page {source_page_id:?} /Resources must be dictionary or reference"
-            )))
+            )));
         }
     };
 

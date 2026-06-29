@@ -1,7 +1,7 @@
 //! Low-level PDF helpers: deep object copying, page tree traversal, key constants, and units.
 
 use crate::error::{MedpdfError, Result};
-use lopdf::{dictionary, Dictionary, Document, Object, ObjectId, Stream};
+use lopdf::{Dictionary, Document, Object, ObjectId, Stream, dictionary};
 use std::collections::BTreeMap;
 
 pub(crate) const KEY_TYPE: &[u8] = b"Type";
@@ -119,9 +119,10 @@ pub fn set_page_rotation(doc: &mut Document, page_id: ObjectId, degrees: u32) ->
 /// Note: This calls `doc.get_pages()` which walks the entire page tree each time.
 /// For bulk operations, callers should cache the result of `doc.get_pages()` externally.
 pub(crate) fn get_page_object_id_from_doc(doc: &Document, page_num: u32) -> Result<ObjectId> {
-    doc.get_pages().get(&page_num).copied().ok_or_else(|| {
-        MedpdfError::new(format!("Page {} not found in source document", page_num))
-    })
+    doc.get_pages()
+        .get(&page_num)
+        .copied()
+        .ok_or_else(|| MedpdfError::new(format!("Page {} not found in source document", page_num)))
 }
 
 pub fn deep_copy_object_by_id(
@@ -264,7 +265,7 @@ pub fn register_in_page_resources(
         Ok(_) => {
             return Err(MedpdfError::new(
                 "/Resources key of page not a Reference nor a Dictionary!",
-            ))
+            ));
         }
         Err(_) => {
             let mut dict = dictionary! {};
@@ -325,7 +326,7 @@ fn handle_subdict_in_resources(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lopdf::{dictionary, Object, Stream};
+    use lopdf::{Object, Stream, dictionary};
 
     /// Creates a minimal valid PDF document with no pages.
     fn create_empty_pdf() -> Document {
@@ -493,7 +494,12 @@ mod tests {
         let mut dest_doc = create_empty_pdf();
         let source_doc = create_empty_pdf();
         let mut copied = BTreeMap::new();
-        let result = deep_copy_object(&mut dest_doc, &source_doc, &Object::Boolean(true), &mut copied);
+        let result = deep_copy_object(
+            &mut dest_doc,
+            &source_doc,
+            &Object::Boolean(true),
+            &mut copied,
+        );
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Object::Boolean(true));
     }
@@ -503,7 +509,12 @@ mod tests {
         let mut dest_doc = create_empty_pdf();
         let source_doc = create_empty_pdf();
         let mut copied = BTreeMap::new();
-        let result = deep_copy_object(&mut dest_doc, &source_doc, &Object::Boolean(false), &mut copied);
+        let result = deep_copy_object(
+            &mut dest_doc,
+            &source_doc,
+            &Object::Boolean(false),
+            &mut copied,
+        );
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Object::Boolean(false));
     }
@@ -594,7 +605,10 @@ mod tests {
         let result = deep_copy_object(&mut dest_doc, &source_doc, &source_obj, &mut copied);
         assert!(result.is_ok());
         if let Object::Dictionary(dict) = result.unwrap() {
-            assert!(dict.get(b"Parent").is_err(), "Parent key should be skipped during copy");
+            assert!(
+                dict.get(b"Parent").is_err(),
+                "Parent key should be skipped during copy"
+            );
             assert!(dict.get(b"Type").is_ok());
             assert!(dict.get(b"MediaBox").is_ok());
         } else {
@@ -607,7 +621,8 @@ mod tests {
         let mut dest_doc = create_empty_pdf();
         let source_doc = create_empty_pdf();
         let mut copied = BTreeMap::new();
-        let source_obj = Object::Stream(Stream::new(dictionary! {}, b"q 1 0 0 1 0 0 cm Q".to_vec()));
+        let source_obj =
+            Object::Stream(Stream::new(dictionary! {}, b"q 1 0 0 1 0 0 cm Q".to_vec()));
         let result = deep_copy_object(&mut dest_doc, &source_doc, &source_obj, &mut copied);
         assert!(result.is_ok());
         if let Object::Stream(stream) = result.unwrap() {
@@ -636,9 +651,14 @@ mod tests {
         let source_id = source_doc.add_object(Object::Integer(42));
         let mut copied = BTreeMap::new();
 
-        let dest_id1 = deep_copy_object_by_id(&mut dest_doc, &source_doc, source_id, &mut copied).unwrap();
-        let dest_id2 = deep_copy_object_by_id(&mut dest_doc, &source_doc, source_id, &mut copied).unwrap();
-        assert_eq!(dest_id1, dest_id2, "Same source object should map to same dest ID");
+        let dest_id1 =
+            deep_copy_object_by_id(&mut dest_doc, &source_doc, source_id, &mut copied).unwrap();
+        let dest_id2 =
+            deep_copy_object_by_id(&mut dest_doc, &source_doc, source_id, &mut copied).unwrap();
+        assert_eq!(
+            dest_id1, dest_id2,
+            "Same source object should map to same dest ID"
+        );
     }
 
     #[test]
@@ -649,9 +669,14 @@ mod tests {
         let source_id2 = source_doc.add_object(Object::Integer(2));
         let mut copied = BTreeMap::new();
 
-        let dest_id1 = deep_copy_object_by_id(&mut dest_doc, &source_doc, source_id1, &mut copied).unwrap();
-        let dest_id2 = deep_copy_object_by_id(&mut dest_doc, &source_doc, source_id2, &mut copied).unwrap();
-        assert_ne!(dest_id1, dest_id2, "Different source objects should have different dest IDs");
+        let dest_id1 =
+            deep_copy_object_by_id(&mut dest_doc, &source_doc, source_id1, &mut copied).unwrap();
+        let dest_id2 =
+            deep_copy_object_by_id(&mut dest_doc, &source_doc, source_id2, &mut copied).unwrap();
+        assert_ne!(
+            dest_id1, dest_id2,
+            "Different source objects should have different dest IDs"
+        );
     }
 
     #[test]

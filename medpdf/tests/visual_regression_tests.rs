@@ -1,11 +1,14 @@
 mod fixtures;
 
 use medpdf::pdf_copy_page::copy_page;
+use medpdf::pdf_encryption::{EncryptionAlgorithm, EncryptionParams, encrypt_document};
 use medpdf::pdf_watermark::{add_line, add_rect, add_text_params};
 use medpdf::types::{AddTextParams, DrawLineParams, DrawRectParams, HAlign, PdfColor, VAlign};
-use medpdf::pdf_encryption::{encrypt_document, EncryptionAlgorithm, EncryptionParams};
-use medpdf::{create_blank_page, subset_fonts, EmbeddedFontCache, FontData};
-use pdf_test_visual::{assert_images_ssim, assert_page_matches, rasterize_page_with_password, rasterizer_available, CompareMode};
+use medpdf::{EmbeddedFontCache, FontData, create_blank_page, subset_fonts};
+use pdf_test_visual::{
+    CompareMode, assert_images_ssim, assert_page_matches, rasterize_page_with_password,
+    rasterizer_available,
+};
 use std::path::{Path, PathBuf};
 use tempfile::NamedTempFile;
 
@@ -88,13 +91,17 @@ fn visual_watermark_rotated_alpha() {
     let mut doc = fixtures::create_empty_pdf();
     let page_id = copy_page(&mut doc, &source_doc, 1).unwrap();
 
-    let params = AddTextParams::new("CONFIDENTIAL", FontData::BuiltIn("Helvetica".into()), "Helvetica")
-        .font_size(36.0)
-        .position(306.0, 396.0)
-        .h_align(HAlign::Center)
-        .v_align(VAlign::Center)
-        .color(PdfColor::rgba(1.0, 0.0, 0.0, 0.3))
-        .rotation(45.0);
+    let params = AddTextParams::new(
+        "CONFIDENTIAL",
+        FontData::BuiltIn("Helvetica".into()),
+        "Helvetica",
+    )
+    .font_size(36.0)
+    .position(306.0, 396.0)
+    .h_align(HAlign::Center)
+    .v_align(VAlign::Center)
+    .color(PdfColor::rgba(1.0, 0.0, 0.0, 0.3))
+    .rotation(45.0);
     add_text_params(&mut doc, page_id, &params, &mut EmbeddedFontCache::new()).unwrap();
 
     let tmp = save_to_temp(&mut doc);
@@ -257,7 +264,10 @@ fn visual_subset_vs_nonsubset_identical() {
     }
     let font_data = match fixtures::load_system_ttf() {
         Some(f) => f,
-        None => { eprintln!("[visual_regression] Skipping: no system TTF font found"); return; }
+        None => {
+            eprintln!("[visual_regression] Skipping: no system TTF font found");
+            return;
+        }
     };
 
     // Build a single document with an embedded-font watermark

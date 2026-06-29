@@ -1,8 +1,8 @@
 // tests/font_helpers_tests.rs
 // Tests for the public measure_text_width function
 
-use medpdf::font_helpers;
 use medpdf::FontData;
+use medpdf::font_helpers;
 use std::sync::Arc;
 
 // --- measure_text_width() ---
@@ -81,7 +81,11 @@ fn test_measure_text_width_empty_font_data_uses_estimate() {
 
 #[test]
 fn test_measure_text_width_invalid_font_data_fails() {
-    let result = font_helpers::measure_text_width(&FontData::Embedded(Arc::new(vec![0xFF, 0xFE, 0x00, 0x01])), 12.0, "Hello");
+    let result = font_helpers::measure_text_width(
+        &FontData::Embedded(Arc::new(vec![0xFF, 0xFE, 0x00, 0x01])),
+        12.0,
+        "Hello",
+    );
     assert!(result.is_err(), "Invalid font data should fail");
 }
 

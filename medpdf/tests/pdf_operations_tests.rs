@@ -157,8 +157,8 @@ fn test_blank_page_matches_nonzero_origin_media_box() {
     let page_id = copy_page(&mut dest_doc, &source_doc, 1).unwrap();
 
     // Get the MediaBox from the copied page to extract dimensions
-    let media_box = medpdf::get_page_media_box(&dest_doc, page_id)
-        .expect("Copied page should have a MediaBox");
+    let media_box =
+        medpdf::get_page_media_box(&dest_doc, page_id).expect("Copied page should have a MediaBox");
     let width = media_box[2] - media_box[0];
     let height = media_box[3] - media_box[1];
 

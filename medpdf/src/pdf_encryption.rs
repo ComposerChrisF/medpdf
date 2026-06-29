@@ -8,9 +8,9 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use lopdf::Document;
 use lopdf::encryption::crypt_filters::{Aes128CryptFilter, Aes256CryptFilter, CryptFilter};
 use lopdf::encryption::{EncryptionState, EncryptionVersion, Permissions};
-use lopdf::Document;
 use rand::Rng;
 
 use crate::Result;
@@ -128,7 +128,9 @@ pub fn parse_permission_name(name: &str) -> std::result::Result<Permissions, Str
         "print_hq" | "printable_in_high_quality" => Ok(Permissions::PRINTABLE_IN_HIGH_QUALITY),
         "all" => Ok(Permissions::all()),
         "none" => Ok(Permissions::empty()),
-        _ => Err(format!("Unknown permission: '{name}'. Valid names: print, modify, copy, annotate, fill, accessibility, assemble, print_hq, all, none")),
+        _ => Err(format!(
+            "Unknown permission: '{name}'. Valid names: print, modify, copy, annotate, fill, accessibility, assemble, print_hq, all, none"
+        )),
     }
 }
 
