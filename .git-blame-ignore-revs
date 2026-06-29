@@ -1,0 +1,7 @@
+# Bulk reformats to ignore in `git blame`.
+# Enable locally with:
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+# (GitHub applies this file automatically.)
+
+# Reformat to edition-2024 style (rustfmt 1.8.0); no functional change
+59ffba68d6e7e9bf7ff22a896110f5bf65cfc055
