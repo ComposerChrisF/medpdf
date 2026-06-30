@@ -1,6 +1,6 @@
 [package]
 name = "medpdf-image"
-version = "0.4.2"
+version = "0.4.3"
 edition = "2024"
 description = "Image embedding companion for medpdf"
 license = "MIT OR Apache-2.0"
@@ -15,7 +15,7 @@ svg-filters = ["svg", "svg2pdf/filters"]
 
 [dependencies]
 medpdf = { version = "0.10.0", path = "../medpdf" }
-lopdf = "0.39.0"
+lopdf = "0.42.0"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "bmp", "tiff", "webp", "rayon"] }
 flate2 = "1"
 log = "0.4"

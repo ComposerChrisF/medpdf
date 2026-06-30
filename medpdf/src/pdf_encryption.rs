@@ -11,7 +11,8 @@ use std::sync::Arc;
 use lopdf::Document;
 use lopdf::encryption::crypt_filters::{Aes128CryptFilter, Aes256CryptFilter, CryptFilter};
 use lopdf::encryption::{EncryptionState, EncryptionVersion, Permissions};
-use rand::Rng;
+// rand 0.10 moved the convenience methods (random_range, fill) from `Rng` to `RngExt`.
+use rand::RngExt;
 
 use crate::Result;
 

@@ -1,6 +1,6 @@
 [package]
 name = "medpdf"
-version = "0.10.2"
+version = "0.10.3"
 edition = "2024"
 description = "Medium-level PDF API over lopdf"
 license = "MIT OR Apache-2.0"
@@ -9,13 +9,13 @@ keywords = ["pdf", "lopdf", "merge", "watermark", "overlay"]
 categories = ["multimedia::encoding"]
 
 [dependencies]
-lopdf = "0.39.0"
+lopdf = "0.42.0"
 nom = "7.1"
 font-kit = "0.14.3"
 ttf-parser = "0.25.1"
 allsorts = "0.16"
 log = "0.4"
-rand = "0.9"
+rand = "0.10"
 itoa = "1"
 
 [dev-dependencies]

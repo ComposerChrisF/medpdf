@@ -11,7 +11,8 @@
 //! which would require rewriting font embedding to use CIDFont/Type0 composite fonts.
 
 use lopdf::{Document, Object, Stream, dictionary};
-use rand::Rng;
+// rand 0.10 moved the convenience methods (random_range, fill) from `Rng` to `RngExt`.
+use rand::RngExt;
 
 use crate::Result;
 use crate::pdf_watermark::{CachedFontEntry, EmbeddedFontCache};
