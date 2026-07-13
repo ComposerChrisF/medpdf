@@ -9,4 +9,4 @@ Verified consumers affected (2026-07-10, empirically — same failure signature,
 
 Shape of the fix (details in the full plan): Type0/CIDFontType2 embedding with Identity-H + ToUnicode CMap when text leaves CP1252; keep the single-byte fast path otherwise; built-in Standard-14 fonts fail loudly on unrepresentable text instead of substituting `?`.
 
-Evidence and decision context: `~/Chris/App/Claude/okina-codepoint-verification.md`.
+Evidence and decision context: `~/Chris/Proj/Coding/okina-codepoint-verification.md`.
