@@ -37,7 +37,8 @@ medpdf/                        # Repository root (workspace)
 │       ├── pdf_overlay.rs     # Page overlay with resource renaming
 │       ├── pdf_overlay_helpers.rs # Shared helpers for overlay/place-page operations
 │       ├── pdf_place_page.rs  # Positioned/scaled page placement
-│       └── pdf_watermark.rs   # Text watermark rendering
+│       ├── pdf_watermark.rs   # Text watermark rendering
+│       └── pdf_font_composite.rs # Type0/CIDFontType2 (Identity-H) Unicode text encoding
 ├── medpdf-image/              # Image embedding companion crate
 │   ├── Cargo.toml
 │   └── src/
@@ -50,7 +51,7 @@ medpdf/                        # Repository root (workspace)
 
 ## Architecture Overview
 
-**medpdf** is a reusable library providing medium-level PDF operations over lopdf. Consumers include [pdf-maker](https://github.com/ComposerChrisF/pdf-maker) (separate repo).
+**medpdf** is a reusable library providing medium-level PDF operations over lopdf.  Consumers include [pdf-maker](https://github.com/ComposerChrisF/pdf-maker) (separate repo).
 
 ### Module Responsibilities
 
@@ -70,7 +71,8 @@ medpdf/                        # Repository root (workspace)
 | `medpdf::pdf_overlay` | `overlay_page()` - merge content with resource renaming |
 | `medpdf::pdf_overlay_helpers` | Shared helpers for overlay/place-page: resource key collection, renaming, content stream normalization |
 | `medpdf::pdf_place_page` | `place_page()` - place a source page at a specific position, scale, and rotation (arbitrary angle) with optional clipping (default: enabled) |
-| `medpdf::pdf_watermark` | `add_text_params()` - text watermark rendering with color, alignment, rotation, alpha; `EmbeddedFontCache` for deduplicating embedded font objects across pages |
+| `medpdf::pdf_watermark` | `add_text_params()` - text watermark rendering with color, alignment, rotation, alpha; `EmbeddedFontCache` for deduplicating embedded font objects across pages; picks the WinAnsi simple-font fast path or the Type0 composite path per call |
+| `medpdf::pdf_font_composite` | Type0/CIDFontType2 composite-font pieces (Identity-H GID encoding, `/W` widths, ToUnicode CMap) for text with characters outside WinAnsiEncoding |
 | `medpdf_image` | Image embedding companion crate (JPEG, PNG, etc.) |
 
 ### Key Patterns
@@ -81,7 +83,9 @@ medpdf/                        # Repository root (workspace)
 
 **Font Discovery Pipeline**: Numeric handle → built-in (@Helvetica, @Courier, etc.) → system search via font-kit → direct file path
 
-**Embedded Font Caching**: Two-level caching prevents redundant work. `FontCache` caches font file reads as `Arc<Vec<u8>>` (keyed by path). `EmbeddedFontCache` caches the resulting PDF font objects (keyed by `Arc` pointer identity), so the same embedded font is only added to the document once even when applied to many pages. Embedded font streams are compressed (deflate) before insertion.
+**Embedded Font Caching**: Two-level caching prevents redundant work. `FontCache` caches font file reads as `Arc<Vec<u8>>` (keyed by path). `EmbeddedFontCache` caches the resulting PDF font objects (keyed by `(Arc` pointer identity`, EncodingKind)`), so the same embedded font is only added to the document once per encoding even when applied to many pages.  Embedded font streams are compressed (deflate) before insertion.
+
+**Unicode Text (WinAnsi vs Type0)**: `add_text_params()` chooses per call.  Text representable in WinAnsiEncoding (CP1252) uses a single-byte simple Type1/TrueType font (the fast path, subsettable via `subset_fonts`).  Text with any character outside CP1252 — Hawaiian ‘okina/kahakō, etc. — with an embedded font switches to a Type0/CIDFontType2 composite font (Identity-H, full font embedded, `/W` widths + ToUnicode CMap for extraction).  The `/W` and ToUnicode are refreshed after each composite draw so the font stays valid without any finalize pass.  Built-in Standard-14 fonts and missing glyphs fail loudly with `MedpdfError::UnrepresentableText` (unless `AddTextParams::lossy_text` restores `?`/`.notdef` substitution).  One face may be embedded twice (simple + composite) when a page mixes both.
 
 ### PDF Key Constants
 
@@ -89,4 +93,5 @@ medpdf/                        # Repository root (workspace)
 
 ### Known Limitations
 
-(None at this time.)
+- **Type0 composite fonts are not subsetted.** The full font file is embedded whenever Unicode text needs the composite path, so a Unicode watermark enlarges the PDF by the full font size.  Subsetting composite fonts (a GID-remapping `CIDToGIDMap` pass that leaves content-stream GIDs untouched) is a planned follow-up.  The WinAnsi simple-font path is still subsetted normally by `subset_fonts`.
+- **No complex-script shaping.** The composite path emits one glyph per Unicode scalar via the cmap (no ligatures, combining-mark composition, or bidi).  Precomposed forms (e.g. kahakō `ā` = U+0101) render correctly; decomposed sequences do not compose.

@@ -96,6 +96,32 @@ pub(crate) fn unicode_to_winansi(c: char) -> u8 {
     }
 }
 
+/// Whether a character is representable in WinAnsiEncoding (CP1252).
+///
+/// Mirrors [`unicode_to_winansi`] exactly: a char is representable iff it maps to a
+/// defined WinAnsi byte (Latin-1 `0x00–0x7F` / `0xA0–0xFF`, or one of the 0x80–0x9F
+/// special mappings). Used to decide whether the single-byte fast path suffices or a
+/// Type0 composite font is required.
+pub(crate) fn char_in_winansi(c: char) -> bool {
+    let cp = c as u32;
+    match cp {
+        0x0000..=0x007F | 0x00A0..=0x00FF => true,
+        _ => WINANSI_SPECIAL.iter().any(|(_, ch)| *ch == c),
+    }
+}
+
+/// Returns the distinct characters in `text` that are NOT representable in
+/// WinAnsiEncoding, in first-seen order. Empty means the WinAnsi fast path is safe.
+pub(crate) fn non_winansi_chars(text: &str) -> Vec<char> {
+    let mut out: Vec<char> = Vec::new();
+    for ch in text.chars() {
+        if !char_in_winansi(ch) && !out.contains(&ch) {
+            out.push(ch);
+        }
+    }
+    out
+}
+
 pub(crate) fn get_font_widths(face: &Face, first_char: u8, last_char: u8) -> Vec<u16> {
     debug_assert!(
         last_char >= first_char,
@@ -250,8 +276,9 @@ pub fn measure_text_width(
 ) -> Result<f32, MedpdfError> {
     match font_data {
         crate::font_data::FontData::Hack(_) | crate::font_data::FontData::BuiltIn(_) => {
-            // Rough estimate: 0.6 * font_size per character for monospace-ish fonts
-            Ok(text.len() as f32 * font_size * 0.6)
+            // Rough estimate: 0.6 * font_size per character for monospace-ish fonts.
+            // Count characters, not bytes, so multibyte text is not over-measured.
+            Ok(text.chars().count() as f32 * font_size * 0.6)
         }
         crate::font_data::FontData::Embedded(data) => {
             let face = Face::parse(data, 0)?;

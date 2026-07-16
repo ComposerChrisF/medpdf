@@ -13,6 +13,7 @@ pub mod pdf_copy_page;
 pub mod pdf_delete_page;
 pub mod pdf_encryption;
 pub mod pdf_font;
+mod pdf_font_composite;
 pub mod pdf_helpers;
 pub mod pdf_overlay;
 mod pdf_overlay_helpers;

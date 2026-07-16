@@ -12,7 +12,16 @@ use crate::pdf_helpers::{KEY_CONTENTS, KEY_EXTGSTATE, KEY_FONT, KEY_FONT_DESCRIP
 use lopdf::content::{Content, Operation};
 use lopdf::{Document, Object, ObjectId, Stream, StringFormat, dictionary};
 
-/// Per-font tracking entry for subsetting support.
+/// How an embedded font is written into the PDF: the single-byte WinAnsi simple-font
+/// fast path, or a Type0/CIDFontType2 composite font (Identity-H) for text with
+/// characters outside CP1252.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum EncodingKind {
+    Simple,
+    Composite,
+}
+
+/// Per-font tracking entry for subsetting and composite-font map maintenance.
 pub struct CachedFontEntry {
     pub(crate) font_id: ObjectId,
     pub(crate) font_key: String,
@@ -20,15 +29,24 @@ pub struct CachedFontEntry {
     pub(crate) descriptor_id: ObjectId,
     pub(crate) data: Arc<Vec<u8>>,
     pub(crate) used_chars: HashSet<char>,
+    pub(crate) encoding: EncodingKind,
+    /// Composite only: the CIDFontType2 descendant dict, whose `/W` array is refreshed
+    /// as more characters are drawn.
+    pub(crate) cidfont_id: Option<ObjectId>,
+    /// Composite only: the ToUnicode CMap stream, rewritten as more characters are drawn.
+    pub(crate) tounicode_id: Option<ObjectId>,
 }
 
 /// Cache for embedded font PDF objects, preventing duplicate font embedding.
 ///
-/// Keys on `Arc::as_ptr()` identity — safe because [`FontCache`](crate::pdf_font::FontCache)
-/// guarantees the same `Arc<Vec<u8>>` for the same font path. Stores font dictionary IDs,
-/// stream IDs, and character usage for post-watermark subsetting.
+/// Keys on `(Arc::as_ptr() identity, EncodingKind)` — safe because
+/// [`FontCache`](crate::pdf_font::FontCache) guarantees the same `Arc<Vec<u8>>` for the
+/// same font path. The encoding is part of the key because one physical face may be
+/// embedded both as a simple WinAnsi font (for pure-CP1252 text) and as a composite
+/// font (for Unicode text). Stores font dictionary IDs, stream IDs, and character usage
+/// for post-watermark subsetting and composite `/W`/ToUnicode refresh.
 pub struct EmbeddedFontCache {
-    cache: HashMap<usize, CachedFontEntry>,
+    cache: HashMap<(usize, EncodingKind), CachedFontEntry>,
 }
 
 impl EmbeddedFontCache {
@@ -38,33 +56,17 @@ impl EmbeddedFontCache {
         }
     }
 
-    fn get(&self, data: &Arc<Vec<u8>>) -> Option<&CachedFontEntry> {
-        self.cache.get(&(Arc::as_ptr(data) as usize))
+    fn get(&self, data: &Arc<Vec<u8>>, encoding: EncodingKind) -> Option<&CachedFontEntry> {
+        self.cache.get(&(Arc::as_ptr(data) as usize, encoding))
     }
 
-    fn insert(
-        &mut self,
-        data: &Arc<Vec<u8>>,
-        font_id: ObjectId,
-        font_key: String,
-        font_stream_id: ObjectId,
-        descriptor_id: ObjectId,
-    ) {
-        self.cache.insert(
-            Arc::as_ptr(data) as usize,
-            CachedFontEntry {
-                font_id,
-                font_key,
-                font_stream_id,
-                descriptor_id,
-                data: Arc::clone(data),
-                used_chars: HashSet::new(),
-            },
-        );
+    fn insert_entry(&mut self, data: &Arc<Vec<u8>>, entry: CachedFontEntry) {
+        self.cache
+            .insert((Arc::as_ptr(data) as usize, entry.encoding), entry);
     }
 
-    fn record_chars(&mut self, data: &Arc<Vec<u8>>, text: &str) {
-        if let Some(entry) = self.cache.get_mut(&(Arc::as_ptr(data) as usize)) {
+    fn record_chars(&mut self, data: &Arc<Vec<u8>>, encoding: EncodingKind, text: &str) {
+        if let Some(entry) = self.cache.get_mut(&(Arc::as_ptr(data) as usize, encoding)) {
             entry.used_chars.extend(text.chars());
         }
     }
@@ -166,6 +168,7 @@ fn add_font_objects(
     font_data: &crate::font_data::FontData,
     font_name: &str,
     font_cache: &mut EmbeddedFontCache,
+    encoding: EncodingKind,
 ) -> Result<String> {
     match font_data {
         crate::font_data::FontData::Hack(n) => Ok(format!("F{n}")),
@@ -173,20 +176,20 @@ fn add_font_objects(
             add_known_named_font(dest_doc, page_id, font_name)
         }
         crate::font_data::FontData::Embedded(data) => {
-            if let Some(entry) = font_cache.get(data) {
-                // Font already embedded — just register it in this page's resources
+            if let Some(entry) = font_cache.get(data, encoding) {
+                // Font already embedded with this encoding — just register it in this
+                // page's resources.
                 register_font_in_page_resources(dest_doc, page_id, entry.font_id)?;
                 Ok(entry.font_key.clone())
             } else {
-                let (font_id, font_key, font_stream_id, descriptor_id) =
-                    add_embedded_font(dest_doc, page_id, data)?;
-                font_cache.insert(
-                    data,
-                    font_id,
-                    font_key.clone(),
-                    font_stream_id,
-                    descriptor_id,
-                );
+                let entry = match encoding {
+                    EncodingKind::Simple => add_embedded_font_simple(dest_doc, page_id, data)?,
+                    EncodingKind::Composite => {
+                        add_embedded_font_composite(dest_doc, page_id, data)?
+                    }
+                };
+                let font_key = entry.font_key.clone();
+                font_cache.insert_entry(data, entry);
                 Ok(font_key)
             }
         }
@@ -358,8 +361,9 @@ fn build_text_ops(
     params: &crate::types::AddTextParams,
     font_key: &str,
     metrics: &TextMetrics,
+    encoded_text: Vec<u8>,
+    string_format: StringFormat,
 ) -> Result<Vec<Operation>> {
-    let encoded_text = utf8_to_winansi(&params.text);
     let mut ops = vec![Operation::new("q", vec![])];
     let color = params.color.clamped();
 
@@ -406,7 +410,7 @@ fn build_text_ops(
 
     ops.push(Operation::new(
         "Tj",
-        vec![Object::String(encoded_text, StringFormat::Literal)],
+        vec![Object::String(encoded_text, string_format)],
     ));
     ops.push(Operation::new("ET", vec![]));
 
@@ -489,21 +493,88 @@ pub fn add_text_params(
     params: &crate::types::AddTextParams,
     font_cache: &mut EmbeddedFontCache,
 ) -> Result<()> {
+    // Decide the encoding: any character outside WinAnsiEncoding requires a Type0
+    // composite font, which is only possible for an embedded font.
+    let non_winansi = font_helpers::non_winansi_chars(&params.text);
+    let is_embedded = matches!(params.font_data, crate::font_data::FontData::Embedded(_));
+
+    if !non_winansi.is_empty() && !is_embedded && !params.lossy_text {
+        // Built-in Standard-14 / Hack fonts are WinAnsi-bound: fail loudly instead of
+        // silently substituting '?'.
+        return Err(MedpdfError::UnrepresentableText {
+            chars: non_winansi,
+            font: params.font_name.clone(),
+        });
+    }
+
+    let encoding = if is_embedded && !non_winansi.is_empty() {
+        EncodingKind::Composite
+    } else {
+        EncodingKind::Simple
+    };
+
+    // Encode the text first so a missing-glyph failure aborts before we mutate the doc.
+    let (encoded_text, string_format) = encode_text_for_font(params, encoding)?;
+
     let font_key = add_font_objects(
         dest_doc,
         page_id,
         &params.font_data,
         &params.font_name,
         font_cache,
+        encoding,
     )?;
     if let crate::font_data::FontData::Embedded(ref data) = params.font_data {
-        font_cache.record_chars(data, &params.text);
+        font_cache.record_chars(data, encoding, &params.text);
+        if encoding == EncodingKind::Composite
+            && let Some(entry) = font_cache.get(data, encoding)
+        {
+            refresh_composite_maps(dest_doc, entry)?;
+        }
     }
     let metrics = compute_text_metrics(params);
-    let mut ops = build_text_ops(dest_doc, page_id, params, &font_key, &metrics)?;
+    let mut ops = build_text_ops(
+        dest_doc,
+        page_id,
+        params,
+        &font_key,
+        &metrics,
+        encoded_text,
+        string_format,
+    )?;
     ops.extend(build_decoration_ops(params, &metrics));
     ops.push(Operation::new("Q", vec![]));
     encode_and_insert(dest_doc, page_id, ops, params.layer_over)
+}
+
+/// Encodes the text into content-stream bytes for the chosen encoding: single-byte
+/// WinAnsi (literal string) for the simple path, or 2-byte Identity-H glyph IDs
+/// (hexadecimal string) for the composite path. Fails loudly on a missing glyph unless
+/// `lossy_text` is set.
+fn encode_text_for_font(
+    params: &crate::types::AddTextParams,
+    encoding: EncodingKind,
+) -> Result<(Vec<u8>, StringFormat)> {
+    match encoding {
+        EncodingKind::Simple => Ok((utf8_to_winansi(&params.text), StringFormat::Literal)),
+        EncodingKind::Composite => {
+            let bytes = params.font_data.embedded_bytes().ok_or_else(|| {
+                MedpdfError::new("composite text encoding requires an embedded font")
+            })?;
+            let face = ttf_parser::Face::parse(bytes, 0)?;
+            match crate::pdf_font_composite::encode_text_identity(
+                &face,
+                &params.text,
+                params.lossy_text,
+            ) {
+                Ok(gids) => Ok((gids, StringFormat::Hexadecimal)),
+                Err(missing) => Err(MedpdfError::UnrepresentableText {
+                    chars: missing,
+                    font: params.font_name.clone(),
+                }),
+            }
+        }
+    }
 }
 
 /// Inserts a content stream into a page, either over or under existing content.
@@ -655,29 +726,17 @@ pub fn add_line(
     encode_and_insert(dest_doc, page_id, ops, params.layer_over)
 }
 
-fn add_embedded_font(
+/// Builds the FontDescriptor dictionary and the compressed embedded-font stream, shared
+/// by the simple and composite embedding paths. Returns `(descriptor_id, font_file_id)`.
+fn add_descriptor_and_fontfile(
     dest_doc: &mut Document,
-    page_id: ObjectId,
     font_data: &[u8],
-) -> Result<(ObjectId, String, ObjectId, ObjectId)> {
-    let (font_info, font_descriptor) = font_helpers::get_pdf_font_info_of_data(font_data)?;
-    let mut font_dict = dictionary! {
-        "Type" => "Font",
-        "Subtype" =>  font_info.subtype,
-        "BaseFont" => font_info.base_font,
-        "FirstChar" => font_info.first_char,
-        "LastChar" => font_info.last_char,
-        "Widths" => widths_as_object_array(&font_info.widths[..]),
-    };
-
-    // Only add Encoding if present (symbol fonts omit it)
-    if let Some(ref encoding) = font_info.encoding {
-        font_dict.set("Encoding", Object::Name(encoding.as_bytes().to_vec()));
-    }
+    font_descriptor: &font_helpers::FontDescriptorPdfInfo,
+) -> Result<(ObjectId, ObjectId)> {
     let font_bbox = bbox_as_object_array(&font_descriptor.font_bbox[..])?;
     let mut descriptor_dict = dictionary! {
         "Type" => "FontDescriptor",
-        "FontName" => font_descriptor.font_name,
+        "FontName" => font_descriptor.font_name.clone(),
         "Flags" => font_descriptor.flags,
         "FontBBox" => font_bbox,
         "ItalicAngle" => font_descriptor.italic_angle,
@@ -694,13 +753,133 @@ fn add_embedded_font(
     let mut font_file = Stream::new(font_file_dict, font_data.into());
     font_file.compress()?;
     let font_file_id = dest_doc.add_object(font_file);
-    descriptor_dict.set(font_descriptor.font_file_key, font_file_id);
+    descriptor_dict.set(font_descriptor.font_file_key.clone(), font_file_id);
     let descriptor_id = dest_doc.add_object(descriptor_dict);
+    Ok((descriptor_id, font_file_id))
+}
+
+/// Embeds a font as a simple (single-byte WinAnsi) Type1/TrueType font — the fast path
+/// for pure-CP1252 text.
+fn add_embedded_font_simple(
+    dest_doc: &mut Document,
+    page_id: ObjectId,
+    data: &Arc<Vec<u8>>,
+) -> Result<CachedFontEntry> {
+    let (font_info, font_descriptor) = font_helpers::get_pdf_font_info_of_data(data)?;
+    let mut font_dict = dictionary! {
+        "Type" => "Font",
+        "Subtype" =>  font_info.subtype,
+        "BaseFont" => font_info.base_font,
+        "FirstChar" => font_info.first_char,
+        "LastChar" => font_info.last_char,
+        "Widths" => widths_as_object_array(&font_info.widths[..]),
+    };
+
+    // Only add Encoding if present (symbol fonts omit it)
+    if let Some(ref encoding) = font_info.encoding {
+        font_dict.set("Encoding", Object::Name(encoding.as_bytes().to_vec()));
+    }
+    let (descriptor_id, font_file_id) =
+        add_descriptor_and_fontfile(dest_doc, data, &font_descriptor)?;
     font_dict.set(KEY_FONT_DESCRIPTOR, descriptor_id);
 
     let font_id = dest_doc.add_object(font_dict);
     let font_key = register_font_in_page_resources(dest_doc, page_id, font_id)?;
-    Ok((font_id, font_key, font_file_id, descriptor_id))
+    Ok(CachedFontEntry {
+        font_id,
+        font_key,
+        font_stream_id: font_file_id,
+        descriptor_id,
+        data: Arc::clone(data),
+        used_chars: HashSet::new(),
+        encoding: EncodingKind::Simple,
+        cidfont_id: None,
+        tounicode_id: None,
+    })
+}
+
+/// Embeds a font as a Type0/CIDFontType2 composite font with Identity-H encoding, for
+/// text containing characters outside WinAnsiEncoding. The full font is embedded
+/// (CID = GID, `CIDToGIDMap` = Identity); the `/W` array and ToUnicode CMap start empty
+/// and are filled by [`refresh_composite_maps`] as characters are drawn.
+fn add_embedded_font_composite(
+    dest_doc: &mut Document,
+    page_id: ObjectId,
+    data: &Arc<Vec<u8>>,
+) -> Result<CachedFontEntry> {
+    let (font_info, font_descriptor) = font_helpers::get_pdf_font_info_of_data(data)?;
+    let (descriptor_id, font_file_id) =
+        add_descriptor_and_fontfile(dest_doc, data, &font_descriptor)?;
+
+    // ToUnicode CMap stream (placeholder; filled by refresh_composite_maps).
+    let tounicode_id = dest_doc.add_object(Stream::new(dictionary! {}, Vec::new()));
+
+    // CIDFontType2 descendant font.
+    let cidfont_dict = dictionary! {
+        "Type" => "Font",
+        "Subtype" => "CIDFontType2",
+        "BaseFont" => font_info.base_font.clone(),
+        "CIDSystemInfo" => dictionary! {
+            "Registry" => Object::string_literal("Adobe"),
+            "Ordering" => Object::string_literal("Identity"),
+            "Supplement" => 0_i64,
+        },
+        "FontDescriptor" => descriptor_id,
+        "CIDToGIDMap" => Object::Name(b"Identity".to_vec()),
+        "DW" => 1000_i64,
+        "W" => Object::Array(Vec::new()),
+    };
+    let cidfont_id = dest_doc.add_object(cidfont_dict);
+
+    // Type0 parent font.
+    let type0_dict = dictionary! {
+        "Type" => "Font",
+        "Subtype" => "Type0",
+        "BaseFont" => font_info.base_font,
+        "Encoding" => Object::Name(b"Identity-H".to_vec()),
+        "DescendantFonts" => Object::Array(vec![Object::Reference(cidfont_id)]),
+        "ToUnicode" => Object::Reference(tounicode_id),
+    };
+    let font_id = dest_doc.add_object(type0_dict);
+    let font_key = register_font_in_page_resources(dest_doc, page_id, font_id)?;
+
+    Ok(CachedFontEntry {
+        font_id,
+        font_key,
+        font_stream_id: font_file_id,
+        descriptor_id,
+        data: Arc::clone(data),
+        used_chars: HashSet::new(),
+        encoding: EncodingKind::Composite,
+        cidfont_id: Some(cidfont_id),
+        tounicode_id: Some(tounicode_id),
+    })
+}
+
+/// Rewrites a composite font's `/W` widths array and ToUnicode CMap to cover all
+/// characters drawn with it so far. Called after each composite draw so the font stays
+/// valid without any end-of-run finalize pass.
+fn refresh_composite_maps(dest_doc: &mut Document, entry: &CachedFontEntry) -> Result<()> {
+    let (Some(cidfont_id), Some(tounicode_id)) = (entry.cidfont_id, entry.tounicode_id) else {
+        return Ok(());
+    };
+    let face = ttf_parser::Face::parse(&entry.data, 0)?;
+
+    let w_array = crate::pdf_font_composite::build_w_array(&face, &entry.used_chars);
+    if let Ok(dict) = dest_doc
+        .get_object_mut(cidfont_id)
+        .and_then(|o| o.as_dict_mut())
+    {
+        dict.set("W", w_array);
+    }
+
+    let cmap_bytes = crate::pdf_font_composite::build_tounicode_cmap(&face, &entry.used_chars);
+    let mut cmap_stream = Stream::new(dictionary! {}, cmap_bytes);
+    cmap_stream.compress()?;
+    dest_doc
+        .objects
+        .insert(tounicode_id, Object::Stream(cmap_stream));
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1010,14 +1189,37 @@ mod tests {
         assert!(cache.cache.is_empty());
     }
 
+    /// Builds a simple-encoding cache entry for tests.
+    fn simple_entry(
+        data: &Arc<Vec<u8>>,
+        font_id: ObjectId,
+        font_key: &str,
+        font_stream_id: ObjectId,
+        descriptor_id: ObjectId,
+    ) -> CachedFontEntry {
+        CachedFontEntry {
+            font_id,
+            font_key: font_key.into(),
+            font_stream_id,
+            descriptor_id,
+            data: Arc::clone(data),
+            used_chars: HashSet::new(),
+            encoding: EncodingKind::Simple,
+            cidfont_id: None,
+            tounicode_id: None,
+        }
+    }
+
     #[test]
     fn test_embedded_font_cache_insert_and_get() {
         let mut cache = EmbeddedFontCache::new();
         let data = Arc::new(vec![1, 2, 3]);
-        let font_id = (42, 0);
-        cache.insert(&data, font_id, "F42".into(), (100, 0), (101, 0));
+        cache.insert_entry(
+            &data,
+            simple_entry(&data, (42, 0), "F42", (100, 0), (101, 0)),
+        );
 
-        let entry = cache.get(&data);
+        let entry = cache.get(&data, EncodingKind::Simple);
         assert!(entry.is_some());
         let entry = entry.unwrap();
         assert_eq!(entry.font_id, (42, 0));
@@ -1031,11 +1233,14 @@ mod tests {
     fn test_embedded_font_cache_same_arc_hits() {
         let mut cache = EmbeddedFontCache::new();
         let data = Arc::new(vec![1, 2, 3]);
-        cache.insert(&data, (10, 0), "F10".into(), (100, 0), (101, 0));
+        cache.insert_entry(
+            &data,
+            simple_entry(&data, (10, 0), "F10", (100, 0), (101, 0)),
+        );
 
         // Clone the Arc — same pointer, should hit cache
         let data_clone = Arc::clone(&data);
-        let result = cache.get(&data_clone);
+        let result = cache.get(&data_clone, EncodingKind::Simple);
         assert!(result.is_some());
     }
 
@@ -1043,12 +1248,31 @@ mod tests {
     fn test_embedded_font_cache_different_arc_misses() {
         let mut cache = EmbeddedFontCache::new();
         let data1 = Arc::new(vec![1, 2, 3]);
-        cache.insert(&data1, (10, 0), "F10".into(), (100, 0), (101, 0));
+        cache.insert_entry(
+            &data1,
+            simple_entry(&data1, (10, 0), "F10", (100, 0), (101, 0)),
+        );
 
         // Different Arc with identical content — different pointer, should miss
         let data2 = Arc::new(vec![1, 2, 3]);
-        let result = cache.get(&data2);
+        let result = cache.get(&data2, EncodingKind::Simple);
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_embedded_font_cache_encoding_kind_distinct() {
+        // The same Arc embedded under two encodings occupies two independent slots.
+        let mut cache = EmbeddedFontCache::new();
+        let data = Arc::new(vec![1, 2, 3]);
+        cache.insert_entry(
+            &data,
+            simple_entry(&data, (10, 0), "F10", (100, 0), (101, 0)),
+        );
+        assert!(cache.get(&data, EncodingKind::Simple).is_some());
+        assert!(
+            cache.get(&data, EncodingKind::Composite).is_none(),
+            "composite slot is separate from the simple slot"
+        );
     }
 
     #[test]
@@ -1056,14 +1280,20 @@ mod tests {
         let mut cache = EmbeddedFontCache::new();
         let font_a = Arc::new(vec![1, 2, 3]);
         let font_b = Arc::new(vec![4, 5, 6]);
-        cache.insert(&font_a, (10, 0), "F10".into(), (100, 0), (101, 0));
-        cache.insert(&font_b, (20, 0), "F20".into(), (200, 0), (201, 0));
+        cache.insert_entry(
+            &font_a,
+            simple_entry(&font_a, (10, 0), "F10", (100, 0), (101, 0)),
+        );
+        cache.insert_entry(
+            &font_b,
+            simple_entry(&font_b, (20, 0), "F20", (200, 0), (201, 0)),
+        );
 
-        let entry_a = cache.get(&font_a).unwrap();
+        let entry_a = cache.get(&font_a, EncodingKind::Simple).unwrap();
         assert_eq!(entry_a.font_id, (10, 0));
         assert_eq!(entry_a.font_key, "F10");
 
-        let entry_b = cache.get(&font_b).unwrap();
+        let entry_b = cache.get(&font_b, EncodingKind::Simple).unwrap();
         assert_eq!(entry_b.font_id, (20, 0));
         assert_eq!(entry_b.font_key, "F20");
     }
@@ -1072,17 +1302,20 @@ mod tests {
     fn test_embedded_font_cache_miss_on_empty() {
         let cache = EmbeddedFontCache::new();
         let data = Arc::new(vec![1, 2, 3]);
-        assert!(cache.get(&data).is_none());
+        assert!(cache.get(&data, EncodingKind::Simple).is_none());
     }
 
     #[test]
     fn test_embedded_font_cache_record_chars() {
         let mut cache = EmbeddedFontCache::new();
         let data = Arc::new(vec![1, 2, 3]);
-        cache.insert(&data, (10, 0), "F10".into(), (100, 0), (101, 0));
+        cache.insert_entry(
+            &data,
+            simple_entry(&data, (10, 0), "F10", (100, 0), (101, 0)),
+        );
 
-        cache.record_chars(&data, "DRAFT");
-        let entry = cache.get(&data).unwrap();
+        cache.record_chars(&data, EncodingKind::Simple, "DRAFT");
+        let entry = cache.get(&data, EncodingKind::Simple).unwrap();
         assert_eq!(entry.used_chars.len(), 5);
         assert!(entry.used_chars.contains(&'D'));
         assert!(entry.used_chars.contains(&'R'));
@@ -1091,8 +1324,8 @@ mod tests {
         assert!(entry.used_chars.contains(&'T'));
 
         // Recording again with overlapping chars shouldn't double them
-        cache.record_chars(&data, "DATA");
-        let entry = cache.get(&data).unwrap();
+        cache.record_chars(&data, EncodingKind::Simple, "DATA");
+        let entry = cache.get(&data, EncodingKind::Simple).unwrap();
         assert_eq!(entry.used_chars.len(), 5); // still 5 — no new unique chars
     }
 }

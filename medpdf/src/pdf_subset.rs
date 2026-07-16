@@ -15,7 +15,7 @@ use lopdf::{Document, Object, Stream, dictionary};
 use rand::RngExt;
 
 use crate::Result;
-use crate::pdf_watermark::{CachedFontEntry, EmbeddedFontCache};
+use crate::pdf_watermark::{CachedFontEntry, EmbeddedFontCache, EncodingKind};
 
 /// Subsets all embedded fonts in the document, replacing full font streams
 /// with minimal versions containing only used glyphs.
@@ -25,6 +25,11 @@ use crate::pdf_watermark::{CachedFontEntry, EmbeddedFontCache};
 pub fn subset_fonts(doc: &mut Document, font_cache: &EmbeddedFontCache) -> Result<()> {
     for entry in font_cache.embedded_entries() {
         if entry.used_chars.is_empty() {
+            continue;
+        }
+        // Composite (Type0) fonts embed the full font in v1; Type0 subsetting (a
+        // GID-remapping CIDToGIDMap pass) is a documented follow-up. Skip them here.
+        if entry.encoding == EncodingKind::Composite {
             continue;
         }
         match subset_single_font(doc, entry) {
@@ -572,6 +577,9 @@ mod tests {
             descriptor_id,
             data: font_data,
             used_chars,
+            encoding: EncodingKind::Simple,
+            cidfont_id: None,
+            tounicode_id: None,
         };
 
         let result = subset_single_font(&mut doc, &entry);
@@ -614,6 +622,9 @@ mod tests {
             descriptor_id,
             data: garbage_data,
             used_chars,
+            encoding: EncodingKind::Simple,
+            cidfont_id: None,
+            tounicode_id: None,
         };
 
         let result = subset_single_font(&mut doc, &entry);
@@ -656,6 +667,9 @@ mod tests {
             descriptor_id,
             data: font_data,
             used_chars,
+            encoding: EncodingKind::Simple,
+            cidfont_id: None,
+            tounicode_id: None,
         };
 
         let result = subset_single_font(&mut doc, &entry);

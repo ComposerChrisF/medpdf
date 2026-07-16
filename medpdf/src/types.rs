@@ -146,6 +146,10 @@ pub struct AddTextParams {
     pub layer_over: bool,
     pub strikeout: bool,
     pub underline: bool,
+    /// When true, characters the font cannot represent fall back to best-effort
+    /// substitution (`?` for the WinAnsi path, `.notdef` for the composite path) with
+    /// a logged warning, instead of failing loudly. Defaults to false.
+    pub lossy_text: bool,
 }
 
 impl AddTextParams {
@@ -168,6 +172,7 @@ impl AddTextParams {
             layer_over: true,
             strikeout: false,
             underline: false,
+            lossy_text: false,
         }
     }
 
@@ -214,6 +219,11 @@ impl AddTextParams {
 
     pub fn underline(mut self, underline: bool) -> Self {
         self.underline = underline;
+        self
+    }
+
+    pub fn lossy_text(mut self, lossy: bool) -> Self {
+        self.lossy_text = lossy;
         self
     }
 }
