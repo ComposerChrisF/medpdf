@@ -6,6 +6,10 @@ description = "Visual regression testing for PDF crates"
 license = "MIT OR Apache-2.0"
 publish = false
 
+[package.metadata.release]
+# Excluded from cargo-release entirely (visual-test crate, never published).
+release = false
+
 [dependencies]
 dssim-core = "3"
 rgb = "0.8"
