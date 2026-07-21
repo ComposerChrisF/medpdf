@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-07-21
+### Fixed
+- bug-0007: a reference cycle not passing through `/Parent` (an annotation’s
+  `/P` page back-reference, a self-linking `/Dest`) made `deep_copy_object_by_id`
+  recurse forever and overflow the stack — an uncatchable `SIGABRT`, not an
+  `Err`.  The destination object ID is now reserved and the source→dest mapping
+  recorded _before_ recursing, so such a cycle resolves to a plain
+  back-reference instead.  Acyclic output is unchanged.
+
 ## [0.11.0] - 2026-07-15
 ### Added
 - Unicode text via Type0/CIDFontType2 composite fonts, so embedded text can
@@ -42,4 +51,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Earlier history (0.8.x and before: PDF encryption, edition-2024 migration, the
 initial image-embedding split) is in the git log.
 
-[Unreleased]: https://github.com/ComposerChrisF/medpdf/compare/medpdf-v0.11.0...HEAD
+[Unreleased]: https://github.com/ComposerChrisF/medpdf/compare/medpdf-v0.11.1...HEAD

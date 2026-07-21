@@ -8,8 +8,8 @@ A deep bug hunt (2026-07-16) filed **37 verified bug reports**: `bugs/bug-0002` 
 
 ## Step 0 — housekeeping (first commit, needs Chris’s go-ahead to commit)
 
-- [ ] Commit the 37 new bug reports (bug reports are committed when created, per the portfolio bug-reports rule).
-- [ ] In the same or a following commit: **delete `bugs/bug-0001-report-overlay-content-stream-stale-length.md`** — that bug was fixed in v0.10.2 (commit `5c25a85`, pinned by `tests/overlay_length_regression_tests.rs` and `tests/no_raw_stream_content_assignment.rs`); the report was renamed into `bugs/` by `f1a41c0` instead of being deleted.  Commit message should name bug-0001.
+- [x] Commit the 37 new bug reports (bug reports are committed when created, per the portfolio bug-reports rule).  _Done: commit `87f7bbf`._
+- [x] In the same or a following commit: **delete `bugs/bug-0001-report-overlay-content-stream-stale-length.md`** — that bug was fixed in v0.10.2 (commit `5c25a85`, pinned by `tests/overlay_length_regression_tests.rs` and `tests/no_raw_stream_content_assignment.rs`); the report was renamed into `bugs/` by `f1a41c0` instead of being deleted.  Commit message should name bug-0001.
 
 ## Step 1 — decisions Chris must make (blocks the marked bugs only)
 
@@ -27,7 +27,7 @@ A deep bug hunt (2026-07-16) filed **37 verified bug reports**: `bugs/bug-0002` 
 
 Order matters here; later fixes reuse mechanisms and helpers from earlier ones.
 
-1. [ ] **bug-0007** (Critical, crash) — deep-copy cycle → stack-overflow abort.  Fix: reserve the dest ID in `copied_objects` **before** recursing.  Independent of everything else; do first.
+1. [x] **bug-0007** (Critical, crash) — deep-copy cycle → stack-overflow abort.  Fix: reserve the dest ID in `copied_objects` **before** recursing.  Independent of everything else; do first.  _Done: `pdf_helpers.rs` two-phase copy + `tests/copy_page_cycle_regression.rs` (child-process, pins the fix)._
 2. [ ] **bug-0018** (High) — stop decode→re-encode of destination content in overlay/place; wrap with standalone `q`/`Q` streams instead; loud error (or correct emitter) for inline images in **source** content; add `LOPDF_INLINE_IMAGE_BUG.md` upstream-defect record at the repo root.  This builds the isolation mechanism that 3 and 6 reuse.
 3. [ ] **bug-0019** (Medium-High) — source fragments must be decoded as one concatenated stream (dest side is already fixed by 0018).
 4. [ ] **bug-0030** (High) — normalize `Reference`-valued resource sub-dicts after deep copy; deref in `add_resource_keys` and in the merge’s dest side.

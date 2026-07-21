@@ -135,14 +135,24 @@ pub fn deep_copy_object_by_id(
         return Ok(new_id);
     }
 
+    // Reserve the destination ID and record the source->dest mapping *before*
+    // recursing, so the in-progress object is visible to its own descendants.
+    // Any reference cycle that does not pass through /Parent — an annotation's
+    // /P page back-reference, a self-linking /Dest, a "back to top" link — then
+    // resolves to a plain back-reference instead of recursing forever and
+    // overflowing the stack (an uncatchable SIGABRT). See bugs/bug-0007. For an
+    // acyclic graph the reservation is answered by nothing, so the output is
+    // byte-for-byte identical to the old post-order insert.
+    let new_id = dest_doc.new_object_id();
+    copied_objects.insert(source_object_id, new_id);
+
     let new_obj = deep_copy_object(
         dest_doc,
         source_doc,
         source_doc.get_object(source_object_id)?,
         copied_objects,
     )?;
-    let new_id = dest_doc.add_object(new_obj);
-    copied_objects.insert(source_object_id, new_id);
+    dest_doc.objects.insert(new_id, new_obj);
     Ok(new_id)
 }
 
