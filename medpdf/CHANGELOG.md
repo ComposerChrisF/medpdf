@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.3] - 2026-07-21
+### Fixed
+- bug-0019: per PDF 32000-1 §7.8.2, a page’s content is the concatenation of
+  its `/Contents` fragments, and a split may fall at any token boundary — not
+  just between operations.  `rename_source_content_streams` used to decode
+  each source fragment independently, so an operation straddling a fragment
+  boundary was silently dropped instead of rendered.  Fragments are now
+  newline-joined and decoded once as a single concatenated stream, renamed,
+  and re-emitted as one combined stream (reusing the first fragment’s object
+  and removing the rest).  The destination-side facet of this class of bug
+  was already fixed by bug-0018.
+
 ## [0.11.2] - 2026-07-21
 ### Fixed
 - bug-0018: overlaying or placing a page re-encoded the destination page’s

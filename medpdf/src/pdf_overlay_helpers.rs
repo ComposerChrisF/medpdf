@@ -4,7 +4,7 @@
 use crate::error::{MedpdfError, Result};
 use crate::pdf_helpers::{self, KEY_KIDS, KEY_PAGE, KEY_PAGES, KEY_RESOURCES, KEY_TYPE};
 use log::warn;
-use lopdf::content::Operation;
+use lopdf::content::{Content, Operation};
 use lopdf::{Dictionary, Document, Object, ObjectId, Stream};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
@@ -169,80 +169,99 @@ fn rename_resource_operands(operation: &mut Operation, key_mapping: &HashMap<Vec
 }
 
 /// Rewrites *source* content streams for overlay/place: renames their resource
-/// references to the post-collision names and wraps the whole concatenated
-/// sequence in a single `q`/`Q` pair so the placed graphics state cannot leak.
+/// references to the post-collision names and wraps the whole thing in a single
+/// `q`/`Q` pair so the placed graphics state cannot leak. Returns the new
+/// `/Contents` reference array — always a single combined stream (or empty, if the
+/// source had no content).
 ///
-/// Renaming inherently requires re-encoding each stream body, so this path also
-/// detects inline images (`BI … ID … EI`) and fails loudly: lopdf 0.42's content
-/// encoder cannot round-trip an inline image without corrupting or deleting it
-/// (see `LOPDF_INLINE_IMAGE_BUG.md` at the repo root). A diagnosable error beats
-/// silent image loss. (Destination streams, which need no renaming, are never
-/// sent here — see `isolate_dest_content_streams`.)
+/// The fragments are concatenated (newline-separated) and decoded **once**, not
+/// per fragment. PDF 32000-1 §7.8.2 defines a page's content as the concatenation
+/// of its `/Contents` streams, and the split between fragments may fall at any
+/// token boundary — an operator and its operands can straddle two fragments.
+/// Decoding fragments independently silently drops any operation split across the
+/// boundary, and truncates everything after any token lopdf cannot parse
+/// (bug-0019). Parsing the concatenation is exactly what a renderer sees, so no
+/// operation can straddle a parse boundary.
+///
+/// Renaming inherently requires re-encoding, so this path also detects inline
+/// images (`BI … ID … EI`) and fails loudly: lopdf 0.42's content encoder cannot
+/// round-trip an inline image without corrupting or deleting it (see
+/// `LOPDF_INLINE_IMAGE_BUG.md` at the repo root). A diagnosable error beats silent
+/// image loss. (Destination streams, which need no renaming, are never sent here —
+/// see `isolate_dest_content_streams`.)
 pub(crate) fn rename_source_content_streams(
     dest_doc: &mut Document,
     contents_arr: &[Object],
     key_mapping: &HashMap<Vec<u8>, Vec<u8>>,
-) -> Result<()> {
-    let len = contents_arr.len();
-    let mut cumulative_q_balance = 0_isize;
-
-    for (idx, content_ref_obj) in contents_arr.iter().enumerate() {
-        let content_stream = dest_doc
-            .get_object_mut(content_ref_obj.as_reference()?)?
-            .as_stream_mut()?;
-        if content_stream.is_compressed() {
-            content_stream.decompress()?;
-        }
-        let mut content = content_stream.decode_content()?;
-
-        for operation in content.operations.iter_mut() {
-            if operation.operator == "BI" {
-                return Err(MedpdfError::new(
-                    "overlay/place source page contains an inline image (BI ... ID ... EI), \
-                     which is unsupported: lopdf 0.42's content-stream encoder cannot round-trip \
-                     an inline image without corrupting it (see LOPDF_INLINE_IMAGE_BUG.md at the \
-                     repo root). Convert the inline image to an image XObject in the source PDF \
-                     and retry.",
-                ));
-            }
-            match operation.operator.as_str() {
-                "q" => cumulative_q_balance += 1,
-                "Q" => cumulative_q_balance -= 1,
-                _ => {}
-            }
-            rename_resource_operands(operation, key_mapping);
-        }
-
-        // Wrap the entire sequence of content streams in a single q/Q pair, rather
-        // than wrapping each stream individually. Multiple content streams for one
-        // page are concatenated — graphics state must carry across them.
-        if idx == 0 {
-            content.operations.insert(0, Operation::new("q", vec![]));
-        }
-        if idx == len - 1 {
-            content.operations.push(Operation::new("Q", vec![]));
-            // Balance any unmatched q operators across all streams.
-            if cumulative_q_balance < 0 {
-                warn!(
-                    "Source content streams have {} more Q than q operators (negative balance)",
-                    -cumulative_q_balance
-                );
-            }
-            for _ in 0..cumulative_q_balance {
-                content.operations.push(Operation::new("Q", vec![]));
-            }
-        }
-
-        // Use set_content (not a raw `content_stream.content = ...`) so the
-        // dictionary's /Length is re-synced to the new body. The re-encode changes
-        // the body length (the q/Q wrapper plus any resource renames), and a raw
-        // field assignment would leave the original /Length in place. lopdf's
-        // reader trusts /Length, so a stale value makes it drop the stream body on
-        // reload — silent loss of the placed content.
-        content_stream.set_content(content.encode()?);
-        content_stream.compress()?;
+) -> Result<Vec<Object>> {
+    let mut ids = Vec::with_capacity(contents_arr.len());
+    for content_ref_obj in contents_arr {
+        ids.push(content_ref_obj.as_reference()?);
     }
-    Ok(())
+    let Some((&target_id, rest_ids)) = ids.split_first() else {
+        return Ok(Vec::new()); // source page had no content
+    };
+
+    // Concatenate every fragment into one buffer, newline-separated so tokens
+    // cannot fuse across a fragment boundary, then decode the whole thing once.
+    let mut combined: Vec<u8> = Vec::new();
+    for &id in &ids {
+        let stream = dest_doc.get_object_mut(id)?.as_stream_mut()?;
+        if stream.is_compressed() {
+            stream.decompress()?;
+        }
+        if !combined.is_empty() {
+            combined.push(b'\n');
+        }
+        combined.extend_from_slice(&stream.content);
+    }
+
+    let mut content = Content::decode(&combined)?;
+    let mut cumulative_q_balance = 0_isize;
+    for operation in content.operations.iter_mut() {
+        if operation.operator == "BI" {
+            return Err(MedpdfError::new(
+                "overlay/place source page contains an inline image (BI ... ID ... EI), \
+                 which is unsupported: lopdf 0.42's content-stream encoder cannot round-trip \
+                 an inline image without corrupting it (see LOPDF_INLINE_IMAGE_BUG.md at the \
+                 repo root). Convert the inline image to an image XObject in the source PDF \
+                 and retry.",
+            ));
+        }
+        match operation.operator.as_str() {
+            "q" => cumulative_q_balance += 1,
+            "Q" => cumulative_q_balance -= 1,
+            _ => {}
+        }
+        rename_resource_operands(operation, key_mapping);
+    }
+
+    // Wrap the combined stream in a single q/Q pair.
+    content.operations.insert(0, Operation::new("q", vec![]));
+    content.operations.push(Operation::new("Q", vec![]));
+    if cumulative_q_balance < 0 {
+        warn!(
+            "Source content streams have {} more Q than q operators (negative balance)",
+            -cumulative_q_balance
+        );
+    }
+    for _ in 0..cumulative_q_balance {
+        content.operations.push(Operation::new("Q", vec![]));
+    }
+
+    // Write the combined, renamed content back into the first fragment's stream,
+    // and drop the now-defunct extra fragments (freshly deep-copied here, so they
+    // are referenced only by this array). set_content (never a raw
+    // `content_stream.content = ...`) keeps /Length in sync with the new body — a
+    // stale /Length makes lopdf drop the stream body on reload.
+    let target = dest_doc.get_object_mut(target_id)?.as_stream_mut()?;
+    target.set_content(content.encode()?);
+    target.compress()?;
+    for &id in rest_ids {
+        dest_doc.objects.remove(&id);
+    }
+
+    Ok(vec![Object::Reference(target_id)])
 }
 
 /// Isolates a destination page's existing content from content that will be

@@ -126,9 +126,11 @@ pub fn place_page(
         }
     }
 
-    // Update source content streams with renamed resource references + q/Q wrapping
+    // Update source content streams with renamed resource references + q/Q wrapping.
+    // Returns a single combined stream (fragments decoded once — bug-0019).
     debug!("Updating source content streams with renamed keys");
-    rename_source_content_streams(dest_doc, &source_contents_arr, &key_mapping)?;
+    let source_contents_arr =
+        rename_source_content_streams(dest_doc, &source_contents_arr, &key_mapping)?;
     if log::log_enabled!(log::Level::Trace) {
         trace!("source_contents_arr: {source_contents_arr:?}");
     }

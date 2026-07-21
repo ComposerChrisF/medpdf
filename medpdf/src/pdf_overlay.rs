@@ -90,9 +90,11 @@ pub fn overlay_page(
         }
     }
 
-    // Update the Contents streams from the overlay document to use the new dictionary keys
+    // Update the Contents streams from the overlay document to use the new dictionary keys.
+    // Returns a single combined stream (fragments decoded once — bug-0019).
     debug!("Updating overlay Content streams to use new keys");
-    rename_source_content_streams(dest_doc, &overlay_contents_arr_new, &key_mapping)?;
+    let overlay_contents_arr_new =
+        rename_source_content_streams(dest_doc, &overlay_contents_arr_new, &key_mapping)?;
     if log::log_enabled!(log::Level::Trace) {
         trace!("arr_new: {overlay_contents_arr_new:?}");
         for item in overlay_contents_arr_new.iter() {
