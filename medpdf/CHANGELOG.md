@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.2] - 2026-07-21
+### Fixed
+- bug-0018: overlaying or placing a page re-encoded the destination page’s
+  content stream(s), which corrupts or drops any inline image (`BI…EI`) the
+  page contains — a `lopdf` 0.42 decode→encode defect (see
+  `LOPDF_INLINE_IMAGE_BUG.md`).  Destination content is now isolated with
+  standalone `q`/`Q` wrapper streams instead of being re-encoded, so it is
+  never touched.  Source content, which must still be re-encoded to rename
+  its resources, now loudly rejects inline images instead of silently
+  mangling them, and its resource renaming is operator-aware.  The
+  `count_q_balance` helper (previously duplicated in `pdf_watermark`) is now
+  shared from `pdf_helpers`.
+
 ## [0.11.1] - 2026-07-21
 ### Fixed
 - bug-0007: a reference cycle not passing through `/Parent` (an annotation’s

@@ -3,8 +3,8 @@
 use crate::error::{MedpdfError, Result};
 use crate::pdf_helpers::{self, KEY_CONTENTS, KEY_PAGES, KEY_RESOURCES};
 use crate::pdf_overlay_helpers::{
-    accumulate_dictionary_keys, merge_resources_into_dest_page, modify_content_stream,
-    rename_resources_in_dict, resolve_contents_to_ref_array,
+    accumulate_dictionary_keys, isolate_dest_content_streams, merge_resources_into_dest_page,
+    rename_resources_in_dict, rename_source_content_streams, resolve_contents_to_ref_array,
 };
 use log::{debug, trace};
 use lopdf::{Document, Object, ObjectId};
@@ -92,7 +92,7 @@ pub fn overlay_page(
 
     // Update the Contents streams from the overlay document to use the new dictionary keys
     debug!("Updating overlay Content streams to use new keys");
-    modify_content_stream(dest_doc, &overlay_contents_arr_new, Some(&key_mapping))?;
+    rename_source_content_streams(dest_doc, &overlay_contents_arr_new, &key_mapping)?;
     if log::log_enabled!(log::Level::Trace) {
         trace!("arr_new: {overlay_contents_arr_new:?}");
         for item in overlay_contents_arr_new.iter() {
@@ -104,7 +104,7 @@ pub fn overlay_page(
     // Now add each element of the Contents array to the destination page's /Contents (normalizing
     // the destination /Contents to be an array).
     debug!("Merging overlay's /Contents into the destination page's /Contents array");
-    let mut dest_contents_arr_new = match dest_doc
+    let dest_contents_base = match dest_doc
         .get_object(dest_page_id)?
         .as_dict()?
         .get(KEY_CONTENTS)
@@ -121,8 +121,11 @@ pub fn overlay_page(
         }
         Err(_) => Vec::new(),
     };
-    debug!("Modifying existing Content streams");
-    modify_content_stream(dest_doc, &dest_contents_arr_new, None)?;
+    // Isolate the destination's own content with standalone q/Q wrapper streams,
+    // WITHOUT re-encoding it (which would corrupt inline images and any page
+    // sharing these streams — bug-0018).
+    debug!("Isolating existing destination content with q/Q wrapper streams");
+    let mut dest_contents_arr_new = isolate_dest_content_streams(dest_doc, dest_contents_base)?;
     for item in overlay_contents_arr_new.iter() {
         let reference = item.as_reference()?;
         dest_contents_arr_new.push(Object::Reference(reference));

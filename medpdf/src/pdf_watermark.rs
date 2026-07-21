@@ -8,7 +8,9 @@ use std::sync::Arc;
 
 use crate::error::{MedpdfError, Result};
 use crate::font_helpers;
-use crate::pdf_helpers::{KEY_CONTENTS, KEY_EXTGSTATE, KEY_FONT, KEY_FONT_DESCRIPTOR};
+use crate::pdf_helpers::{
+    KEY_CONTENTS, KEY_EXTGSTATE, KEY_FONT, KEY_FONT_DESCRIPTOR, count_q_balance,
+};
 use lopdf::content::{Content, Operation};
 use lopdf::{Document, Object, ObjectId, Stream, StringFormat, dictionary};
 
@@ -81,44 +83,6 @@ impl Default for EmbeddedFontCache {
     fn default() -> Self {
         Self::new()
     }
-}
-
-/// Counts the net q/Q balance across content streams.
-/// Returns the number of unclosed 'q' operations (positive means more q's than Q's).
-fn count_q_balance(dest_doc: &Document, content_refs: &[ObjectId]) -> Result<isize> {
-    let mut total_balance: isize = 0;
-
-    for &content_id in content_refs {
-        let obj = dest_doc.get_object(content_id)?;
-        if let Ok(stream) = obj.as_stream() {
-            // Need to decompress if necessary
-            let content_bytes = if stream.is_compressed() {
-                std::borrow::Cow::Owned(stream.decompressed_content()?)
-            } else {
-                std::borrow::Cow::Borrowed(&stream.content)
-            };
-
-            // Parse and count q/Q operations
-            match Content::decode(&content_bytes) {
-                Ok(content) => {
-                    for operation in content.operations.iter() {
-                        match operation.operator.as_str() {
-                            "q" => total_balance += 1,
-                            "Q" => total_balance -= 1,
-                            _ => {}
-                        }
-                    }
-                }
-                Err(e) => {
-                    log::warn!(
-                        "Failed to decode content stream {content_id:?}: {e}; assuming balanced q/Q"
-                    );
-                }
-            }
-        }
-    }
-
-    Ok(total_balance)
 }
 
 /// Gets all content stream ObjectIds from a page's Contents entry.

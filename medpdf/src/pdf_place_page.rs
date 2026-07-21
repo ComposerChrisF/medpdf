@@ -7,8 +7,8 @@
 use crate::error::{MedpdfError, Result};
 use crate::pdf_helpers::{self, KEY_CONTENTS, KEY_PAGES, KEY_RESOURCES};
 use crate::pdf_overlay_helpers::{
-    accumulate_dictionary_keys, merge_resources_into_dest_page, modify_content_stream,
-    rename_resources_in_dict, resolve_contents_to_ref_array,
+    accumulate_dictionary_keys, merge_resources_into_dest_page, rename_resources_in_dict,
+    rename_source_content_streams, resolve_contents_to_ref_array,
 };
 use crate::types::PlacePageParams;
 use log::{debug, trace};
@@ -128,7 +128,7 @@ pub fn place_page(
 
     // Update source content streams with renamed resource references + q/Q wrapping
     debug!("Updating source content streams with renamed keys");
-    modify_content_stream(dest_doc, &source_contents_arr, Some(&key_mapping))?;
+    rename_source_content_streams(dest_doc, &source_contents_arr, &key_mapping)?;
     if log::log_enabled!(log::Level::Trace) {
         trace!("source_contents_arr: {source_contents_arr:?}");
     }

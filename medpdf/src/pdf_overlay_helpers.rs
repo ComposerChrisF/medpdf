@@ -3,9 +3,9 @@
 
 use crate::error::{MedpdfError, Result};
 use crate::pdf_helpers::{self, KEY_KIDS, KEY_PAGE, KEY_PAGES, KEY_RESOURCES, KEY_TYPE};
-use log::{trace, warn};
+use log::warn;
 use lopdf::content::Operation;
-use lopdf::{Dictionary, Document, Object, ObjectId};
+use lopdf::{Dictionary, Document, Object, ObjectId, Stream};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 pub(crate) fn add_resource_keys(keys: &mut HashSet<Vec<u8>>, dict_resources: &Dictionary) {
@@ -127,10 +127,61 @@ pub(crate) fn rename_resources_in_dict(
     Ok(())
 }
 
-pub(crate) fn modify_content_stream(
+/// Renames a single name operand in place if it maps to a post-collision name.
+fn rename_if_mapped(operand: &mut Object, key_mapping: &HashMap<Vec<u8>, Vec<u8>>) {
+    if let Ok(name) = operand.as_name()
+        && let Some(name_new) = key_mapping.get(name)
+    {
+        *operand = Object::Name(name_new.clone());
+    }
+}
+
+/// Renames the resource-name operands of a single operation to their
+/// post-collision names — but only for operators that actually consume a *named
+/// resource*, so a `/Foo` that is a marked-content tag, an inline colorspace
+/// abbreviation, or any other coincidental name is never rewritten just because a
+/// source resource happened to share its spelling (bug-0018 "Related" note).
+fn rename_resource_operands(operation: &mut Operation, key_mapping: &HashMap<Vec<u8>, Vec<u8>>) {
+    match operation.operator.as_str() {
+        // First operand names the resource:
+        //   /F Tf (font)   /Name Do (xobject)   /GS gs (extgstate)
+        //   /Sh sh (shading)   /CS cs | /CS CS (colorspace resource)
+        "Tf" | "Do" | "gs" | "sh" | "cs" | "CS" => {
+            if let Some(first) = operation.operands.first_mut() {
+                rename_if_mapped(first, key_mapping);
+            }
+        }
+        // scn/SCN may carry a trailing pattern-name operand (or only numbers).
+        "scn" | "SCN" => {
+            if let Some(last) = operation.operands.last_mut() {
+                rename_if_mapped(last, key_mapping);
+            }
+        }
+        // BDC/DP: `/Tag /Properties` — only the properties operand (index 1) names
+        // a /Properties resource; the tag lives in a separate namespace.
+        "BDC" | "DP" => {
+            if let Some(props) = operation.operands.get_mut(1) {
+                rename_if_mapped(props, key_mapping);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Rewrites *source* content streams for overlay/place: renames their resource
+/// references to the post-collision names and wraps the whole concatenated
+/// sequence in a single `q`/`Q` pair so the placed graphics state cannot leak.
+///
+/// Renaming inherently requires re-encoding each stream body, so this path also
+/// detects inline images (`BI … ID … EI`) and fails loudly: lopdf 0.42's content
+/// encoder cannot round-trip an inline image without corrupting or deleting it
+/// (see `LOPDF_INLINE_IMAGE_BUG.md` at the repo root). A diagnosable error beats
+/// silent image loss. (Destination streams, which need no renaming, are never
+/// sent here — see `isolate_dest_content_streams`.)
+pub(crate) fn rename_source_content_streams(
     dest_doc: &mut Document,
     contents_arr: &[Object],
-    key_mapping: Option<&HashMap<Vec<u8>, Vec<u8>>>,
+    key_mapping: &HashMap<Vec<u8>, Vec<u8>>,
 ) -> Result<()> {
     let len = contents_arr.len();
     let mut cumulative_q_balance = 0_isize;
@@ -143,63 +194,106 @@ pub(crate) fn modify_content_stream(
             content_stream.decompress()?;
         }
         let mut content = content_stream.decode_content()?;
+
         for operation in content.operations.iter_mut() {
-            match &operation.operator[..] {
+            if operation.operator == "BI" {
+                return Err(MedpdfError::new(
+                    "overlay/place source page contains an inline image (BI ... ID ... EI), \
+                     which is unsupported: lopdf 0.42's content-stream encoder cannot round-trip \
+                     an inline image without corrupting it (see LOPDF_INLINE_IMAGE_BUG.md at the \
+                     repo root). Convert the inline image to an image XObject in the source PDF \
+                     and retry.",
+                ));
+            }
+            match operation.operator.as_str() {
                 "q" => cumulative_q_balance += 1,
                 "Q" => cumulative_q_balance -= 1,
                 _ => {}
             }
-            if let Some(key_mapping) = key_mapping {
-                for operand in operation.operands.iter_mut() {
-                    // Process only operands that are names...
-                    if let Ok(name) = operand.as_name() {
-                        // ...that also have a mapping to a new name
-                        if let Some(name_new) = key_mapping.get(name) {
-                            *operand = Object::Name(name_new.clone());
-                        }
-                    }
-                }
-            }
+            rename_resource_operands(operation, key_mapping);
         }
-        // Wrap the entire sequence of content streams in a single q/Q pair,
-        // rather than wrapping each stream individually. Multiple content streams
-        // for one page are concatenated — graphics state must carry across them.
+
+        // Wrap the entire sequence of content streams in a single q/Q pair, rather
+        // than wrapping each stream individually. Multiple content streams for one
+        // page are concatenated — graphics state must carry across them.
         if idx == 0 {
             content.operations.insert(0, Operation::new("q", vec![]));
         }
         if idx == len - 1 {
             content.operations.push(Operation::new("Q", vec![]));
-            // Balance any unmatched q operators across all streams
+            // Balance any unmatched q operators across all streams.
             if cumulative_q_balance < 0 {
                 warn!(
-                    "Content streams have {} more Q than q operators (negative balance)",
+                    "Source content streams have {} more Q than q operators (negative balance)",
                     -cumulative_q_balance
                 );
             }
-            trace!("cumulative_q_balance = {cumulative_q_balance}");
             for _ in 0..cumulative_q_balance {
-                warn!("Unbalanced q/Q pairs, adding 'Q'");
                 content.operations.push(Operation::new("Q", vec![]));
             }
         }
 
-        if log::log_enabled!(log::Level::Trace) {
-            for (i, op) in content.operations.iter().enumerate() {
-                if i > 20 {
-                    break;
-                }
-                trace!("op {op:?}");
-            }
-        }
-        // Use set_content (not a raw `content_stream.content = ...`) so the dictionary's
-        // /Length is re-synced to the new body. The re-encode changes the body length (the
-        // q/Q wrapper plus any resource renames), and a raw field assignment would leave the
-        // original /Length in place. lopdf's reader trusts /Length, so a stale value makes it
-        // drop the stream body on reload — silent loss of the overlaid content.
+        // Use set_content (not a raw `content_stream.content = ...`) so the
+        // dictionary's /Length is re-synced to the new body. The re-encode changes
+        // the body length (the q/Q wrapper plus any resource renames), and a raw
+        // field assignment would leave the original /Length in place. lopdf's
+        // reader trusts /Length, so a stale value makes it drop the stream body on
+        // reload — silent loss of the placed content.
         content_stream.set_content(content.encode()?);
         content_stream.compress()?;
     }
     Ok(())
+}
+
+/// Isolates a destination page's existing content from content that will be
+/// concatenated after it, WITHOUT re-encoding the destination streams.
+///
+/// The old approach decoded and re-encoded every destination stream just to add a
+/// `q`/`Q` wrapper. That round trip corrupts inline images under lopdf 0.42, and —
+/// because a page's `/Contents` streams can be shared by reference — it also
+/// mutated any *other* page sharing them (bug-0018). Instead, this prepends a
+/// standalone `q` stream and appends a standalone stream of `Q`s: one to match the
+/// `q`, plus one per unclosed `q` the destination content left open. The
+/// destination's own streams are never touched, so their bytes — inline images
+/// included — survive verbatim. This mirrors the watermark `insert_content_stream`
+/// mechanism, and is the isolation primitive reused by later fixes.
+///
+/// Returns a new `/Contents` reference array: `[q] ++ contents ++ [Q…]`. An empty
+/// input (page had no content) is returned unchanged.
+pub(crate) fn isolate_dest_content_streams(
+    dest_doc: &mut Document,
+    contents_arr: Vec<Object>,
+) -> Result<Vec<Object>> {
+    if contents_arr.is_empty() {
+        return Ok(contents_arr);
+    }
+
+    // Read-only: count the q/Q balance of the untouched destination streams.
+    let mut content_ids = Vec::with_capacity(contents_arr.len());
+    for obj in &contents_arr {
+        content_ids.push(obj.as_reference()?);
+    }
+    let q_balance = pdf_helpers::count_q_balance(dest_doc, &content_ids)?;
+    if q_balance < 0 {
+        warn!(
+            "Destination content streams have {} more Q than q operators (negative balance)",
+            -q_balance
+        );
+    }
+
+    // Standalone wrappers as raw bytes — no decode/encode, so nothing to corrupt.
+    let open_id = dest_doc.add_object(Stream::new(Dictionary::new(), b"q\n".to_vec()));
+    let num_closing_qs = 1 + q_balance.max(0) as usize;
+    let close_id = dest_doc.add_object(Stream::new(
+        Dictionary::new(),
+        "Q\n".repeat(num_closing_qs).into_bytes(),
+    ));
+
+    let mut wrapped = Vec::with_capacity(contents_arr.len() + 2);
+    wrapped.push(Object::Reference(open_id));
+    wrapped.extend(contents_arr);
+    wrapped.push(Object::Reference(close_id));
+    Ok(wrapped)
 }
 
 /// Normalizes a contents array from a source document, deep-copying each stream/reference into dest_doc.
@@ -333,5 +427,64 @@ pub(crate) fn resolve_contents_to_ref_array(
         _ => Err(MedpdfError::Message(format!(
             "{context} /Contents must be stream or array or reference to stream or array"
         ))),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn mapping() -> HashMap<Vec<u8>, Vec<u8>> {
+        let mut m = HashMap::new();
+        m.insert(b"F1".to_vec(), b"F1_o".to_vec());
+        m.insert(b"P1".to_vec(), b"P1_o".to_vec());
+        m.insert(b"MC0".to_vec(), b"MC0_o".to_vec());
+        m
+    }
+
+    fn name(bytes: &[u8]) -> Object {
+        Object::Name(bytes.to_vec())
+    }
+
+    #[test]
+    fn renames_font_operand_of_tf() {
+        let mut op = Operation::new("Tf", vec![name(b"F1"), Object::Integer(12)]);
+        rename_resource_operands(&mut op, &mapping());
+        assert_eq!(op.operands[0], name(b"F1_o"));
+        assert_eq!(
+            op.operands[1],
+            Object::Integer(12),
+            "the size operand is untouched"
+        );
+    }
+
+    #[test]
+    fn renames_trailing_pattern_name_of_scn() {
+        let mut op = Operation::new("scn", vec![name(b"P1")]);
+        rename_resource_operands(&mut op, &mapping());
+        assert_eq!(op.operands[0], name(b"P1_o"));
+    }
+
+    #[test]
+    fn bdc_renames_properties_but_not_the_tag() {
+        // `BDC /F1 /MC0`: /F1 is the marked-content TAG (separate namespace — must
+        // NOT be renamed even though it maps); /MC0 is the /Properties resource.
+        let mut op = Operation::new("BDC", vec![name(b"F1"), name(b"MC0")]);
+        rename_resource_operands(&mut op, &mapping());
+        assert_eq!(op.operands[0], name(b"F1"), "the tag must be left alone");
+        assert_eq!(
+            op.operands[1],
+            name(b"MC0_o"),
+            "the properties resource is renamed"
+        );
+    }
+
+    #[test]
+    fn leaves_operands_of_non_resource_operators_alone() {
+        // A coincidental resource-shaped name on an operator that consumes no named
+        // resource (here a marked-content point tag) must never be rewritten.
+        let mut op = Operation::new("MP", vec![name(b"F1")]);
+        rename_resource_operands(&mut op, &mapping());
+        assert_eq!(op.operands[0], name(b"F1"));
     }
 }

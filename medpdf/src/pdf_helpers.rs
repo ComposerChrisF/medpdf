@@ -1,6 +1,7 @@
 //! Low-level PDF helpers: deep object copying, page tree traversal, key constants, and units.
 
 use crate::error::{MedpdfError, Result};
+use lopdf::content::Content;
 use lopdf::{Dictionary, Document, Object, ObjectId, Stream, dictionary};
 use std::collections::BTreeMap;
 
@@ -123,6 +124,48 @@ pub(crate) fn get_page_object_id_from_doc(doc: &Document, page_num: u32) -> Resu
         .get(&page_num)
         .copied()
         .ok_or_else(|| MedpdfError::new(format!("Page {} not found in source document", page_num)))
+}
+
+/// Counts the net q/Q balance across the given content streams (read-only).
+///
+/// A positive result is the number of unclosed `q` operations. Streams that fail
+/// to decode are assumed balanced (and logged), never treated as an error — so
+/// this can gate an isolation wrapper without aborting the whole operation, and
+/// it never mutates the streams it inspects. Shared by the watermark and the
+/// overlay/place isolation paths.
+pub(crate) fn count_q_balance(doc: &Document, content_refs: &[ObjectId]) -> Result<isize> {
+    let mut total_balance: isize = 0;
+
+    for &content_id in content_refs {
+        let obj = doc.get_object(content_id)?;
+        if let Ok(stream) = obj.as_stream() {
+            // Decompress a copy if needed — never mutate the inspected stream.
+            let content_bytes = if stream.is_compressed() {
+                std::borrow::Cow::Owned(stream.decompressed_content()?)
+            } else {
+                std::borrow::Cow::Borrowed(&stream.content)
+            };
+
+            match Content::decode(&content_bytes) {
+                Ok(content) => {
+                    for operation in content.operations.iter() {
+                        match operation.operator.as_str() {
+                            "q" => total_balance += 1,
+                            "Q" => total_balance -= 1,
+                            _ => {}
+                        }
+                    }
+                }
+                Err(e) => {
+                    log::warn!(
+                        "Failed to decode content stream {content_id:?}: {e}; assuming balanced q/Q"
+                    );
+                }
+            }
+        }
+    }
+
+    Ok(total_balance)
 }
 
 pub fn deep_copy_object_by_id(

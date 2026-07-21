@@ -2,9 +2,10 @@
 //
 // Regression tests for the overlay `/Length` synchronization bug.
 //
-// `modify_content_stream` re-encodes each page content stream (wrapping the
-// operators in a `q` … `Q` pair and renaming source resource keys). The new
-// body differs in length from the original. Before the fix it assigned the
+// `rename_source_content_streams` re-encodes each overlay (source) content
+// stream (wrapping the operators in a `q` … `Q` pair and renaming source
+// resource keys). The new body differs in length from the original. Before the
+// fix it assigned the
 // bytes via the raw public field `Stream::content`, which does NOT update the
 // dictionary's `/Length`. lopdf's reader trusts `/Length`: with a stale (too
 // short) value it reads fewer bytes than the body, fails to find `endstream`,

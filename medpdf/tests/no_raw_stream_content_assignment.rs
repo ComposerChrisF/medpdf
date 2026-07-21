@@ -6,7 +6,8 @@
 // it directly compiles but bypasses `Stream::set_content` — the setter that
 // keeps the dictionary's `/Length` in sync with the body. A stale `/Length`
 // makes lopdf drop the stream body on reload (silent data loss); that exact bug
-// lived in `pdf_overlay_helpers::modify_content_stream`.
+// lived in `pdf_overlay_helpers::rename_source_content_streams` (then named
+// `modify_content_stream`).
 //
 // clippy's `disallowed-methods` can't catch public *field* access, so this
 // source grep is the practical enforcement. Replace any flagged assignment with
@@ -85,7 +86,7 @@ fn no_raw_stream_content_field_assignment_in_src() {
     assert!(
         violations.is_empty(),
         "Raw `.content =` stream-body assignment found — use `Stream::set_content` to keep \
-         /Length in sync (see modify_content_stream):\n{}",
+         /Length in sync (see rename_source_content_streams):\n{}",
         violations.join("\n")
     );
 }
