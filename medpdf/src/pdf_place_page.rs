@@ -7,8 +7,9 @@
 use crate::error::{MedpdfError, Result};
 use crate::pdf_helpers::{self, KEY_CONTENTS, KEY_PAGES};
 use crate::pdf_overlay_helpers::{
-    accumulate_dictionary_keys, merge_resources_into_dest_page, normalize_resource_subdicts,
-    rename_resources_in_dict, rename_source_content_streams, resolve_contents_to_ref_array,
+    accumulate_dictionary_keys, isolate_dest_content_streams, merge_resources_into_dest_page,
+    normalize_resource_subdicts, rename_resources_in_dict, rename_source_content_streams,
+    resolve_contents_to_ref_array,
 };
 use crate::types::PlacePageParams;
 use log::{debug, trace};
@@ -224,7 +225,7 @@ pub fn place_page(
 
     // Get dest page's current /Contents and append: open + source streams + close
     debug!("Appending placed content to destination page");
-    let mut dest_contents_arr = match dest_doc
+    let dest_contents_base = match dest_doc
         .get_object(dest_page_id)?
         .as_dict()?
         .get(KEY_CONTENTS)
@@ -241,6 +242,13 @@ pub fn place_page(
         }
         Err(_) => Vec::new(),
     };
+    // Isolate the destination's own content with standalone q/Q wrapper streams,
+    // so any graphics state it leaks — a top-level `cm` with no q/Q, a leftover
+    // clip — is popped before the placement transform runs. Without this, a
+    // dangling destination CTM displaces the placed page, contradicting this
+    // function's self-containment contract (bug-0025). Uses bug-0018's mechanism,
+    // which never re-encodes the destination streams (that was bug-0018's bug).
+    let mut dest_contents_arr = isolate_dest_content_streams(dest_doc, dest_contents_base)?;
 
     dest_contents_arr.push(Object::Reference(open_id));
     for item in &source_contents_arr {

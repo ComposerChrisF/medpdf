@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.6] - 2026-07-22
+### Fixed
+- bug-0025: `place_page` appended its placement (open `q`+`cm`, source
+  content, close `Q`) directly after the destination page’s own content
+  without neutralizing it, so a destination page whose content leaked
+  graphics state — a top-level `cm` with no matching `q`/`Q`, common in
+  scanned pages — had that leaked state displace the placed page.  The
+  destination content is now bracketed with standalone `q`/`Q` wrapper
+  streams (`isolate_dest_content_streams`, bug-0018’s mechanism, which
+  never re-encodes the destination streams) before the placement is
+  appended, matching how `overlay_page` and the watermark path already
+  isolate destination state.
+
 ## [0.11.5] - 2026-07-22
 ### Fixed
 - bug-0017: `/Resources` is inheritable — real-world documents put it on a
