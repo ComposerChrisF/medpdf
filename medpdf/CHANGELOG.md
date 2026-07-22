@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.5] - 2026-07-22
+### Fixed
+- bug-0017: `/Resources` is inheritable — real-world documents put it on a
+  `/Pages` ancestor rather than on the leaf page dict (PDF 32000-1 §7.7.3.4).
+  `overlay_page` and `place_page` used to read only the page’s own
+  `/Resources` entry, so a page relying on an inherited dict was treated as
+  having no resources at all.  Both operations now resolve the effective
+  `/Resources` by walking the `/Parent` chain.  A destination page with no
+  resources of its own gets the inherited dict materialized onto it — as a
+  private copy, so a shared ancestor sub-dict is never mutated in place — and
+  a source page’s effective resources are resolved the same way before
+  overlay/place proceeds.
+
+### Added
+- `pdf_helpers::get_page_resources` — shared helper that resolves a page’s
+  effective `/Resources` by walking the `/Parent` chain; also intended for
+  reuse by the bug-0008 inheritance fix.
+
 ## [0.11.4] - 2026-07-22
 ### Fixed
 - bug-0030: a resource-type sub-dict (`/Font 10 0 R`) held as an indirect

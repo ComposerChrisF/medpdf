@@ -98,6 +98,28 @@ pub fn get_page_rotation(doc: &Document, page_id: ObjectId) -> u32 {
     0
 }
 
+/// Resolves a page's effective `/Resources` by walking the `/Parent` chain.
+///
+/// `/Resources` is an inheritable page attribute — real documents (Acrobat above
+/// all) place it on a `/Pages` ancestor. Inheritance stops at the first node that
+/// carries a `/Resources` key (a page-level dictionary *replaces* the inherited
+/// one; it does not merge), so this returns the first value found, cloned, as
+/// either an inline `Object::Dictionary` or an `Object::Reference`. Returns `None`
+/// when no node in the chain carries one. Shared by overlay, place, and copy_page.
+pub fn get_page_resources(doc: &Document, page_id: ObjectId) -> Option<Object> {
+    let mut current_id = page_id;
+    while let Ok(dict) = doc.get_dictionary(current_id) {
+        if let Ok(res) = dict.get(KEY_RESOURCES) {
+            return Some(res.clone());
+        }
+        match dict.get(KEY_PARENT) {
+            Ok(Object::Reference(parent_id)) => current_id = *parent_id,
+            _ => break,
+        }
+    }
+    None
+}
+
 /// Sets the rotation angle on a page. Valid values: 0, 90, 180, 270.
 /// Returns an error if the angle is not a multiple of 90.
 pub fn set_page_rotation(doc: &mut Document, page_id: ObjectId, degrees: u32) -> Result<()> {

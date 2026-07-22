@@ -1,14 +1,14 @@
 //! Page overlay — merging content from one PDF page onto another with resource renaming.
 
 use crate::error::{MedpdfError, Result};
-use crate::pdf_helpers::{self, KEY_CONTENTS, KEY_PAGES, KEY_RESOURCES};
+use crate::pdf_helpers::{self, KEY_CONTENTS, KEY_PAGES};
 use crate::pdf_overlay_helpers::{
     accumulate_dictionary_keys, isolate_dest_content_streams, merge_resources_into_dest_page,
     normalize_resource_subdicts, rename_resources_in_dict, rename_source_content_streams,
     resolve_contents_to_ref_array,
 };
 use log::{debug, trace};
-use lopdf::{Document, Object, ObjectId};
+use lopdf::{Dictionary, Document, Object, ObjectId};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 /// Overlays the content of a source page onto a destination page.
@@ -35,28 +35,34 @@ pub fn overlay_page(
         &format!("Page {overlay_page_id:?}"),
     )?;
 
-    // Generate deep copy of overlay's page's /Resources dictionary, normalizing it to be a
-    // reference (rather than an embedded resource).
+    // Generate deep copy of overlay's page's effective /Resources, normalizing it
+    // to a reference. /Resources is inheritable — resolve it up the /Parent chain
+    // rather than reading only the page dict, which errored on a page whose
+    // resources live on a /Pages ancestor (bug-0017 facet 3).
     debug!("Generating deep copy of overlay's /Resources");
-    let overlay_page_resources = overlay_page.get(KEY_RESOURCES)?;
-    let overlay_resources_dict_id_new = match overlay_page_resources {
-        Object::Dictionary(_) => {
+    let overlay_resources_dict_id_new = match pdf_helpers::get_page_resources(
+        overlay_doc,
+        overlay_page_id,
+    ) {
+        Some(Object::Dictionary(dict)) => {
             let d_new = pdf_helpers::deep_copy_object(
                 dest_doc,
                 overlay_doc,
-                overlay_page_resources,
+                &Object::Dictionary(dict),
                 &mut copied_objects,
             )?;
             dest_doc.add_object(d_new)
         }
-        Object::Reference(id) => {
-            pdf_helpers::deep_copy_object_by_id(dest_doc, overlay_doc, *id, &mut copied_objects)?
+        Some(Object::Reference(id)) => {
+            pdf_helpers::deep_copy_object_by_id(dest_doc, overlay_doc, id, &mut copied_objects)?
         }
-        _ => {
+        Some(_) => {
             return Err(MedpdfError::Message(format!(
                 "Page {overlay_page_id:?} /Resources must be dictionary or reference to dictionary"
             )));
         }
+        // No resources anywhere in the chain — a page that references none.
+        None => dest_doc.add_object(Object::Dictionary(Dictionary::new())),
     };
 
     // Inline any indirect resource-type sub-dicts (`/Font 10 0 R`) so the rename
@@ -161,6 +167,7 @@ pub fn overlay_page(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::pdf_helpers::KEY_RESOURCES;
     use crate::pdf_overlay_helpers::find_unique_name;
     use lopdf::{Dictionary, Object, Stream, dictionary};
 

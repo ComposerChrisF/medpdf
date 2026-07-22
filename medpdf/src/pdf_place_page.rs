@@ -5,7 +5,7 @@
 //! callers to implement booklet imposition and N-up layouts.
 
 use crate::error::{MedpdfError, Result};
-use crate::pdf_helpers::{self, KEY_CONTENTS, KEY_PAGES, KEY_RESOURCES};
+use crate::pdf_helpers::{self, KEY_CONTENTS, KEY_PAGES};
 use crate::pdf_overlay_helpers::{
     accumulate_dictionary_keys, merge_resources_into_dest_page, normalize_resource_subdicts,
     rename_resources_in_dict, rename_source_content_streams, resolve_contents_to_ref_array,
@@ -63,37 +63,33 @@ pub fn place_page(
         &format!("Source page {source_page_id:?}"),
     )?;
 
-    // Deep-copy source /Resources
+    // Deep-copy the source page's effective /Resources. /Resources is inheritable —
+    // resolve it up the /Parent chain rather than reading only the page dict, which
+    // substituted an empty dict for inherited resources and so left the placed
+    // content's font references unrenamed and bound to the wrong font (bug-0017
+    // facet 2).
     debug!("Deep-copying source /Resources for place_page");
-    // The `Err` arm creates a temporary `Object::Dictionary` whose reference is valid for
-    // the duration of the surrounding `let` statement (temporary lifetime extension).
-    // This is safe because `source_resources` is consumed immediately below and never
-    // outlives this scope.
-    let source_resources = match source_page.get(KEY_RESOURCES) {
-        Ok(res) => res,
-        Err(_) => {
-            // No resources — still place the content (it might be purely geometric)
-            &Object::Dictionary(Dictionary::new())
-        }
-    };
-    let source_resources_dict_id = match source_resources {
-        Object::Dictionary(_) => {
+    let source_resources_dict_id = match pdf_helpers::get_page_resources(source_doc, source_page_id)
+    {
+        Some(Object::Dictionary(dict)) => {
             let d_new = pdf_helpers::deep_copy_object(
                 dest_doc,
                 source_doc,
-                source_resources,
+                &Object::Dictionary(dict),
                 &mut copied_objects,
             )?;
             dest_doc.add_object(d_new)
         }
-        Object::Reference(id) => {
-            pdf_helpers::deep_copy_object_by_id(dest_doc, source_doc, *id, &mut copied_objects)?
+        Some(Object::Reference(id)) => {
+            pdf_helpers::deep_copy_object_by_id(dest_doc, source_doc, id, &mut copied_objects)?
         }
-        _ => {
+        Some(_) => {
             return Err(MedpdfError::Message(format!(
                 "Source page {source_page_id:?} /Resources must be dictionary or reference"
             )));
         }
+        // No resources anywhere — still place the content (it may be purely geometric).
+        None => dest_doc.add_object(Object::Dictionary(Dictionary::new())),
     };
 
     // Inline any indirect resource-type sub-dicts (`/Font 10 0 R`) so the rename

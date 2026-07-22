@@ -119,6 +119,23 @@ pub(crate) fn normalize_resource_subdicts(
     dest_doc: &mut Document,
     resources_dict_id: ObjectId,
 ) -> Result<()> {
+    inline_resource_subdicts(dest_doc, resources_dict_id, true)
+}
+
+/// Inlines every `Reference`-valued resource-type sub-dict in place, replacing the
+/// reference with a clone of its target dictionary.
+///
+/// `remove_orphans` controls whether the (now-defunct) reference targets are
+/// deleted: `true` when the targets are private copies (the source path, where
+/// leaving them would be bloat); `false` when they may be SHARED — e.g. seeding a
+/// destination page from inherited resources whose sub-dicts a `/Pages` ancestor
+/// still references, where inlining a private copy is what lets a later merge add
+/// keys without mutating (and so polluting) the shared ancestor sub-dict.
+fn inline_resource_subdicts(
+    dest_doc: &mut Document,
+    resources_dict_id: ObjectId,
+    remove_orphans: bool,
+) -> Result<()> {
     let ref_entries: Vec<(Vec<u8>, ObjectId)> = {
         let resources = dest_doc.get_dictionary(resources_dict_id)?;
         resources
@@ -150,8 +167,10 @@ pub(crate) fn normalize_resource_subdicts(
             }
         }
     }
-    for id in inlined.keys() {
-        dest_doc.objects.remove(id);
+    if remove_orphans {
+        for id in inlined.keys() {
+            dest_doc.objects.remove(id);
+        }
     }
     Ok(())
 }
@@ -415,26 +434,46 @@ pub(crate) fn merge_resources_into_dest_page(
     dest_page_id: ObjectId,
     source_resources_dict_id: ObjectId,
 ) -> Result<()> {
-    let dest_page_dict = dest_doc.get_object_mut(dest_page_id)?.as_dict_mut()?;
-    let (dict_to_make_object, dict_ref) = match dest_page_dict.get(KEY_RESOURCES) {
-        Ok(Object::Dictionary(dict)) => (Some(dict.clone()), None),
-        Ok(Object::Reference(reference)) => (None, Some(*reference)),
-        Ok(_) => {
-            return Err(MedpdfError::new(
-                "Destination page /Resources was not a Dictionary nor Reference",
-            ));
+    // Resolve the destination page's own /Resources to a single reference to merge
+    // into. Classify first (releasing the page-dict borrow before any further
+    // dest_doc access, so the inherited-resources walk below can borrow it).
+    enum DestResources {
+        Inline(Dictionary),
+        Ref(ObjectId),
+        None,
+    }
+    let own = {
+        let dest_page_dict = dest_doc.get_dictionary(dest_page_id)?;
+        match dest_page_dict.get(KEY_RESOURCES) {
+            Ok(Object::Dictionary(dict)) => DestResources::Inline(dict.clone()),
+            Ok(Object::Reference(reference)) => DestResources::Ref(*reference),
+            Ok(_) => {
+                return Err(MedpdfError::new(
+                    "Destination page /Resources was not a Dictionary nor Reference",
+                ));
+            }
+            Err(_) => DestResources::None,
         }
-        Err(_) => (Some(Dictionary::new()), None),
     };
-    let dict_ref = match (dict_to_make_object, dict_ref) {
-        (Some(dict_to_make_object), None) => {
-            dest_doc.add_object(Object::Dictionary(dict_to_make_object))
-        }
-        (None, Some(dict_ref)) => dict_ref,
-        _ => {
-            return Err(MedpdfError::new(
-                "Internal error: unexpected state in resources normalization",
-            ));
+    let dict_ref = match own {
+        DestResources::Ref(reference) => reference,
+        DestResources::Inline(dict) => dest_doc.add_object(Object::Dictionary(dict)),
+        DestResources::None => {
+            // The page has no OWN /Resources: it inherits from a /Pages ancestor.
+            // A page-level dictionary REPLACES the inherited one (PDF inheritance is
+            // replace-not-merge), so a page-level dict holding only the overlay's
+            // renamed keys would strand the page's own content — its fonts vanish
+            // in every viewer (bug-0017 facet 1). Materialize the inherited
+            // resources onto the page, then inline their sub-dicts privately so the
+            // upcoming merge cannot pollute a sub-dict a sibling page still shares.
+            let seed = match pdf_helpers::get_page_resources(dest_doc, dest_page_id) {
+                Some(Object::Dictionary(dict)) => dict,
+                Some(Object::Reference(reference)) => dest_doc.get_dictionary(reference)?.clone(),
+                _ => Dictionary::new(),
+            };
+            let seed_id = dest_doc.add_object(Object::Dictionary(seed));
+            inline_resource_subdicts(dest_doc, seed_id, false)?;
+            seed_id
         }
     };
     let dest_page_dict = dest_doc.get_object_mut(dest_page_id)?.as_dict_mut()?;
