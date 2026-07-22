@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.7] - 2026-07-22
+### Fixed
+- bug-0008: `Resources`, `MediaBox`, `CropBox`, and `Rotate` are inheritable
+  page attributes (PDF 32000-1 §7.7.3.4) and may live only on a source
+  `/Pages` ancestor rather than the leaf page dict.  `copy_page`’s deep copy
+  skips `/Parent`, so a copied page relying on any of these inherited
+  values silently lost it — no size, no fonts, no rotation, under its new
+  parent.  `copy_page_with_cache` now walks the source page’s `/Parent`
+  chain and materializes each inherited attribute the copied page lacks
+  onto the leaf page, deep-copying reference values through the shared
+  `copied_objects` map.
+
+### Added
+- `pdf_helpers::resolve_inherited_attribute` — generalizes the bug-0017
+  `/Resources` inheritance walk to any inheritable page attribute (key
+  parameter); `get_page_resources` is now a thin convenience wrapper over
+  it, and `copy_page` reuses it for `Resources`/`MediaBox`/`CropBox`/`Rotate`.
+
 ## [0.11.6] - 2026-07-22
 ### Fixed
 - bug-0025: `place_page` appended its placement (open `q`+`cm`, source

@@ -2,7 +2,10 @@
 
 use crate::{
     error::Result,
-    pdf_helpers::{self, KEY_COUNT, KEY_KIDS, KEY_PAGES, KEY_PARENT},
+    pdf_helpers::{
+        self, KEY_COUNT, KEY_CROP_BOX, KEY_KIDS, KEY_MEDIA_BOX, KEY_PAGES, KEY_PARENT,
+        KEY_RESOURCES, KEY_ROTATE,
+    },
 };
 use lopdf::{Document, Object, ObjectId};
 use std::collections::BTreeMap;
@@ -48,6 +51,40 @@ pub fn copy_page_with_cache(
 
     let new_page_id =
         pdf_helpers::deep_copy_object_by_id(dest_doc, source_doc, source_page_id, copied_objects)?;
+
+    // Materialize inherited page attributes onto the copied page. `Resources`,
+    // `MediaBox`, `CropBox`, and `Rotate` are inheritable and may live only on a
+    // source `/Pages` ancestor; deep_copy skips `/Parent`, so they do not come
+    // along. Without this the copied page can lose its size, its fonts, and its
+    // rotation, silently (bug-0008). Flatten the effective value onto the leaf page
+    // so it renders identically under its new parent — deep-copying reference
+    // values through the shared `copied_objects` map.
+    for &key in &[KEY_RESOURCES, KEY_MEDIA_BOX, KEY_CROP_BOX, KEY_ROTATE] {
+        // Skip attributes the copied page already carries as its own.
+        if dest_doc.get_dictionary(new_page_id)?.get(key).is_ok() {
+            continue;
+        }
+        if let Some(inherited) =
+            pdf_helpers::resolve_inherited_attribute(source_doc, source_page_id, key)
+        {
+            let value = match inherited {
+                Object::Reference(id) => Object::Reference(pdf_helpers::deep_copy_object_by_id(
+                    dest_doc,
+                    source_doc,
+                    id,
+                    copied_objects,
+                )?),
+                other => {
+                    pdf_helpers::deep_copy_object(dest_doc, source_doc, &other, copied_objects)?
+                }
+            };
+            dest_doc
+                .get_object_mut(new_page_id)?
+                .as_dict_mut()?
+                .set(key.to_vec(), value);
+        }
+    }
+
     let page = dest_doc.get_object_mut(new_page_id)?.as_dict_mut()?;
     page.set(KEY_PARENT, Object::Reference(dest_pages_id));
 

@@ -16,6 +16,7 @@ pub const KEY_CONTENTS: &[u8] = b"Contents";
 pub(crate) const KEY_FONT: &[u8] = b"Font";
 pub(crate) const KEY_FONT_DESCRIPTOR: &[u8] = b"FontDescriptor";
 pub(crate) const KEY_MEDIA_BOX: &[u8] = b"MediaBox";
+pub(crate) const KEY_CROP_BOX: &[u8] = b"CropBox";
 pub const KEY_EXTGSTATE: &[u8] = b"ExtGState";
 pub const KEY_XOBJECT: &[u8] = b"XObject";
 
@@ -98,19 +99,23 @@ pub fn get_page_rotation(doc: &Document, page_id: ObjectId) -> u32 {
     0
 }
 
-/// Resolves a page's effective `/Resources` by walking the `/Parent` chain.
+/// Resolves an inheritable page attribute by walking the `/Parent` chain.
 ///
-/// `/Resources` is an inheritable page attribute — real documents (Acrobat above
-/// all) place it on a `/Pages` ancestor. Inheritance stops at the first node that
-/// carries a `/Resources` key (a page-level dictionary *replaces* the inherited
-/// one; it does not merge), so this returns the first value found, cloned, as
-/// either an inline `Object::Dictionary` or an `Object::Reference`. Returns `None`
-/// when no node in the chain carries one. Shared by overlay, place, and copy_page.
-pub fn get_page_resources(doc: &Document, page_id: ObjectId) -> Option<Object> {
+/// Several page attributes (`/Resources`, `/MediaBox`, `/CropBox`, `/Rotate`) are
+/// inheritable — real producers place them on a `/Pages` ancestor (PDF 32000-1
+/// §7.7.3.4). Inheritance stops at the first node that carries the key (a
+/// page-level value *replaces* the inherited one; it does not merge), so this
+/// returns the first value found, cloned. `None` when no node in the chain carries
+/// it. Shared by overlay, place, and copy_page.
+pub fn resolve_inherited_attribute(
+    doc: &Document,
+    page_id: ObjectId,
+    key: &[u8],
+) -> Option<Object> {
     let mut current_id = page_id;
     while let Ok(dict) = doc.get_dictionary(current_id) {
-        if let Ok(res) = dict.get(KEY_RESOURCES) {
-            return Some(res.clone());
+        if let Ok(value) = dict.get(key) {
+            return Some(value.clone());
         }
         match dict.get(KEY_PARENT) {
             Ok(Object::Reference(parent_id)) => current_id = *parent_id,
@@ -118,6 +123,13 @@ pub fn get_page_resources(doc: &Document, page_id: ObjectId) -> Option<Object> {
         }
     }
     None
+}
+
+/// Resolves a page's effective `/Resources` by walking the `/Parent` chain — a
+/// named convenience over [`resolve_inherited_attribute`]. The value is either an
+/// inline `Object::Dictionary` or an `Object::Reference`.
+pub fn get_page_resources(doc: &Document, page_id: ObjectId) -> Option<Object> {
+    resolve_inherited_attribute(doc, page_id, KEY_RESOURCES)
 }
 
 /// Sets the rotation angle on a page. Valid values: 0, 90, 180, 270.
