@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.4] - 2026-07-22
+### Fixed
+- bug-0030: a resource-type sub-dict (`/Font 10 0 R`) held as an indirect
+  reference — routine output from Acrobat — was invisible to the collision
+  scan, left un-renamed by the rename pass, and either dropped or errored by
+  the merge, which only understood the inline form.  Deep-copied source
+  `/Resources` are now normalized to inline sub-dicts right after the copy
+  (`normalize_resource_subdicts`); `add_resource_keys` dereferences a
+  reference so its keys enter the collision scan; and the merge’s read/write
+  split dereferences an indirect **destination** sub-dict and merges into its
+  target instead of erroring on it.  Affects both `overlay_page` and
+  `place_page`.
+
 ## [0.11.3] - 2026-07-21
 ### Fixed
 - bug-0019: per PDF 32000-1 §7.8.2, a page’s content is the concatenation of

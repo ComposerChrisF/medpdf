@@ -1267,7 +1267,7 @@ dependencies = [
 
 [[package]]
 name = "medpdf"
-version = "0.11.3"
+version = "0.11.4"
 dependencies = [
  "allsorts",
  "font-kit",

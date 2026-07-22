@@ -7,8 +7,8 @@
 use crate::error::{MedpdfError, Result};
 use crate::pdf_helpers::{self, KEY_CONTENTS, KEY_PAGES, KEY_RESOURCES};
 use crate::pdf_overlay_helpers::{
-    accumulate_dictionary_keys, merge_resources_into_dest_page, rename_resources_in_dict,
-    rename_source_content_streams, resolve_contents_to_ref_array,
+    accumulate_dictionary_keys, merge_resources_into_dest_page, normalize_resource_subdicts,
+    rename_resources_in_dict, rename_source_content_streams, resolve_contents_to_ref_array,
 };
 use crate::types::PlacePageParams;
 use log::{debug, trace};
@@ -95,6 +95,10 @@ pub fn place_page(
             )));
         }
     };
+
+    // Inline any indirect resource-type sub-dicts (`/Font 10 0 R`) so the rename
+    // and merge paths, which only understand inline sub-dicts, work (bug-0030).
+    normalize_resource_subdicts(dest_doc, source_resources_dict_id)?;
 
     // Collect existing dest resource keys
     debug!("Accumulating destination resource keys");

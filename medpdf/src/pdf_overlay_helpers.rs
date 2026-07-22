@@ -8,9 +8,23 @@ use lopdf::content::{Content, Operation};
 use lopdf::{Dictionary, Document, Object, ObjectId, Stream};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-pub(crate) fn add_resource_keys(keys: &mut HashSet<Vec<u8>>, dict_resources: &Dictionary) {
+pub(crate) fn add_resource_keys(
+    keys: &mut HashSet<Vec<u8>>,
+    doc: &Document,
+    dict_resources: &Dictionary,
+) {
     for (_, value) in dict_resources.iter() {
-        if let Object::Dictionary(dict) = value {
+        // A resource-type sub-dict (/Font, /XObject, …) may be held inline OR as
+        // an indirect reference (`/Font 10 0 R`, which Acrobat emits routinely).
+        // Dereference the reference so names inside it enter the collision scan;
+        // skipping them let a renamed key silently overwrite an existing one
+        // (bug-0030).
+        let dict = match value {
+            Object::Dictionary(dict) => Some(dict),
+            Object::Reference(id) => doc.get_dictionary(*id).ok(),
+            _ => None,
+        };
+        if let Some(dict) = dict {
             for (key, _) in dict.iter() {
                 keys.insert(key.clone());
             }
@@ -45,11 +59,11 @@ pub(crate) fn accumulate_dictionary_keys(
     // Collect resource keys from this node's /Resources
     match dict.get(KEY_RESOURCES) {
         Ok(Object::Dictionary(dict_resources)) => {
-            add_resource_keys(keys, dict_resources);
+            add_resource_keys(keys, doc, dict_resources);
         }
         Ok(Object::Reference(id_resources)) => {
             if let Ok(dict_resources) = doc.get_dictionary(*id_resources) {
-                add_resource_keys(keys, dict_resources);
+                add_resource_keys(keys, doc, dict_resources);
             }
         }
         _ => {}
@@ -89,6 +103,57 @@ pub(crate) fn find_unique_name(
         }
     }
     Err(MedpdfError::new("No new unique key could be generated"))
+}
+
+/// Rewrites a (deep-copied, destination-side) source Resources dictionary so every
+/// resource-type entry (/Font, /XObject, …) is held as an INLINE sub-dictionary,
+/// dereferencing any that are indirect references (`/Font 10 0 R`).
+///
+/// Inline versus indirect is representation, not meaning, but the rename and merge
+/// paths only understood the inline form — an indirect sub-dict had its keys left
+/// un-renamed and its resources dropped from the destination (bug-0030). The
+/// referenced target is a private copy produced by the preceding deep copy, so
+/// dereferencing, inlining, and dropping the orphaned target is safe. A target
+/// that backs more than one entry is resolved once and removed once.
+pub(crate) fn normalize_resource_subdicts(
+    dest_doc: &mut Document,
+    resources_dict_id: ObjectId,
+) -> Result<()> {
+    let ref_entries: Vec<(Vec<u8>, ObjectId)> = {
+        let resources = dest_doc.get_dictionary(resources_dict_id)?;
+        resources
+            .iter()
+            .filter_map(|(k, v)| v.as_reference().ok().map(|id| (k.clone(), id)))
+            .collect()
+    };
+    if ref_entries.is_empty() {
+        return Ok(());
+    }
+
+    // Resolve each unique target object to an inline dictionary exactly once (a
+    // target could, in principle, back more than one resource-type key).
+    let mut inlined: HashMap<ObjectId, Dictionary> = HashMap::new();
+    for (_, id) in &ref_entries {
+        if inlined.contains_key(id) {
+            continue;
+        }
+        if let Ok(Object::Dictionary(d)) = dest_doc.get_object(*id) {
+            inlined.insert(*id, d.clone());
+        }
+    }
+
+    {
+        let resources = dest_doc.get_object_mut(resources_dict_id)?.as_dict_mut()?;
+        for (key, id) in &ref_entries {
+            if let Some(d) = inlined.get(id) {
+                resources.set(key.clone(), Object::Dictionary(d.clone()));
+            }
+        }
+    }
+    for id in inlined.keys() {
+        dest_doc.objects.remove(id);
+    }
+    Ok(())
 }
 
 pub(crate) fn rename_resources_in_dict(
@@ -380,14 +445,49 @@ pub(crate) fn merge_resources_into_dest_page(
         .as_dict()?
         .clone();
     dest_doc.objects.remove(&source_resources_dict_id);
-    let dest_resources = dest_doc.get_object_mut(dict_ref)?.as_dict_mut()?;
-    for (resource_type, dict) in source_resources_dict.iter() {
-        if dest_resources.get(resource_type).is_err() {
-            dest_resources.set(resource_type.clone(), dict.clone());
-        } else if let Ok(dict) = dict.as_dict() {
-            let dest_resource = dest_resources.get_mut(resource_type)?.as_dict_mut()?;
-            for (key, value) in dict.iter() {
-                dest_resource.set(key.clone(), value.clone());
+
+    // Classify each source resource-type against the destination's /Resources.
+    // A destination sub-dict may itself be an indirect reference (`/Font 10 0 R`);
+    // merging into it needs the target object, so plan in a read phase and apply
+    // in a write phase to avoid overlapping mutable borrows of dest_doc. Routing a
+    // referenced destination sub-dict to its target — instead of calling
+    // as_dict_mut on the reference — is the fix for erroring on valid input
+    // (bug-0030). Source sub-dicts are already inline (normalize_resource_subdicts).
+    let mut set_fresh: Vec<(Vec<u8>, Dictionary)> = Vec::new();
+    let mut merge_inline: Vec<(Vec<u8>, Dictionary)> = Vec::new();
+    let mut merge_into_ref: Vec<(ObjectId, Dictionary)> = Vec::new();
+    {
+        let dest_resources = dest_doc.get_dictionary(dict_ref)?;
+        for (resource_type, sub) in source_resources_dict.iter() {
+            let source_sub = match sub.as_dict() {
+                Ok(d) => d.clone(),
+                Err(_) => continue, // not a resource sub-dict; nothing to merge
+            };
+            match dest_resources.get(resource_type) {
+                Err(_) => set_fresh.push((resource_type.clone(), source_sub)),
+                Ok(Object::Reference(id)) => merge_into_ref.push((*id, source_sub)),
+                // Inline dictionary (merge into it) or a malformed value (the write
+                // phase's as_dict_mut then errors, as the original code did).
+                Ok(_) => merge_inline.push((resource_type.clone(), source_sub)),
+            }
+        }
+    }
+
+    for (target_id, source_sub) in merge_into_ref {
+        let dest_sub = dest_doc.get_object_mut(target_id)?.as_dict_mut()?;
+        for (key, value) in source_sub.iter() {
+            dest_sub.set(key.clone(), value.clone());
+        }
+    }
+    {
+        let dest_resources = dest_doc.get_object_mut(dict_ref)?.as_dict_mut()?;
+        for (resource_type, source_sub) in set_fresh {
+            dest_resources.set(resource_type, Object::Dictionary(source_sub));
+        }
+        for (resource_type, source_sub) in merge_inline {
+            let dest_sub = dest_resources.get_mut(&resource_type)?.as_dict_mut()?;
+            for (key, value) in source_sub.iter() {
+                dest_sub.set(key.clone(), value.clone());
             }
         }
     }

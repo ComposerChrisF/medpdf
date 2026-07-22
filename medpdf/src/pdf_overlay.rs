@@ -4,7 +4,8 @@ use crate::error::{MedpdfError, Result};
 use crate::pdf_helpers::{self, KEY_CONTENTS, KEY_PAGES, KEY_RESOURCES};
 use crate::pdf_overlay_helpers::{
     accumulate_dictionary_keys, isolate_dest_content_streams, merge_resources_into_dest_page,
-    rename_resources_in_dict, rename_source_content_streams, resolve_contents_to_ref_array,
+    normalize_resource_subdicts, rename_resources_in_dict, rename_source_content_streams,
+    resolve_contents_to_ref_array,
 };
 use log::{debug, trace};
 use lopdf::{Document, Object, ObjectId};
@@ -57,6 +58,10 @@ pub fn overlay_page(
             )));
         }
     };
+
+    // Inline any indirect resource-type sub-dicts (`/Font 10 0 R`) so the rename
+    // and merge paths, which only understand inline sub-dicts, work (bug-0030).
+    normalize_resource_subdicts(dest_doc, overlay_resources_dict_id_new)?;
 
     // Starting at the root of the *destination* document, build a list (HashSet) of all keys in
     // all /Resource dictionaries (recursing the full page tree), so we can later make sure no
