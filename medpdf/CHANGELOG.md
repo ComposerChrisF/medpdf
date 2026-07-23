@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.9] - 2026-07-22
+### Fixed
+- bug-0016: `overlay_page` errored with `Err(DictKey("Contents"))` when the
+  overlay/source page had no `/Contents`.  `/Contents` is optional on a page
+  (PDF 32000-1 §7.7.3.3) — a blank page legally omits it — and the sibling
+  `place_page` already treated this as a no-op.  The `/Contents` lookup is
+  now a match that returns `Ok(())` (debug-logged) on absence instead of
+  propagating the error, mirroring `place_page`.
+
 ## [0.11.8] - 2026-07-22
 ### Fixed
 - bug-0020: page-tree `/Count` maintenance was broken for documents with

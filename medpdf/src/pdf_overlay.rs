@@ -26,7 +26,16 @@ pub fn overlay_page(
     // Get overlay's Page/Contents, normalizing the structs to be an array of references to
     // Object::Stream(), deep copying the streams from overlay to dest doc.
     debug!("Standardizing and cloning overlay's /Contents");
-    let overlay_contents = overlay_page.get(KEY_CONTENTS)?;
+    // /Contents is optional on a page — a blank page legally omits it (PDF 32000-1
+    // §7.7.3.3). Overlaying from a contentless source is a well-defined no-op, so
+    // return Ok rather than erroring with DictKey. Mirrors place_page (bug-0016).
+    let overlay_contents = match overlay_page.get(KEY_CONTENTS) {
+        Ok(contents) => contents,
+        Err(_) => {
+            debug!("Overlay page {overlay_page_id:?} has no /Contents; nothing to overlay");
+            return Ok(());
+        }
+    };
     let overlay_contents_arr_new = resolve_contents_to_ref_array(
         dest_doc,
         Some(overlay_doc),
