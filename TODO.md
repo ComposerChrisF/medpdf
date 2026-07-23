@@ -40,7 +40,7 @@ Order matters here; later fixes reuse mechanisms and helpers from earlier ones.
 
 ## Step 4 — font subsystem (independent of Step 3; can interleave)
 
-1. [ ] **bug-0031** (High) — scale `/Widths` + FontDescriptor metrics to 1000/em glyph space (the composite `/W` code shows the formula).
+1. [x] **bug-0031** (High) — scale `/Widths` + FontDescriptor metrics to 1000/em glyph space (the composite `/W` code shows the formula).  _Done: `font_helpers::glyph_space_scale` (1000/upem) + `scale_metric`; `get_font_widths`, `get_pdf_font_bbox`, and `get_pdf_info_of_face` now scale every advance and descriptor metric into glyph space (italic_angle/stem_v left unscaled — not font-unit metrics); `FontDescriptorPdfInfo` metric fields widened `i16`→`i32` and `bbox_as_object_array` follows, so a small-upem font can’t overflow when scaled up; `tests/font_metrics_scaling_regression.rs` (font-independent — computes expected from the loaded face; verified to fail under `MEDPDF_TEMP_BUG0031`, emitting Arial’s raw `Widths['A']=1366` vs correct 667).  `valign_test.pdf` regenerated (correct embedded-font metrics shift its bytes)._
 2. [ ] **bug-0012** (High on macOS) — carry font-kit’s `font_index` through `FontPath`/`FontData`; public-API change, coordinate with pdf-maker.  Do before 0005 (both touch embedding plumbing).
 3. [ ] **bug-0005** (Medium-High) — CFF/OTF: `/Type1` font-dict subtype, FontFile3 `/Subtype /OpenType`, no `Length1`; composite CFF → loud error (or CIDFontType0).
 4. [ ] **bug-0032** (Medium) — simple path fails loudly on missing glyphs (mirror the composite arm); plus the lossy-`.notdef` width and control-char notes in the report.

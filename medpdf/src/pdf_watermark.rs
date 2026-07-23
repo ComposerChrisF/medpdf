@@ -288,7 +288,7 @@ fn widths_as_object_array(widths: &[u16]) -> Object {
     Object::Array(widths.iter().map(|v| Object::Integer(*v as i64)).collect())
 }
 
-fn bbox_as_object_array(bbox: &[i16]) -> Result<Object> {
+fn bbox_as_object_array(bbox: &[i32]) -> Result<Object> {
     if bbox.len() != 4 {
         return Err(MedpdfError::new("FontBBox must have exactly 4 elements"));
     }

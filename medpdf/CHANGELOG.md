@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.11] - 2026-07-22
+### Fixed
+- bug-0031: the simple-font path emitted `/Widths` and every FontDescriptor
+  metric in the embedded font’s raw unitsPerEm, but PDF glyph space is
+  1000 units/em — so any embedded font whose upem was not 1000 (Arial,
+  Verdana, and most macOS TrueType faces use 2048) laid text out
+  upem/1000× too wide.  `font_helpers` now scales every advance and
+  descriptor metric by `1000/upem` via a new `glyph_space_scale` +
+  `scale_metric`, the same formula the composite `/W` path already used;
+  `FontDescriptorPdfInfo`’s metric fields widened `i16` → `i32` so a
+  small-upem font cannot overflow when scaled up.  New regression test
+  `tests/font_metrics_scaling_regression.rs`, verified to fail on revert.
+
 ## [0.11.10] - 2026-07-22
 ### Fixed
 - bug-0037: the watermark path named its `/Font`/`/ExtGState` resource keys

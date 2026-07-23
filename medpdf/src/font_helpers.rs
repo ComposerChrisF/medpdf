@@ -18,15 +18,38 @@ pub(crate) struct FontPdfInfo {
 pub(crate) struct FontDescriptorPdfInfo {
     pub font_name: String,
     pub flags: u16,
-    pub font_bbox: [i16; 4],
+    // Metrics below are in PDF glyph space (1000 units/em), scaled from the font's
+    // own unitsPerEm — see [`glyph_space_scale`] and bug-0031. i32 (not i16) so a
+    // small-upem font whose raw metric already sits near i16::MAX cannot overflow
+    // when scaled up. `italic_angle` (degrees) and `stem_v` (a weight heuristic) are
+    // NOT font-unit metrics and are left unscaled.
+    pub font_bbox: [i32; 4],
     pub italic_angle: i16,
-    pub ascent: i16,
-    pub descent: i16,
-    pub leading: i16,
-    pub x_height: i16,
+    pub ascent: i32,
+    pub descent: i32,
+    pub leading: i32,
+    pub x_height: i32,
     pub stem_v: u16,
-    pub cap_height: i16,
+    pub cap_height: i32,
     pub font_file_key: String, // "FontFile" for Type1/MMType1; "FontFile2" for TrueType; "FontFile3" for CFF/OpenType
+}
+
+/// The factor that converts a raw font-unit metric into PDF glyph space, where
+/// 1000 units = 1 em (PDF 32000-1 §9.2.4). ttf-parser reports advances and
+/// descriptor metrics in the font's own `unitsPerEm`, so every such value must be
+/// multiplied by this before it reaches the PDF — otherwise a font whose upem ≠ 1000
+/// (Arial/Verdana/most macOS TrueType are 2048) lays text out upem/1000× too wide
+/// (bug-0031). This is the same formula the composite `/W` path already uses
+/// (`pdf_font_composite::build_w_array`). Returns 0.0 for a degenerate upem of 0.
+fn glyph_space_scale(face: &Face) -> f32 {
+    let upem = face.units_per_em() as f32;
+    if upem > 0.0 { 1000.0 / upem } else { 0.0 }
+}
+
+/// Scales a raw i16 font-unit metric into rounded PDF glyph space (see
+/// [`glyph_space_scale`]).
+fn scale_metric(value: i16, scale: f32) -> i32 {
+    (value as f32 * scale).round() as i32
 }
 
 pub(crate) fn get_name(face: &Face, name_id: u16) -> Option<String> {
@@ -127,6 +150,7 @@ pub(crate) fn get_font_widths(face: &Face, first_char: u8, last_char: u8) -> Vec
         last_char >= first_char,
         "last_char ({last_char}) must be >= first_char ({first_char})"
     );
+    let scale = glyph_space_scale(face);
     let mut widths = vec![0; (last_char - first_char + 1) as usize];
     for ch in first_char..=last_char {
         let unicode_char = match winansi_to_unicode(ch) {
@@ -135,15 +159,18 @@ pub(crate) fn get_font_widths(face: &Face, first_char: u8, last_char: u8) -> Vec
         };
         let glyph_index = face.glyph_index(unicode_char);
         if let Some(glyph_index) = glyph_index {
-            widths[(ch - first_char) as usize] =
-                face.glyph_hor_advance(glyph_index).unwrap_or_else(|| {
-                    log::trace!(
-                        "Missing glyph advance for glyph {:?} (char {})",
-                        glyph_index,
-                        ch
-                    );
-                    0
-                });
+            let advance = face.glyph_hor_advance(glyph_index).unwrap_or_else(|| {
+                log::trace!(
+                    "Missing glyph advance for glyph {:?} (char {})",
+                    glyph_index,
+                    ch
+                );
+                0
+            });
+            // /Widths are in 1000-unit glyph space, not raw font units (bug-0031).
+            // Saturating f32→u16 cast: advances and scale are non-negative and a
+            // real glyph never scales past u16::MAX.
+            widths[(ch - first_char) as usize] = (advance as f32 * scale).round() as u16;
         }
     }
     widths
@@ -226,9 +253,15 @@ pub(crate) fn guess_pdf_stem_v_for_font(face: &Face) -> u16 {
     (50.0 + w_temp * w_temp + 0.5).floor() as u16
 }
 
-pub(crate) fn get_pdf_font_bbox(face: &Face) -> [i16; 4] {
+pub(crate) fn get_pdf_font_bbox(face: &Face) -> [i32; 4] {
     let gbbox = face.global_bounding_box();
-    [gbbox.x_min, gbbox.y_min, gbbox.x_max, gbbox.y_max]
+    let scale = glyph_space_scale(face);
+    [
+        scale_metric(gbbox.x_min, scale),
+        scale_metric(gbbox.y_min, scale),
+        scale_metric(gbbox.x_max, scale),
+        scale_metric(gbbox.y_max, scale),
+    ]
 }
 
 /// Classifies a font face into its PDF font file key and subtype.
@@ -313,6 +346,15 @@ pub(crate) fn get_pdf_info_of_face(face: &Face) -> (FontPdfInfo, FontDescriptorP
     let ps_name =
         get_name(face, name_id::POST_SCRIPT_NAME).unwrap_or_else(|| "Unknown".to_string());
 
+    // Descriptor metrics come out of ttf-parser in the font's own unitsPerEm; scale
+    // every one into PDF glyph space (bug-0031). Fallbacks are computed in raw units
+    // first, then scaled, so upem-500-with-no-x_height still yields 500.
+    let scale = glyph_space_scale(face);
+    let x_height_raw = face
+        .x_height()
+        .unwrap_or((face.units_per_em() as f32 * 0.5) as i16);
+    let cap_height_raw = face.capital_height().unwrap_or(face.ascender());
+
     (
         FontPdfInfo {
             base_font: ps_name.clone(),
@@ -326,15 +368,13 @@ pub(crate) fn get_pdf_info_of_face(face: &Face) -> (FontPdfInfo, FontDescriptorP
             font_name: ps_name,
             flags: compute_pdf_font_flags_internal(face, is_symbolic),
             font_bbox: get_pdf_font_bbox(face),
-            italic_angle: face.italic_angle().round() as i16,
-            ascent: face.ascender(),
-            descent: face.descender(),
-            leading: face.line_gap(),
-            x_height: face
-                .x_height()
-                .unwrap_or((face.units_per_em() as f32 * 0.5) as i16),
-            stem_v: guess_pdf_stem_v_for_font(face),
-            cap_height: face.capital_height().unwrap_or(face.ascender()),
+            italic_angle: face.italic_angle().round() as i16, // degrees — not scaled
+            ascent: scale_metric(face.ascender(), scale),
+            descent: scale_metric(face.descender(), scale),
+            leading: scale_metric(face.line_gap(), scale),
+            x_height: scale_metric(x_height_raw, scale),
+            stem_v: guess_pdf_stem_v_for_font(face), // weight heuristic — not scaled
+            cap_height: scale_metric(cap_height_raw, scale),
             font_file_key: get_pdf_font_file_key(face),
         },
     )
