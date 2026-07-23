@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.10] - 2026-07-22
+### Fixed
+- bug-0037: the watermark path named its `/Font`/`/ExtGState` resource keys
+  after the new object’s id (`F{id}`, `GS{id}`) and wrote them into the
+  page’s resources with an unconditional `set`.  Since `F{objid}` is exactly
+  the naming scheme medpdf itself emits, a page containing prior medpdf
+  output could already bind that key to a different object — the write
+  silently rebound the page’s existing text to the watermark font.
+  `unique_resource_key` now checks the page’s effective (inherited-aware)
+  `/Font`/`/ExtGState` sub-dictionary before registering: on a collision
+  with a _different_ object it preserves the existing binding and derives
+  a collision-free key (`F{id}_w`) via the same `find_unique_name`
+  machinery `overlay_page` already uses; the no-collision case is
+  byte-stable.
+
 ## [0.11.9] - 2026-07-22
 ### Fixed
 - bug-0016: `overlay_page` errored with `Err(DictKey("Contents"))` when the

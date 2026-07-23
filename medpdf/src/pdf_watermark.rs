@@ -160,13 +160,88 @@ fn add_font_objects(
     }
 }
 
+/// Collects the entry keys present in a page's effective `resource_key` sub-dict
+/// (`/Font`, `/ExtGState`), resolving inherited `/Resources` and a referenced
+/// sub-dict, and reports whether `wanted_key` is already bound to `obj_id`.
+///
+/// Read-only. Used to pick a resource key that will not silently overwrite an
+/// existing binding (bug-0037).
+fn effective_subdict_state(
+    doc: &Document,
+    page_id: ObjectId,
+    resource_key: &[u8],
+    wanted_key: &[u8],
+    obj_id: ObjectId,
+) -> (HashSet<Vec<u8>>, bool) {
+    let mut keys = HashSet::new();
+    let mut already_bound = false;
+
+    let sub = crate::pdf_helpers::get_page_resources(doc, page_id).and_then(|res| {
+        let resources = match res {
+            Object::Dictionary(d) => Some(d),
+            Object::Reference(id) => doc.get_dictionary(id).ok().cloned(),
+            _ => None,
+        }?;
+        match resources.get(resource_key) {
+            Ok(Object::Dictionary(d)) => Some(d.clone()),
+            Ok(Object::Reference(id)) => doc.get_dictionary(*id).ok().cloned(),
+            _ => None,
+        }
+    });
+
+    if let Some(sub) = sub {
+        for (k, v) in sub.iter() {
+            keys.insert(k.clone());
+            if k.as_slice() == wanted_key && v.as_reference().ok() == Some(obj_id) {
+                already_bound = true;
+            }
+        }
+    }
+    (keys, already_bound)
+}
+
+/// Derives a resource key for `obj_id` under `resource_key`, guaranteed not to
+/// silently overwrite an existing *different* binding in the page's effective
+/// sub-dictionary.
+///
+/// The natural key is `{prefix}{obj_id.0}` (e.g. `F9`, `GS9`) — the historical
+/// scheme, returned unchanged in the common no-collision case so existing output is
+/// stable. If the page already binds that key to a *different* object, that binding
+/// is preserved and a unique key (`F9_w`, `F9_w1`, …) is derived instead via the
+/// same `find_unique_name` machinery overlay trusts: the content stream only needs
+/// *some* key; uniqueness is the invariant (bug-0037). If the key is already bound
+/// to this same object (idempotent re-registration of a cached font), the natural
+/// key is returned so no duplicate entry is created.
+fn unique_resource_key(
+    dest_doc: &Document,
+    page_id: ObjectId,
+    resource_key: &[u8],
+    prefix: &str,
+    obj_id: ObjectId,
+) -> Result<String> {
+    let natural = format!("{prefix}{}", obj_id.0);
+    let natural_bytes = natural.as_bytes();
+
+    let (existing_keys, already_bound) =
+        effective_subdict_state(dest_doc, page_id, resource_key, natural_bytes, obj_id);
+
+    if already_bound || !existing_keys.contains(natural_bytes) {
+        return Ok(natural);
+    }
+
+    let unique =
+        crate::pdf_overlay_helpers::find_unique_name(&existing_keys, natural_bytes, b"_w")?;
+    String::from_utf8(unique)
+        .map_err(|_| MedpdfError::new("derived resource key is not valid UTF-8"))
+}
+
 /// Registers a font object in the page's resources and returns the font key.
 fn register_font_in_page_resources(
     dest_doc: &mut Document,
     page_id: ObjectId,
     font_id: ObjectId,
 ) -> Result<String> {
-    let font_key = format!("F{}", font_id.0);
+    let font_key = unique_resource_key(dest_doc, page_id, KEY_FONT, "F", font_id)?;
     crate::pdf_helpers::register_in_page_resources(
         dest_doc,
         page_id,
@@ -183,7 +258,7 @@ pub fn register_extgstate_in_page_resources(
     page_id: ObjectId,
     gs_id: ObjectId,
 ) -> Result<String> {
-    let gs_key = format!("GS{}", gs_id.0);
+    let gs_key = unique_resource_key(dest_doc, page_id, KEY_EXTGSTATE, "GS", gs_id)?;
     crate::pdf_helpers::register_in_page_resources(
         dest_doc,
         page_id,
