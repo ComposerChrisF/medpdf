@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.8] - 2026-07-22
+### Fixed
+- bug-0020: page-tree `/Count` maintenance was broken for documents with
+  intermediate `/Pages` nodes (PDF 32000-1 §7.7.3.2 requires `/Count` on
+  every `/Pages` node to equal the number of leaf pages beneath it).
+  `delete_page` updated only the direct parent’s `/Count`, leaving every
+  ancestor above it stale; `delete_page`, `copy_page`, and
+  `create_blank_page` all assigned `/Count = kids.len()`, which counts
+  children rather than leaves and is wrong under any intermediate node.
+  A new `pdf_helpers::adjust_ancestor_counts` walks the `/Parent` chain
+  applying ±1 (adding/removing one leaf changes every ancestor’s count by
+  exactly one), cyclic-chain guarded; all three operations now use it.
+
 ## [0.11.7] - 2026-07-22
 ### Fixed
 - bug-0008: `Resources`, `MediaBox`, `CropBox`, and `Rotate` are inheritable

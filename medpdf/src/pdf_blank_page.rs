@@ -2,7 +2,7 @@
 
 use crate::{
     error::Result,
-    pdf_helpers::{KEY_COUNT, KEY_KIDS, KEY_PAGES, KEY_PARENT},
+    pdf_helpers::{self, KEY_KIDS, KEY_PAGES, KEY_PARENT},
 };
 use lopdf::{Document, Object, ObjectId, Stream, dictionary};
 
@@ -23,13 +23,16 @@ pub fn create_blank_page(dest_doc: &mut Document, width: f32, height: f32) -> Re
     let pages_id = dest_doc.catalog()?.get(KEY_PAGES)?.as_reference()?;
 
     // Add page to Kids array
-    let pages = dest_doc.get_object_mut(pages_id)?.as_dict_mut()?;
-    let kids = pages.get_mut(KEY_KIDS)?.as_array_mut()?;
-    kids.push(page_id.into());
+    {
+        let pages = dest_doc.get_object_mut(pages_id)?.as_dict_mut()?;
+        let kids = pages.get_mut(KEY_KIDS)?.as_array_mut()?;
+        kids.push(page_id.into());
+    }
 
-    // Update page count
-    let new_page_count = kids.len();
-    pages.set(KEY_COUNT, Object::Integer(new_page_count as i64));
+    // A blank page is a single leaf, so every ancestor's leaf count grows by 1.
+    // Increment along the /Parent chain rather than assigning kids.len(), which
+    // counts children (not leaves) and ignores ancestors of a nested tree (bug-0020).
+    pdf_helpers::adjust_ancestor_counts(dest_doc, pages_id, 1)?;
 
     // Set Parent for the new page
     let page_object = dest_doc.get_object_mut(page_id)?.as_dict_mut()?;

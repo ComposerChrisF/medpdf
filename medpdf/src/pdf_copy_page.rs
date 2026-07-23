@@ -3,8 +3,8 @@
 use crate::{
     error::Result,
     pdf_helpers::{
-        self, KEY_COUNT, KEY_CROP_BOX, KEY_KIDS, KEY_MEDIA_BOX, KEY_PAGES, KEY_PARENT,
-        KEY_RESOURCES, KEY_ROTATE,
+        self, KEY_CROP_BOX, KEY_KIDS, KEY_MEDIA_BOX, KEY_PAGES, KEY_PARENT, KEY_RESOURCES,
+        KEY_ROTATE,
     },
 };
 use lopdf::{Document, Object, ObjectId};
@@ -88,14 +88,23 @@ pub fn copy_page_with_cache(
     let page = dest_doc.get_object_mut(new_page_id)?.as_dict_mut()?;
     page.set(KEY_PARENT, Object::Reference(dest_pages_id));
 
-    let dest_pages = dest_doc.get_object_mut(dest_pages_id)?.as_dict_mut()?;
-
-    let new_page_count = {
-        let dest_kids = dest_pages.get_mut(KEY_KIDS)?.as_array_mut()?;
+    // Append the new leaf to the destination /Pages node's /Kids.
+    {
+        let dest_kids = dest_doc
+            .get_object_mut(dest_pages_id)?
+            .as_dict_mut()?
+            .get_mut(KEY_KIDS)?
+            .as_array_mut()?;
         dest_kids.push(Object::Reference(new_page_id));
-        dest_kids.len()
-    };
-    dest_pages.set(KEY_COUNT.to_vec(), Object::Integer(new_page_count as i64));
+    }
+
+    // The appended kid is always a leaf Page, so every ancestor's leaf count grows
+    // by exactly 1. Increment along the /Parent chain rather than assigning
+    // kids.len(), which counts children (not leaves) and is wrong under any
+    // intermediate /Pages node (bug-0020). The new page attaches to the root Pages
+    // node today, so the walk is usually just that node — but writing it as a walk
+    // keeps it correct if a future nested attach point is used.
+    pdf_helpers::adjust_ancestor_counts(dest_doc, dest_pages_id, 1)?;
 
     Ok(new_page_id)
 }

@@ -160,6 +160,45 @@ pub(crate) fn get_page_object_id_from_doc(doc: &Document, page_num: u32) -> Resu
         .ok_or_else(|| MedpdfError::new(format!("Page {} not found in source document", page_num)))
 }
 
+/// Adjusts the `/Count` of a `/Pages` node and every ancestor up the `/Parent`
+/// chain by `delta`.
+///
+/// PDF 32000-1 §7.7.3.2: `/Count` is the number of **leaf** `Page` objects under a
+/// node, and it appears on **every** `/Pages` node. Adding or removing exactly one
+/// leaf therefore changes every ancestor's count by exactly ±1, so incrementing or
+/// decrementing along the parent chain is correct for any tree shape without
+/// recomputation. Callers must never assign `kids.len()` — that counts children,
+/// not leaves, and it ignores every ancestor above the direct parent (bug-0020).
+///
+/// `start_pages_id` is the direct parent whose `/Kids` was just mutated. The walk
+/// is defended against a cyclic `/Parent` chain (corrupt input) so it cannot hang.
+pub(crate) fn adjust_ancestor_counts(
+    doc: &mut Document,
+    start_pages_id: ObjectId,
+    delta: i64,
+) -> Result<()> {
+    let mut visited = std::collections::HashSet::new();
+    let mut current_id = Some(start_pages_id);
+    while let Some(id) = current_id {
+        if !visited.insert(id) {
+            // Cyclic /Parent chain — corrupt tree. Stop rather than loop forever.
+            break;
+        }
+        let dict = doc.get_object_mut(id)?.as_dict_mut()?;
+        let current = dict
+            .get(KEY_COUNT)
+            .ok()
+            .and_then(|o| o.as_i64().ok())
+            .unwrap_or(0);
+        dict.set(KEY_COUNT.to_vec(), Object::Integer(current + delta));
+        current_id = dict
+            .get(KEY_PARENT)
+            .ok()
+            .and_then(|o| o.as_reference().ok());
+    }
+    Ok(())
+}
+
 /// Counts the net q/Q balance across the given content streams (read-only).
 ///
 /// A positive result is the number of unclosed `q` operations. Streams that fail
