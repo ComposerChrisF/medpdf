@@ -32,6 +32,13 @@ pub(crate) struct FontDescriptorPdfInfo {
     pub stem_v: u16,
     pub cap_height: i32,
     pub font_file_key: String, // "FontFile" for Type1/MMType1; "FontFile2" for TrueType; "FontFile3" for CFF/OpenType
+    // The embedded FontFile stream's own `/Subtype` (Some("OpenType") for FontFile3;
+    // None for FontFile2) and whether it carries `/Length1` — see [`classify_font`]
+    // and bug-0005.
+    pub font_file_stream_subtype: Option<String>,
+    pub font_file_emits_length1: bool,
+    // CFF outlines: the composite (Type0) path refuses these for now (bug-0005).
+    pub is_cff: bool,
 }
 
 /// The factor that converts a raw font-unit metric into PDF glyph space, where
@@ -264,33 +271,61 @@ pub(crate) fn get_pdf_font_bbox(face: &Face) -> [i32; 4] {
     ]
 }
 
-/// Classifies a font face into its PDF font file key and subtype.
-/// Returns `(font_file_key, subtype)`.
-fn classify_font(face: &Face) -> (&'static str, &'static str) {
-    if face
-        .raw_face()
-        .table(ttf_parser::Tag::from_bytes(b"CFF "))
-        .is_some()
-    {
-        ("FontFile3", "Type1C")
-    } else if face
-        .raw_face()
-        .table(ttf_parser::Tag::from_bytes(b"glyf"))
-        .is_some()
-    {
-        ("FontFile2", "TrueType")
+/// PDF classification of an embedded font program, derived from its outline flavor.
+///
+/// The three PDF objects describing an embedded font must agree on the flavor (PDF
+/// 32000-1 Tables 110 & 127); a mismatch makes conforming viewers reject the embedded
+/// program and substitute a font (bug-0005).
+struct FontClassification {
+    /// The Font dictionary's `/Subtype` (Table 110): `Type1` for CFF outlines,
+    /// `TrueType` for `glyf` outlines. (`Type1C` is a *stream* subtype — legal on the
+    /// FontFile3 stream, never on a Font dictionary.)
+    dict_subtype: &'static str,
+    /// The FontDescriptor key holding the embedded program: `FontFile3` for CFF,
+    /// `FontFile2` for TrueType.
+    font_file_key: &'static str,
+    /// The embedded stream's own `/Subtype`. FontFile3 requires one (`OpenType` for
+    /// the sfnt-wrapped OTF bytes we embed); FontFile2 has none.
+    stream_subtype: Option<&'static str>,
+    /// Whether the stream carries `/Length1` (uncompressed length) — defined for
+    /// FontFile/FontFile2, not FontFile3.
+    emits_length1: bool,
+    /// CFF outlines. Drives the composite-path fail-loud: a `CIDFontType2` descendant
+    /// requires TrueType, so a composite CFF font is refused until `CIDFontType0` is
+    /// implemented.
+    is_cff: bool,
+}
+
+impl FontClassification {
+    const CFF: Self = Self {
+        dict_subtype: "Type1",
+        font_file_key: "FontFile3",
+        stream_subtype: Some("OpenType"),
+        emits_length1: false,
+        is_cff: true,
+    };
+    const TRUETYPE: Self = Self {
+        dict_subtype: "TrueType",
+        font_file_key: "FontFile2",
+        stream_subtype: None,
+        emits_length1: true,
+        is_cff: false,
+    };
+}
+
+/// Classifies a font face by outline flavor (CFF vs TrueType `glyf`). CFF takes
+/// priority if both tables are present, and an unrecognized program is treated as
+/// CFF/OpenType (its bytes are sfnt-wrapped, so `/Subtype /OpenType` describes them).
+fn classify_font(face: &Face) -> FontClassification {
+    let raw = face.raw_face();
+    if raw.table(ttf_parser::Tag::from_bytes(b"CFF ")).is_some() {
+        FontClassification::CFF
+    } else if raw.table(ttf_parser::Tag::from_bytes(b"glyf")).is_some() {
+        FontClassification::TRUETYPE
     } else {
-        log::warn!("Font file type not recognized; assuming CFF/Type1C");
-        ("FontFile3", "Type1C")
+        log::warn!("Font file type not recognized; assuming CFF/OpenType");
+        FontClassification::CFF
     }
-}
-
-pub(crate) fn get_pdf_font_file_key(face: &Face) -> String {
-    classify_font(face).0.to_string()
-}
-
-pub(crate) fn get_pdf_font_subtype(face: &Face) -> String {
-    classify_font(face).1.to_string()
 }
 
 pub(crate) fn get_pdf_font_info_of_data(
@@ -354,6 +389,7 @@ pub(crate) fn get_pdf_info_of_face(face: &Face) -> (FontPdfInfo, FontDescriptorP
         .x_height()
         .unwrap_or((face.units_per_em() as f32 * 0.5) as i16);
     let cap_height_raw = face.capital_height().unwrap_or(face.ascender());
+    let class = classify_font(face);
 
     (
         FontPdfInfo {
@@ -362,7 +398,7 @@ pub(crate) fn get_pdf_info_of_face(face: &Face) -> (FontPdfInfo, FontDescriptorP
             first_char: first_char.into(),
             last_char: last_char.into(),
             widths: get_font_widths(face, first_char, last_char),
-            subtype: get_pdf_font_subtype(face),
+            subtype: class.dict_subtype.to_string(),
         },
         FontDescriptorPdfInfo {
             font_name: ps_name,
@@ -375,7 +411,10 @@ pub(crate) fn get_pdf_info_of_face(face: &Face) -> (FontPdfInfo, FontDescriptorP
             x_height: scale_metric(x_height_raw, scale),
             stem_v: guess_pdf_stem_v_for_font(face), // weight heuristic — not scaled
             cap_height: scale_metric(cap_height_raw, scale),
-            font_file_key: get_pdf_font_file_key(face),
+            font_file_key: class.font_file_key.to_string(),
+            font_file_stream_subtype: class.stream_subtype.map(str::to_string),
+            font_file_emits_length1: class.emits_length1,
+            is_cff: class.is_cff,
         },
     )
 }
@@ -439,6 +478,9 @@ mod tests {
             stem_v: 80,
             cap_height: 700,
             font_file_key: "FontFile2".to_string(),
+            font_file_stream_subtype: None,
+            font_file_emits_length1: true,
+            is_cff: false,
         };
         let cloned = desc.clone();
         assert_eq!(cloned.font_name, desc.font_name);

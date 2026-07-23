@@ -12,7 +12,7 @@ use crate::pdf_helpers::{
     KEY_CONTENTS, KEY_EXTGSTATE, KEY_FONT, KEY_FONT_DESCRIPTOR, count_q_balance,
 };
 use lopdf::content::{Content, Operation};
-use lopdf::{Document, Object, ObjectId, Stream, StringFormat, dictionary};
+use lopdf::{Dictionary, Document, Object, ObjectId, Stream, StringFormat, dictionary};
 
 /// How an embedded font is written into the PDF: the single-byte WinAnsi simple-font
 /// fast path, or a Type0/CIDFontType2 composite font (Identity-H) for text with
@@ -803,9 +803,17 @@ fn add_descriptor_and_fontfile(
         "Leading" => font_descriptor.leading,
         "XHeight" => font_descriptor.x_height,
     };
-    let font_file_dict = dictionary! {
-        "Length1" => font_data.len() as i64,
-    };
+    // The embedded FontFile stream's dictionary depends on the font flavor (bug-0005):
+    //   - FontFile2 (TrueType): carries /Length1 (uncompressed length), no /Subtype.
+    //   - FontFile3 (CFF/OpenType): carries /Subtype /OpenType, no /Length1 (which is
+    //     only defined for FontFile/FontFile2).
+    let mut font_file_dict = Dictionary::new();
+    if font_descriptor.font_file_emits_length1 {
+        font_file_dict.set("Length1", Object::Integer(font_data.len() as i64));
+    }
+    if let Some(ref stream_subtype) = font_descriptor.font_file_stream_subtype {
+        font_file_dict.set("Subtype", Object::Name(stream_subtype.as_bytes().to_vec()));
+    }
     let mut font_file = Stream::new(font_file_dict, font_data.into());
     font_file.compress()?;
     let font_file_id = dest_doc.add_object(font_file);
@@ -864,6 +872,23 @@ fn add_embedded_font_composite(
     data: &Arc<Vec<u8>>,
 ) -> Result<CachedFontEntry> {
     let (font_info, font_descriptor) = font_helpers::get_pdf_font_info_of_data(data)?;
+
+    // A Type0 composite font here uses a CIDFontType2 descendant, which requires a
+    // TrueType (glyf) program via FontFile2 + CIDToGIDMap. A CFF font would need a
+    // CIDFontType0 descendant + FontFile3 /Subtype OpenType, which is not yet
+    // implemented — pairing CIDFontType2 with CFF makes viewers substitute a font
+    // (bug-0005). Fail loudly rather than emit that mismatch. The composite path is
+    // only reached for text outside WinAnsiEncoding (feature-plan-type0-subsetting.md
+    // scopes composite work to TrueType).
+    if font_descriptor.is_cff {
+        return Err(MedpdfError::new(format!(
+            "Cannot embed CFF/OpenType font '{}' for Unicode (composite) text: composite CFF \
+             fonts (CIDFontType0) are not yet supported. Use a TrueType (glyf) font for text \
+             with characters outside WinAnsiEncoding. (bug-0005)",
+            font_info.base_font
+        )));
+    }
+
     let (descriptor_id, font_file_id) =
         add_descriptor_and_fontfile(dest_doc, data, &font_descriptor)?;
 

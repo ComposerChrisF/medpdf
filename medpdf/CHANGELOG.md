@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.13] - 2026-07-23
+### Fixed
+- bug-0005: CFF-flavored (`.otf`) fonts were embedded with structurally
+  invalid PDF objects — a Font dict `/Subtype /Type1C` (illegal on a Font
+  dict), a FontFile3 stream missing `/Subtype /OpenType` and carrying a
+  meaningless `/Length1`, and the composite path pairing `CIDFontType2` with
+  a CFF program — so conforming viewers rejected the embedded font program
+  and silently substituted a fallback.  `classify_font` now returns a
+  `FontClassification` (dict_subtype/font_file_key/stream_subtype/
+  emits_length1/is_cff): CFF ⇒ Font-dict `/Type1` + FontFile3
+  `/Subtype /OpenType`, no `/Length1`; TrueType (`glyf`) unchanged
+  (`/TrueType` + FontFile2 + `/Length1`).  `add_descriptor_and_fontfile`
+  emits the stream `/Subtype`/`/Length1` per flavor; the composite
+  (Type0/CIDFontType2) path fails loud on a CFF face rather than emitting an
+  invalid combination (CIDFontType0 not yet implemented).
+  `tests/cff_otf_font_structure_regression.rs` added (CFF simple structure,
+  composite fail-loud, TrueType-unchanged guard; the two CFF tests verified
+  to fail on revert).
+
 ## [0.11.12] - 2026-07-23
 ### Fixed
 - bug-0012: font-kit’s `font_index` (the selected face inside a `.ttc`/`.otc`
