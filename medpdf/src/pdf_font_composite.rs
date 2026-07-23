@@ -66,17 +66,31 @@ fn mapped_glyphs(face: &Face, used_chars: &HashSet<char>) -> Vec<(u16, char)> {
 
 /// Builds the CIDFontType2 `/W` array (`[ gid [ w ] … ]`) for the used glyphs, with
 /// advances scaled to the PDF 1000-unit glyph space.
+///
+/// A `/W` entry for GID 0 (`.notdef`) is always emitted first. In lossy mode a missing
+/// glyph is substituted with `.notdef` (GID 0), which no character maps to and which
+/// therefore never appears in [`mapped_glyphs`]; without an explicit width the viewer
+/// falls back to `DW` (=1000, a full em) for every substituted glyph while
+/// `measure_text_width_with_face` counts 0, skewing advance and alignment (bug-0032).
+/// Pinning GID 0 to the font's real `.notdef` advance replaces that full-em skew with
+/// the glyph's true width.
 pub(crate) fn build_w_array(face: &Face, used_chars: &HashSet<char>) -> Object {
     let upem = face.units_per_em() as f32;
     let scale = if upem > 0.0 { 1000.0 / upem } else { 0.0 };
     let mut arr: Vec<Object> = Vec::new();
-    for (gid, _) in mapped_glyphs(face, used_chars) {
+    let push_entry = |gid: u16, arr: &mut Vec<Object>| {
         let advance = face
             .glyph_hor_advance(ttf_parser::GlyphId(gid))
             .unwrap_or(0) as f32;
         let w = (advance * scale).round() as i64;
         arr.push(Object::Integer(gid as i64));
         arr.push(Object::Array(vec![Object::Integer(w)]));
+    };
+    push_entry(0, &mut arr);
+    for (gid, _) in mapped_glyphs(face, used_chars) {
+        if gid != 0 {
+            push_entry(gid, &mut arr);
+        }
     }
     Object::Array(arr)
 }
@@ -153,6 +167,47 @@ mod tests {
         let gids = encode_text_identity(&face, "A\u{4E2D}B", true).unwrap();
         assert_eq!(gids.len(), 6, "three code points, .notdef for the middle");
         assert_eq!(&gids[2..4], &[0, 0], "middle glyph is .notdef");
+    }
+
+    #[test]
+    fn w_array_always_includes_notdef_gid0() {
+        // Lossy-mode substitution emits GID 0 (.notdef), which no character maps to, so
+        // it never appears in mapped_glyphs. Without an explicit /W entry the viewer
+        // advances DW (=1000, a full em) for every substituted glyph, skewing alignment
+        // (bug-0032). build_w_array must always pin GID 0 to the font's real .notdef
+        // advance, and exactly once.
+        let Some(data) = embedded_face_bytes() else {
+            return;
+        };
+        let face = Face::parse(&data, 0).unwrap();
+        let used: HashSet<char> = "Hi".chars().collect();
+        let Object::Array(entries) = build_w_array(&face, &used) else {
+            panic!("build_w_array must return an array");
+        };
+        // Entries are [gid, [w], gid, [w], …]; the GID slots are the even indices.
+        let gids: Vec<i64> = entries
+            .iter()
+            .step_by(2)
+            .map(|o| o.as_i64().unwrap())
+            .collect();
+        assert_eq!(
+            gids.iter().filter(|&&g| g == 0).count(),
+            1,
+            "/W must contain exactly one GID-0 (.notdef) entry; got gids {gids:?}"
+        );
+        let notdef_advance = face.glyph_hor_advance(ttf_parser::GlyphId(0)).unwrap_or(0) as f32;
+        let scale = 1000.0 / face.units_per_em() as f32;
+        let expected = (notdef_advance * scale).round() as i64;
+        // The width array immediately following GID 0 is [expected].
+        let idx = gids.iter().position(|&g| g == 0).unwrap() * 2;
+        let Object::Array(w) = &entries[idx + 1] else {
+            panic!("width slot after GID 0 must be an array");
+        };
+        assert_eq!(
+            w[0].as_i64().unwrap(),
+            expected,
+            "GID-0 /W must be the real .notdef advance ({expected}), not DW=1000"
+        );
     }
 
     #[test]

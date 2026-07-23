@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.14] - 2026-07-23
+### Fixed
+- bug-0032: the WinAnsi (simple) font path never checked glyph presence, so
+  a CP1252-representable character the embedded font lacked was emitted as
+  a zero-width byte and vanished silently — contradicting the loud contract
+  the composite path already honored.  `add_text_params` now verifies each
+  printable character has a glyph (fail-loud `UnrepresentableText`, or `?` +
+  warning under `lossy_text`); built-in fonts keep prior behavior.  Also:
+  `build_w_array` always emits a `/W` entry for GID 0 so a lossy-substituted
+  `.notdef` advances the font’s real width instead of `DW=1000`.  Control
+  characters (`\n`/`\t`/…) are deferred (not rejected) but now warned about,
+  since medpdf renders a single line; multi-line analysis in
+  `feature-plan-multiline-watermark-text.md`.
+
 ## [0.11.13] - 2026-07-23
 ### Fixed
 - bug-0005: CFF-flavored (`.otf`) fonts were embedded with structurally

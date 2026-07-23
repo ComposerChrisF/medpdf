@@ -549,6 +549,13 @@ pub fn add_text_params(
         )));
     }
 
+    // medpdf draws a single line and does not interpret control characters (newline,
+    // tab, …); they are dropped on the WinAnsi path and rejected on the composite
+    // path. Warn loudly so a reader debugging "why did my \n do nothing?" finds the
+    // cause. Multi-line support is deferred (bug-0032; feature-plan-multiline-
+    // watermark-text.md tracks where the fix should live).
+    warn_on_control_chars(&params.text, &params.font_name);
+
     // Decide the encoding: any character outside WinAnsiEncoding requires a Type0
     // composite font, which is only possible for an embedded font.
     let non_winansi = font_helpers::non_winansi_chars(&params.text);
@@ -612,7 +619,29 @@ fn encode_text_for_font(
     encoding: EncodingKind,
 ) -> Result<(Vec<u8>, StringFormat)> {
     match encoding {
-        EncodingKind::Simple => Ok((utf8_to_winansi(&params.text), StringFormat::Literal)),
+        EncodingKind::Simple => {
+            // For an embedded font, verify every *printable* character actually has a
+            // glyph in the face. A WinAnsi-representable character the font lacks (e.g.
+            // U+00AD soft hyphen in a font without it) would otherwise emit a zero-width
+            // byte and vanish silently (bug-0032) — the exact opposite of the loud
+            // contract the function doc, error.rs, and CLAUDE.md all promise, which the
+            // composite arm below already honors. Built-in fonts (no face to query) keep
+            // today's behavior. Control characters are exempt from the glyph check (they
+            // have no glyph and no rendering; add_text_params already warned about them).
+            match params.font_data.embedded_bytes() {
+                Some(bytes) => {
+                    let face = ttf_parser::Face::parse(bytes, 0)?;
+                    let encoded =
+                        encode_text_winansi_checked(&face, &params.text, params.lossy_text)
+                            .map_err(|missing| MedpdfError::UnrepresentableText {
+                                chars: missing,
+                                font: params.font_name.clone(),
+                            })?;
+                    Ok((encoded, StringFormat::Literal))
+                }
+                None => Ok((utf8_to_winansi(&params.text), StringFormat::Literal)),
+            }
+        }
         EncodingKind::Composite => {
             let bytes = params.font_data.embedded_bytes().ok_or_else(|| {
                 MedpdfError::new("composite text encoding requires an embedded font")
@@ -631,6 +660,81 @@ fn encode_text_for_font(
             }
         }
     }
+}
+
+/// Encodes text to WinAnsiEncoding bytes for an *embedded* font, verifying that each
+/// printable character has a glyph in `face`.
+///
+/// This mirrors the composite arm's fail-loud contract on the single-byte path: a
+/// character that is inside CP1252 but absent from the font (a missing glyph) would
+/// otherwise emit a zero-width byte and disappear silently. On a missing glyph: in
+/// `lossy` mode, substitute `?` and log a warning; otherwise collect the distinct
+/// unrepresentable characters and return them as `Err` so the caller fails loudly.
+///
+/// Control characters are passed through as their raw WinAnsi byte without a glyph
+/// check: they have no glyph and medpdf does not render them (see
+/// [`warn_on_control_chars`]), so treating them as "missing glyphs" would change today's
+/// behavior. Keeping them out of the check leaves control-char handling exactly as it
+/// was (byte emitted, invisible) while the warning makes it discoverable.
+fn encode_text_winansi_checked(
+    face: &ttf_parser::Face,
+    text: &str,
+    lossy: bool,
+) -> std::result::Result<Vec<u8>, Vec<char>> {
+    let mut out = Vec::with_capacity(text.len());
+    let mut missing: Vec<char> = Vec::new();
+    for ch in text.chars() {
+        if ch.is_control() || face.glyph_index(ch).is_some() {
+            out.push(font_helpers::unicode_to_winansi(ch));
+        } else if lossy {
+            log::warn!(
+                "Font lacks a glyph for '{}' (U+{:04X}); substituting '?'",
+                ch,
+                ch as u32
+            );
+            out.push(b'?');
+        } else if !missing.contains(&ch) {
+            missing.push(ch);
+        }
+    }
+    if missing.is_empty() {
+        Ok(out)
+    } else {
+        Err(missing)
+    }
+}
+
+/// Logs a warning, naming the distinct characters, when `text` contains control
+/// characters (newline, tab, and the rest of `0x00`–`0x1F` / `0x7F`).
+///
+/// medpdf renders a single line: it does not interpret `\n`, `\t`, or any other control
+/// character, so they are dropped on the WinAnsi path and rejected on the composite
+/// path. Rather than fail (which would break callers that pass such text today, e.g.
+/// pdf-maker's documented `\n`/`\t` watermark escapes), this leaves the behavior
+/// unchanged but leaves a clear trail for anyone — human or LLM — debugging why the
+/// characters "did nothing". Multi-line support is deferred (bug-0032).
+fn warn_on_control_chars(text: &str, font_name: &str) {
+    let mut controls: Vec<char> = Vec::new();
+    for ch in text.chars() {
+        if ch.is_control() && !controls.contains(&ch) {
+            controls.push(ch);
+        }
+    }
+    if controls.is_empty() {
+        return;
+    }
+    let named: Vec<String> = controls
+        .iter()
+        .map(|c| format!("U+{:04X}", *c as u32))
+        .collect();
+    log::warn!(
+        "Text for font '{}' contains control character(s) [{}] that medpdf does not render: \
+         it draws a single line and does not interpret newlines, tabs, or other control \
+         characters. They are dropped (WinAnsi path) or cause an UnrepresentableText error \
+         (composite path). Multi-line watermark text is not yet supported.",
+        font_name,
+        named.join(", ")
+    );
 }
 
 /// Inserts a content stream into a page, either over or under existing content.
