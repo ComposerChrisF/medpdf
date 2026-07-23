@@ -532,6 +532,23 @@ pub fn add_text_params(
     params: &crate::types::AddTextParams,
     font_cache: &mut EmbeddedFontCache,
 ) -> Result<()> {
+    // Refuse to embed a font collection (.ttc/.otc). Every consumer parses face 0, so
+    // embedding the collection blob silently ships the wrong face and a font program
+    // (the whole collection) that many viewers cannot use. A nonzero face index is
+    // caught earlier at resolution (handle_to_font_path); this catches a face-0
+    // collection and a directly-constructed FontData::Embedded. Extracting a single
+    // face is a planned follow-up (bug-0012, Plan B).
+    if let crate::font_data::FontData::Embedded(ref data) = params.font_data
+        && ttf_parser::fonts_in_collection(data).is_some()
+    {
+        return Err(MedpdfError::new(format!(
+            "Cannot embed font '{}': the data is a TrueType/OpenType collection (.ttc/.otc). \
+             Embedding a specific face from a collection is not yet supported; supply a \
+             single-face .ttf/.otf font, or an @-prefixed built-in (e.g. @Helvetica). (bug-0012)",
+            params.font_name
+        )));
+    }
+
     // Decide the encoding: any character outside WinAnsiEncoding requires a Type0
     // composite font, which is only possible for an embedded font.
     let non_winansi = font_helpers::non_winansi_chars(&params.text);

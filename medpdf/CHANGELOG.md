@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.12] - 2026-07-23
+### Fixed
+- bug-0012: font-kit’s `font_index` (the selected face inside a `.ttc`/`.otc`
+  font collection) was dropped on the path from font discovery to embedding,
+  so a styled macOS system font backed by a collection silently embedded the
+  _wrong_ face — face 0 — with `BaseFont=Unknown` and the whole collection
+  blob as the font program.  Fixed via loud-fail guards rather than a public
+  API change (an audit of pdf-maker and pdf-orchestrator found neither
+  constructs or matches the font enums, so threading the index through the
+  API would buy nothing): `handle_to_font_path` now returns `Result` and
+  errors on a nonzero face index at resolution; `add_text_params` refuses a
+  `.ttc`/`.otc` collection blob at embed time via
+  `ttf_parser::fonts_in_collection`.  New regression test
+  `tests/font_collection_rejected_regression.rs`, verified to fail on
+  revert.
+
 ## [0.11.11] - 2026-07-22
 ### Fixed
 - bug-0031: the simple-font path emitted `/Widths` and every FontDescriptor

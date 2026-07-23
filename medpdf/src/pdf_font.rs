@@ -134,8 +134,7 @@ pub fn find_font_with_style(
         )],
         &properties,
     ) {
-        Ok(handle) => handle_to_font_path(handle)
-            .ok_or_else(|| format!("Font {font_path:?} not found").into()),
+        Ok(handle) => handle_to_font_path(handle),
         Err(_) => {
             // Fall back to default properties, reusing the existing SystemSource
             find_font_with_source(font_path, &source)
@@ -163,12 +162,40 @@ fn extract_font_name(data: &[u8]) -> String {
         .unwrap_or_else(|| "EmbeddedFont".to_string())
 }
 
-fn handle_to_font_path(handle: font_kit::handle::Handle) -> Option<FontPath> {
+/// Converts a font-kit handle into a [`FontPath`].
+///
+/// font-kit handles carry a `font_index` selecting a face inside a font collection
+/// (`.ttc`/`.otc`); a nonzero index means the requested face is not the first one in
+/// the file. We do not yet extract a single face from a collection, so rather than
+/// drop the index and silently embed face 0 — the wrong face, with the whole
+/// collection blob as its font program and `BaseFont = Unknown` — we fail loudly and
+/// point the caller at a single-face file (bug-0012, Plan A). Extraction is a planned
+/// follow-up (Plan B). Face-0 collections are caught at the embed step instead (a
+/// nonzero index is not the only way a collection reaches embedding).
+fn handle_to_font_path(handle: font_kit::handle::Handle) -> Result<FontPath> {
     match handle {
-        font_kit::handle::Handle::Path { path, .. } => Some(FontPath::Path(path)),
-        font_kit::handle::Handle::Memory { bytes, .. } => {
+        font_kit::handle::Handle::Path { path, font_index } => {
+            if font_index != 0 {
+                return Err(MedpdfError::new(format!(
+                    "Font resolved to face {font_index} of the collection {path:?}. Embedding a \
+                     specific face from a font collection (.ttc/.otc) is not yet supported; supply \
+                     a single-face .ttf/.otf font file, or an @-prefixed built-in (e.g. \
+                     @Helvetica). (bug-0012)"
+                )));
+            }
+            Ok(FontPath::Path(path))
+        }
+        font_kit::handle::Handle::Memory { bytes, font_index } => {
+            if font_index != 0 {
+                return Err(MedpdfError::new(format!(
+                    "Font resolved to face {font_index} of an in-memory font collection. Embedding \
+                     a specific face from a collection (.ttc/.otc) is not yet supported; supply a \
+                     single-face .ttf/.otf font file, or an @-prefixed built-in (e.g. @Helvetica). \
+                     (bug-0012)"
+                )));
+            }
             let name = extract_font_name(&bytes);
-            Some(FontPath::Memory(bytes, name))
+            Ok(FontPath::Memory(bytes, name))
         }
     }
 }
@@ -186,5 +213,5 @@ fn find_font_with_source(font_path: &Path, source: &SystemSource) -> Result<Font
         &properties,
     )?;
 
-    handle_to_font_path(handle).ok_or_else(|| format!("Font {font_path:?} not found").into())
+    handle_to_font_path(handle)
 }
