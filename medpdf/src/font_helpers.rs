@@ -193,7 +193,12 @@ pub(crate) fn get_font_widths(face: &Face, first_char: u8, last_char: u8) -> Vec
         "last_char ({last_char}) must be >= first_char ({first_char})"
     );
     let scale = glyph_space_scale(face);
-    let mut widths = vec![0; (last_char - first_char + 1) as usize];
+    // The count of an inclusive u8 range is up to 256, which does NOT fit in u8. A
+    // symbolic font can make compute_char_range return (0, 255), so compute the length in
+    // usize — `(last - first + 1)` in u8 overflows (debug panic; release wraps to 0 and
+    // the first in-range write panics out-of-bounds) (bug-0038).
+    let len = last_char as usize - first_char as usize + 1;
+    let mut widths = vec![0u16; len];
     for ch in first_char..=last_char {
         // Symbol-aware: a symbol font has no WinAnsi glyph for `ch` but does have one at
         // 0xF000 + ch in its (3,0) cmap, so pass the WinAnsi char (may be None) for the
@@ -210,8 +215,8 @@ pub(crate) fn get_font_widths(face: &Face, first_char: u8, last_char: u8) -> Vec
             });
             // /Widths are in 1000-unit glyph space, not raw font units (bug-0031).
             // Saturating f32→u16 cast: advances and scale are non-negative and a
-            // real glyph never scales past u16::MAX.
-            widths[(ch - first_char) as usize] = (advance as f32 * scale).round() as u16;
+            // real glyph never scales past u16::MAX. Index in usize (bug-0038).
+            widths[ch as usize - first_char as usize] = (advance as f32 * scale).round() as u16;
         }
     }
     widths
@@ -469,6 +474,37 @@ pub(crate) fn get_pdf_info_of_face(face: &Face) -> (FontPdfInfo, FontDescriptorP
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A system font resolved to embedded bytes. Returns None if the platform has no
+    /// matching system font (keeps the test environment-tolerant).
+    fn test_face_bytes() -> Option<std::sync::Arc<Vec<u8>>> {
+        let path = crate::pdf_font::find_font(std::path::Path::new("Helvetica")).ok()?;
+        let mut cache = crate::pdf_font::FontCache::new();
+        match cache.get_data(&path).ok()? {
+            crate::font_data::FontData::Embedded(data) => Some(data),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn get_font_widths_full_range_does_not_overflow() {
+        // A symbolic font can make compute_char_range return (0, 255); the width-vec
+        // length is last - first + 1 = 256, which does not fit in u8. The count must be
+        // computed in usize or the u8 arithmetic panics (debug) / wraps to an empty vec
+        // and panics on the first write (release) (bug-0038). The glyph coverage is
+        // irrelevant — the overflow is pure arithmetic — so any parseable face works.
+        let Some(data) = test_face_bytes() else {
+            eprintln!("no system font available; skipping bug-0038 overflow test");
+            return;
+        };
+        let face = Face::parse(&data, 0).unwrap();
+        let widths = get_font_widths(&face, 0, 255);
+        assert_eq!(
+            widths.len(),
+            256,
+            "the full 0..=255 range must yield 256 widths without overflow"
+        );
+    }
 
     #[test]
     fn test_get_pdf_font_info_of_data_invalid_data() {

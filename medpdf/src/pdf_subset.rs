@@ -347,7 +347,17 @@ fn rebuild_ttf(
     // Table directory.
     for ((tag, data), &toff) in tables.iter().zip(offsets.iter()) {
         push_be_u32(&mut out, *tag);
-        push_be_u32(&mut out, ttf_checksum(data));
+        // The `head` table's directory checksum must be computed with checkSumAdjustment
+        // (bytes 8..12) treated as zero (OpenType). At this point `data` still holds the
+        // OLD nonzero adjustment (it is rewritten below), so checksumming it verbatim
+        // left the entry wrong by exactly that value; OTS-class sanitizers reject it
+        // (bug-0034).
+        let checksum = if *tag == u32::from_be_bytes(*b"head") {
+            head_directory_checksum(data)
+        } else {
+            ttf_checksum(data)
+        };
+        push_be_u32(&mut out, checksum);
         push_be_u32(&mut out, toff);
         push_be_u32(&mut out, data.len() as u32);
     }
@@ -386,6 +396,16 @@ fn ttf_checksum(data: &[u8]) -> u32 {
     sum
 }
 
+/// Table-directory checksum for the `head` table: [`ttf_checksum`] with checkSumAdjustment
+/// (bytes 8..12) treated as zero, per OpenType. Those four bytes form exactly one aligned
+/// 32-bit word, so subtracting their value yields the zeroed-adjustment checksum without
+/// copying the table (bug-0034). A `head` shorter than 12 bytes is malformed; treat the
+/// missing adjustment as zero.
+fn head_directory_checksum(head: &[u8]) -> u32 {
+    let adjustment = be_u32(head, 8).unwrap_or(0);
+    ttf_checksum(head).wrapping_sub(adjustment)
+}
+
 fn be_u16(data: &[u8], off: usize) -> Option<u16> {
     Some(u16::from_be_bytes(data.get(off..off + 2)?.try_into().ok()?))
 }
@@ -422,6 +442,50 @@ mod tests {
             }
         }
         None
+    }
+
+    // bug-0034: rebuild_ttf must compute the head table's directory checksum with
+    // checkSumAdjustment (bytes 8..12) zeroed, per OpenType. It checksummed the head
+    // verbatim (with its old nonzero adjustment), leaving the directory entry wrong by
+    // that value — OTS-class sanitizers can reject the subset font.
+    #[test]
+    fn rebuild_ttf_head_directory_checksum_zeroes_adjustment() {
+        let Some(data) = load_system_ttf() else {
+            eprintln!("no system TTF; skipping bug-0034 head-checksum test");
+            return;
+        };
+        let num_tables = be_u16(&data, 4).unwrap() as usize;
+        // Identity rebuild: replace table 0 with its own bytes so rebuild_ttf runs
+        // deterministically, without depending on add_windows_cmap succeeding.
+        let off0 = be_u32(&data, 12 + 8).unwrap() as usize;
+        let len0 = be_u32(&data, 12 + 12).unwrap() as usize;
+        let out = rebuild_ttf(&data, num_tables, 0, &data[off0..off0 + len0]).expect("rebuild_ttf");
+
+        // Locate head in the OUTPUT table directory.
+        let n = be_u16(&out, 4).unwrap() as usize;
+        let head = (0..n).find_map(|i| {
+            let base = 12 + i * 16;
+            (&out[base..base + 4] == b"head").then(|| {
+                let stored = be_u32(&out, base + 4).unwrap();
+                let hoff = be_u32(&out, base + 8).unwrap() as usize;
+                let hlen = be_u32(&out, base + 12).unwrap() as usize;
+                (stored, hoff, hlen)
+            })
+        });
+        let Some((stored, hoff, hlen)) = head else {
+            panic!("rebuilt font has no head table");
+        };
+
+        // Spec checksum: the head table with checkSumAdjustment (bytes 8..12) zeroed.
+        let mut head_bytes = out[hoff..hoff + hlen].to_vec();
+        head_bytes[8..12].fill(0);
+        let spec = ttf_checksum(&head_bytes);
+
+        assert_eq!(
+            stored, spec,
+            "head directory checksum must be computed with checkSumAdjustment zeroed \
+             (bug-0034); the stored entry counted the old adjustment"
+        );
     }
 
     // A1: generate_subset_tag produces 6 uppercase ASCII chars

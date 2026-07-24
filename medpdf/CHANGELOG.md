@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.17] - 2026-07-23
+### Fixed
+- bug-0011: the built-in-font text-width fallback in `compute_text_metrics` counted
+  UTF-8 bytes, not characters, over-measuring multibyte text and skewing
+  center/right alignment and underline length; it now counts characters,
+  matching `measure_text_width`.
+- bug-0038: `get_font_widths` computed its width-array length with `u8`
+  arithmetic, which overflowed for a symbolic font spanning code 0..=255 (256
+  does not fit in u8) — a debug panic, or a release wrap-to-empty then
+  out-of-bounds write; the length and index are now computed in `usize`.
+- bug-0034: subsetted fonts carried an invalid table-directory checksum for
+  the `head` table — it was computed over the table’s old nonzero
+  `checkSumAdjustment`, which OpenType requires be treated as zero;
+  `rebuild_ttf` now zeroes it, so font sanitizers (OTS) accept the output.
+
 ## [0.11.16] - 2026-07-23
 ### Fixed
 - bug-0010: embedded symbol fonts (Wingdings, Webdings) rendered as garbage —

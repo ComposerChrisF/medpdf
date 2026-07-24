@@ -340,7 +340,10 @@ fn compute_text_metrics(params: &crate::types::AddTextParams) -> TextMetrics {
     let text_width = if needs_width {
         match &face_opt {
             Some(face) => measure_text_width_with_face(face, params.font_size, &params.text),
-            None => params.text.len() as f32 * params.font_size * 0.6,
+            // Count characters, not bytes, so multibyte text is not over-measured — the
+            // 0.6-em heuristic is per glyph. Matches font_helpers::measure_text_width;
+            // the byte-length form here mis-centered non-ASCII text (bug-0011).
+            None => params.text.chars().count() as f32 * params.font_size * 0.6,
         }
     } else {
         0.0
