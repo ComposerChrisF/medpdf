@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.15] - 2026-07-23
+### Fixed
+- bug-0004: built-in symbolic Standard-14 fonts (`@Symbol`, `@ZapfDingbats`) were
+  emitted with `/Encoding /WinAnsiEncoding`, which overrode their built-in
+  encoding with Latin glyph names they have no glyphs for — every character
+  rendered as nothing (a blank page). `add_known_named_font` now omits
+  `/Encoding` for Symbol and ZapfDingbats (PDF 32000-1 Annex D binds
+  WinAnsiEncoding to nonsymbolic fonts only), matching the embedded-font
+  path’s `determine_pdf_encoding`; nonsymbolic built-ins keep WinAnsiEncoding.
+  README documents that `@Symbol`/`@ZapfDingbats` text is byte codes in the
+  font’s built-in encoding.
+
 ## [0.11.14] - 2026-07-23
 ### Fixed
 - bug-0032: the WinAnsi (simple) font path never checked glyph presence, so

@@ -2,7 +2,7 @@
 
 A medium-level PDF manipulation library built on [lopdf](https://github.com/J-F-Liu/lopdf).
 
-medpdf provides higher-level, reusable operations for common PDF tasks while exposing lopdf's `Document` type for direct manipulation when needed.
+medpdf provides higher-level, reusable operations for common PDF tasks while exposing lopdf’s `Document` type for direct manipulation when needed.
 
 ## Features
 
@@ -85,7 +85,7 @@ use medpdf::copy_page;
 let new_page_id = copy_page(&mut dest_doc, &source_doc, 1)?;
 ```
 
-Note: Each call creates its own reference tracking map. Use `copy_page_with_cache` when copying multiple pages to deduplicate shared resources.
+Note: Each call creates its own reference tracking map.  Use `copy_page_with_cache` when copying multiple pages to deduplicate shared resources.
 
 #### `copy_page_with_cache`
 
@@ -101,7 +101,7 @@ for page_num in 1..=10 {
 }
 ```
 
-The cache maps source object IDs to destination object IDs. Pass the same cache to all `copy_page_with_cache` calls when copying from the same source document.
+The cache maps source object IDs to destination object IDs.  Pass the same cache to all `copy_page_with_cache` calls when copying from the same source document.
 
 #### `create_blank_page`
 
@@ -216,6 +216,8 @@ Built-in PDF fonts (PDF 1.7):
 - `@Times-Roman`, `@Times-Bold`, `@Times-Italic`, `@Times-BoldItalic`
 - `@Symbol`, `@ZapfDingbats`
 
+`@Symbol` and `@ZapfDingbats` are symbolic fonts: their text is interpreted as byte codes in the font’s own built-in encoding (e.g. byte `0x61` selects α in Symbol), not as Latin characters.  WinAnsiEncoding is not applied to them.
+
 #### `FontCache`
 
 Caches loaded font data to avoid repeated file reads:
@@ -244,7 +246,7 @@ use medpdf::pdf_helpers::{KEY_PAGES, KEY_RESOURCES, KEY_CONTENTS, KEY_FONT};
 
 ### Deep Copy (Internal)
 
-`deep_copy_object()` and `deep_copy_object_by_id()` are `pub(crate)` helpers used internally by `copy_page`, `overlay_page`, and other operations. They recursively clone PDF objects using a `BTreeMap<ObjectId, ObjectId>` to track copies, preventing duplicates and maintaining reference integrity. `Parent` references are skipped to avoid copying the entire page tree.
+`deep_copy_object()` and `deep_copy_object_by_id()` are `pub(crate)` helpers used internally by `copy_page`, `overlay_page`, and other operations.  They recursively clone PDF objects using a `BTreeMap<ObjectId, ObjectId>` to track copies, preventing duplicates and maintaining reference integrity. `Parent` references are skipped to avoid copying the entire page tree.
 
 ## Key Patterns
 
@@ -254,18 +256,18 @@ When overlaying pages, resources (fonts, images, etc.) may have conflicting name
 
 ### Graphics State Isolation
 
-Content streams are wrapped with `q` (save) and `Q` (restore) operators to isolate graphics state changes. Unbalanced `q`/`Q` pairs in source documents are detected and corrected.
+Content streams are wrapped with `q` (save) and `Q` (restore) operators to isolate graphics state changes.  Unbalanced `q`/`Q` pairs in source documents are detected and corrected.
 
 ### Reference Tracking
 
-Deep copy operations use a `BTreeMap<ObjectId, ObjectId>` to track copied objects. This ensures:
+Deep copy operations use a `BTreeMap<ObjectId, ObjectId>` to track copied objects.  This ensures:
 - Each source object is copied exactly once
 - References are updated to point to new object IDs
 - `Parent` references are skipped to avoid copying the entire document tree
 
 ## Relationship to lopdf
 
-medpdf is built on lopdf and re-exports nothing from it. You'll typically use both together:
+medpdf is built on lopdf and re-exports nothing from it.  You’ll typically use both together:
 
 ```rust
 use lopdf::Document;

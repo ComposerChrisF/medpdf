@@ -269,17 +269,31 @@ pub fn register_extgstate_in_page_resources(
     Ok(gs_key)
 }
 
+/// The two symbolic Standard-14 fonts. They carry their own built-in encoding and must
+/// NOT be given `/Encoding /WinAnsiEncoding`: PDF 32000-1 Annex D binds WinAnsiEncoding to
+/// *nonsymbolic* fonts only.
+fn is_symbolic_standard_14(font_name: &str) -> bool {
+    matches!(font_name, "Symbol" | "ZapfDingbats")
+}
+
 fn add_known_named_font(
     dest_doc: &mut Document,
     page_id: ObjectId,
     font_name: &str,
 ) -> Result<String> {
-    let font_dict = dictionary! {
+    // Forcing WinAnsiEncoding onto a symbolic font (Symbol / ZapfDingbats) remaps its byte
+    // codes to Latin glyph names (a, b, …) it has no glyphs for, so every character
+    // renders as nothing — a blank page (bug-0004). Omit /Encoding for them so the font's
+    // built-in encoding applies. This mirrors the embedded-font path's
+    // determine_pdf_encoding, which already drops /Encoding for symbolic fonts.
+    let mut font_dict = dictionary! {
         "Type" => "Font",
         "Subtype" => "Type1",
         "BaseFont" => font_name.to_string(),
-        "Encoding" => "WinAnsiEncoding",
     };
+    if !is_symbolic_standard_14(font_name) {
+        font_dict.set("Encoding", Object::Name(b"WinAnsiEncoding".to_vec()));
+    }
     let font_id = dest_doc.add_object(font_dict);
     register_font_in_page_resources(dest_doc, page_id, font_id)
 }
