@@ -165,6 +165,42 @@ fn test_add_svg_roundtrip_basic() {
 }
 
 #[test]
+fn test_add_svg_form_is_transparency_group() {
+    // bug-0035: the SVG Form XObject must be a transparency group so DrawSvgParams::alpha
+    // fades the artwork as a unit (PDF 32000-1 §11.6.6). Without /Group, constant alpha
+    // applies per painting operator and overlapping elements double-composite (darker
+    // overlaps, seams). /Group is set unconditionally (additive; a no-op at alpha 1.0).
+    let (mut doc, page_id) = create_one_page_pdf();
+    let svg = load_svg_str(SQUARE_SVG).unwrap();
+    let params = DrawSvgParams::new(svg, 50.0, 100.0, 200.0, 200.0).alpha(0.5);
+    add_svg(&mut doc, page_id, params).unwrap();
+
+    // Find the Form XObject and assert it declares a transparency group.
+    let form = doc
+        .objects
+        .values()
+        .find_map(|obj| {
+            let s = obj.as_stream().ok()?;
+            (s.dict.get(b"Subtype").ok()?.as_name().ok()? == b"Form").then(|| s.dict.clone())
+        })
+        .expect("an SVG Form XObject must exist");
+
+    let group = form
+        .get(b"Group")
+        .expect("SVG Form XObject must carry a /Group — bug-0035");
+    let group_dict = match group {
+        Object::Dictionary(d) => d.clone(),
+        Object::Reference(r) => doc.get_dictionary(*r).unwrap().clone(),
+        other => panic!("/Group must be a dict or reference, got {other:?}"),
+    };
+    assert_eq!(
+        group_dict.get(b"S").unwrap().as_name().unwrap(),
+        b"Transparency",
+        "/Group must be a transparency group (/S /Transparency) — bug-0035"
+    );
+}
+
+#[test]
 fn test_add_svg_roundtrip_with_rotation() {
     let (mut doc, page_id) = create_one_page_pdf();
     let svg = load_svg_str(SQUARE_SVG).unwrap();

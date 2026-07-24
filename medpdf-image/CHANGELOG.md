@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.5] - 2026-07-24
+### Fixed
+- bug-0033: `ImageFit::Stretch` downsampling computed a single scale from the
+  higher-DPI axis and applied it to both, needlessly over-downsampling the
+  already-compliant axis (e.g. a wide image into a short box lost several×
+  resolution horizontally).  Each axis is now clamped independently;
+  Contain/Cover (which share one DPI) are unchanged.
+- bug-0035: the SVG Form XObject was emitted without a transparency `/Group`,
+  so `DrawSvgParams::alpha` faded each painting operator separately —
+  overlapping elements double-composited (darker overlaps, seams) rather than
+  fading as a unit.  The form now declares `/Group << /S /Transparency >>`
+  (carrying over any group svg2pdf declared); at alpha 1.0 rendering is
+  unchanged.
+
 ## [0.4.4] - 2026-07-24
 ### Fixed
 - bug-0029: image recompression ignored `/DecodeParms`, so a FlateDecode image using

@@ -324,23 +324,31 @@ fn maybe_downsample(
     let ph = image_data.pixel_height() as f32;
     let eff_dpi_x = pw / (output_w_pts / 72.0);
     let eff_dpi_y = ph / (output_h_pts / 72.0);
-    let eff_dpi = eff_dpi_x.max(eff_dpi_y);
-
-    if eff_dpi <= max_dpi {
+    // Early-out only when NEITHER axis exceeds the cap.
+    if eff_dpi_x <= max_dpi && eff_dpi_y <= max_dpi {
         return Ok(image_data);
     }
 
-    let scale = max_dpi / eff_dpi;
-    let new_w = (pw * scale).round().max(1.0) as u32;
-    let new_h = (ph * scale).round().max(1.0) as u32;
+    // Clamp each axis independently. Once ImageFit::Stretch changes the aspect ratio the
+    // two axes have different effective DPI; a single uniform scale from the worst axis
+    // over-downsampled the already-compliant axis (e.g. 1000×1000 into a 10in×1in box at
+    // 300 DPI shrank the compliant 100-DPI x-axis to 30 DPI — a 3.3× loss) (bug-0033).
+    // `.min(1.0)` leaves a compliant axis at full resolution (never upscales). For
+    // Contain/Cover the two axes share one DPI, so both scales are equal and the output
+    // is bit-identical to the old uniform path.
+    let scale_x = (max_dpi / eff_dpi_x).min(1.0);
+    let scale_y = (max_dpi / eff_dpi_y).min(1.0);
+    let new_w = (pw * scale_x).round().max(1.0) as u32;
+    let new_h = (ph * scale_y).round().max(1.0) as u32;
 
     log::info!(
-        "Downsampling image from {}x{} to {}x{} (effective DPI {:.0} -> {:.0})",
+        "Downsampling image from {}x{} to {}x{} (effective DPI {:.0}x{:.0} -> cap {:.0})",
         image_data.pixel_width(),
         image_data.pixel_height(),
         new_w,
         new_h,
-        eff_dpi,
+        eff_dpi_x,
+        eff_dpi_y,
         max_dpi
     );
 
@@ -1111,6 +1119,32 @@ mod tests {
         };
         let result = maybe_downsample(data, 10.0, 10.0, 0.0).unwrap();
         assert_eq!(result.pixel_width(), 3000); // unchanged
+    }
+
+    #[test]
+    fn test_downsample_stretch_clamps_each_axis() {
+        // bug-0033: 1000×1000 into a 720×72 pt box (10in × 1in) at 300 DPI. The x-axis is
+        // 100 DPI (already compliant → must stay 1000 px); the y-axis is 1000 DPI (→ 300
+        // px). The old uniform scale used the worst axis (1000 DPI) and shrank BOTH to 300,
+        // a needless 3.3× resolution loss on the compliant axis.
+        let data = ImageData::Decoded {
+            pixels: vec![128; 1000 * 1000 * 3],
+            alpha_channel: None,
+            pixel_width: 1000,
+            pixel_height: 1000,
+            components: 3,
+        };
+        let result = maybe_downsample(data, 720.0, 72.0, 300.0).unwrap();
+        assert_eq!(
+            result.pixel_width(),
+            1000,
+            "the already-compliant x-axis (100 DPI) must stay full resolution — bug-0033"
+        );
+        assert_eq!(
+            result.pixel_height(),
+            300,
+            "the y-axis (1000 DPI) must clamp to the 300-DPI cap — bug-0033"
+        );
     }
 
     #[test]

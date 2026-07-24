@@ -363,6 +363,24 @@ fn extract_form_xobject(
     };
     form_dict.set("Resources", resources_obj);
 
+    // Make the form a transparency group so DrawSvgParams::alpha fades the artwork as a
+    // unit (PDF 32000-1 §11.6.6). Without a /Group, constant alpha applies to each
+    // painting operator, so overlapping SVG elements double-composite — darker overlaps
+    // and seams — instead of a uniform fade. Carry over any /Group svg2pdf declared on the
+    // intermediate page (blend modes / isolation); otherwise emit a plain transparency
+    // group. Additive: at alpha 1.0 rendering is unchanged (bug-0035).
+    let group_obj = match page_dict.get(b"Group") {
+        Ok(Object::Reference(id)) => {
+            let new_id = deep_copy_object_by_id(dest_doc, svg_doc, *id, &mut copied_objects)?;
+            Object::Reference(new_id)
+        }
+        Ok(g @ Object::Dictionary(_)) => {
+            deep_copy_object(dest_doc, svg_doc, g, &mut copied_objects)?
+        }
+        _ => Object::Dictionary(dictionary! { "S" => "Transparency" }),
+    };
+    form_dict.set("Group", group_obj);
+
     let form_stream = Stream::new(form_dict, content_bytes);
     let form_id = dest_doc.add_object(form_stream);
 
