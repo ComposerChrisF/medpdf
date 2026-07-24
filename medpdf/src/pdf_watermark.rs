@@ -119,7 +119,13 @@ fn measure_text_width_with_face(face: &ttf_parser::Face, font_size: f32, text: &
     let scale = font_size / upem;
     let mut width: f32 = 0.0;
     for ch in text.chars() {
-        if let Some(glyph_id) = face.glyph_index(ch) {
+        // Symbol-aware (0xF000+code) so a symbol watermark aligns/decorates against its
+        // real advances rather than zero (bug-0010).
+        if let Some(glyph_id) = font_helpers::glyph_index_symbol_aware(
+            face,
+            Some(ch),
+            font_helpers::unicode_to_winansi(ch) as u32,
+        ) {
             width += face.glyph_hor_advance(glyph_id).unwrap_or(0) as f32;
         }
     }
@@ -698,8 +704,16 @@ fn encode_text_winansi_checked(
     let mut out = Vec::with_capacity(text.len());
     let mut missing: Vec<char> = Vec::new();
     for ch in text.chars() {
-        if ch.is_control() || face.glyph_index(ch).is_some() {
-            out.push(font_helpers::unicode_to_winansi(ch));
+        // Symbol-aware presence check: a symbol font (Wingdings/Webdings) has no Unicode
+        // glyph for `ch` but does have one at 0xF000+byte in its (3,0) cmap, and byte
+        // `ch` renders that symbol at view time. Treating it as "missing" would make every
+        // embedded symbol font fail loudly on this path (bug-0010, guarding the bug-0032
+        // check). Control characters stay exempt.
+        let byte = font_helpers::unicode_to_winansi(ch);
+        if ch.is_control()
+            || font_helpers::glyph_index_symbol_aware(face, Some(ch), byte as u32).is_some()
+        {
+            out.push(byte);
         } else if lossy {
             log::warn!(
                 "Font lacks a glyph for '{}' (U+{:04X}); substituting '?'",

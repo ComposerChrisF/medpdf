@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.16] - 2026-07-23
+### Fixed
+- bug-0010: embedded symbol fonts (Wingdings, Webdings) rendered as garbage —
+  `ttf_parser::Face::glyph_index` reads only Unicode cmap subtables, so it
+  never saw the Microsoft (3,0) symbol subtable where symbol fonts publish
+  glyphs at `0xF000 + code`.  Wingdings got an all-zero `/Widths` array (every
+  glyph advanced 0, piling text up); Webdings was misclassified nonsymbolic
+  and given `/Encoding /WinAnsiEncoding`.  A new symbol-aware glyph lookup
+  consults the (3,0) subtable and is used by the width table, char-range
+  scan, symbolic classification, text encoding, and width measurement.  This
+  also fixes an interaction with the v0.11.14 bug-0032 change, whose
+  Unicode-only glyph check would otherwise have made every embedded symbol
+  font fail with `UnrepresentableText`.  Text fonts are unaffected (the
+  Unicode cmap is consulted first).
+
 ## [0.11.15] - 2026-07-23
 ### Fixed
 - bug-0004: built-in symbolic Standard-14 fonts (`@Symbol`, `@ZapfDingbats`) were

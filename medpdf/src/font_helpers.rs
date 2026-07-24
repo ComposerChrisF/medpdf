@@ -152,6 +152,41 @@ pub(crate) fn non_winansi_chars(text: &str) -> Vec<char> {
     out
 }
 
+/// Looks up a glyph, consulting a Microsoft "symbol" cmap subtable (platform 3, encoding
+/// 0) as a fallback.
+///
+/// [`Face::glyph_index`] reads only Unicode subtables, so it never sees the symbol cmap
+/// that symbol fonts (Wingdings, Webdings) use — those publish their glyphs at
+/// `0xF000 + code` there, and every plain `glyph_index` lookup for bytes 0–255 fails
+/// (bug-0010). `unicode` is the code point to try against the Unicode cmap (for a text
+/// font this is the WinAnsi-mapped char); `code` is the raw single-byte code to try
+/// against the symbol subtable. Unicode is tried first, so text fonts are unaffected.
+pub(crate) fn glyph_index_symbol_aware(
+    face: &Face,
+    unicode: Option<char>,
+    code: u32,
+) -> Option<ttf_parser::GlyphId> {
+    if let Some(ch) = unicode
+        && let Some(gid) = face.glyph_index(ch)
+    {
+        return Some(gid);
+    }
+    let cmap = face.tables().cmap?;
+    for sub in cmap.subtables {
+        // Microsoft symbol subtable: glyphs live at 0xF000 + code, with a bare-code
+        // fallback for fonts that map at the raw byte.
+        if sub.platform_id == ttf_parser::PlatformId::Windows
+            && sub.encoding_id == 0
+            && let Some(gid) = sub
+                .glyph_index(0xF000 + code)
+                .or_else(|| sub.glyph_index(code))
+        {
+            return Some(gid);
+        }
+    }
+    None
+}
+
 pub(crate) fn get_font_widths(face: &Face, first_char: u8, last_char: u8) -> Vec<u16> {
     debug_assert!(
         last_char >= first_char,
@@ -160,11 +195,10 @@ pub(crate) fn get_font_widths(face: &Face, first_char: u8, last_char: u8) -> Vec
     let scale = glyph_space_scale(face);
     let mut widths = vec![0; (last_char - first_char + 1) as usize];
     for ch in first_char..=last_char {
-        let unicode_char = match winansi_to_unicode(ch) {
-            Some(c) => c,
-            None => continue,
-        };
-        let glyph_index = face.glyph_index(unicode_char);
+        // Symbol-aware: a symbol font has no WinAnsi glyph for `ch` but does have one at
+        // 0xF000 + ch in its (3,0) cmap, so pass the WinAnsi char (may be None) for the
+        // Unicode attempt and the raw byte for the symbol attempt (bug-0010).
+        let glyph_index = glyph_index_symbol_aware(face, winansi_to_unicode(ch), ch as u32);
         if let Some(glyph_index) = glyph_index {
             let advance = face.glyph_hor_advance(glyph_index).unwrap_or_else(|| {
                 log::trace!(
@@ -208,7 +242,13 @@ fn detect_is_symbolic(face: &Face) -> bool {
         .count();
 
     if basic_latin_count < SYMBOLIC_LATIN_THRESHOLD {
-        let has_some_glyphs = (32u8..=127).any(|ch| face.glyph_index(ch as char).is_some());
+        // Symbol-aware: Webdings has no Unicode glyphs in 32..=127 (the name heuristic
+        // also misses it), so a Unicode-only probe here reports "no glyphs" and the font
+        // is misclassified nonsymbolic. Consulting the (3,0) symbol cmap (0xF000+code)
+        // finds its glyphs, so a font with glyphs only there is correctly symbolic
+        // (bug-0010).
+        let has_some_glyphs = (32u8..=127)
+            .any(|ch| glyph_index_symbol_aware(face, Some(ch as char), ch as u32).is_some());
         if has_some_glyphs {
             return true;
         }
@@ -231,13 +271,15 @@ fn determine_pdf_encoding(is_symbolic: bool) -> Option<String> {
 /// Symbol fonts scan for actual glyph coverage; regular fonts use 32-255.
 fn compute_char_range(face: &Face, is_symbolic: bool) -> (u8, u8) {
     if is_symbolic {
-        // Scan full range for symbol fonts
+        // Scan full range for symbol fonts, symbol-aware (0xF000+code): a plain
+        // glyph_index scan finds nothing for a symbol font, collapsing the range to the
+        // (32, 255) fallback with all-zero widths (bug-0010).
         let first = (0u8..=255)
-            .find(|&ch| face.glyph_index(ch as char).is_some())
+            .find(|&ch| glyph_index_symbol_aware(face, Some(ch as char), ch as u32).is_some())
             .unwrap_or(32);
         let last = (0u8..=255)
             .rev()
-            .find(|&ch| face.glyph_index(ch as char).is_some())
+            .find(|&ch| glyph_index_symbol_aware(face, Some(ch as char), ch as u32).is_some())
             .unwrap_or(255);
         (first, last)
     } else {
@@ -357,7 +399,12 @@ pub fn measure_text_width(
             let scale = font_size / units_per_em;
             let mut width: f32 = 0.0;
             for ch in text.chars() {
-                if let Some(glyph_id) = face.glyph_index(ch) {
+                // Symbol-aware so a symbol font (Wingdings/Webdings) measures its real
+                // advances instead of zero — its glyphs live in a (3,0) cmap that
+                // glyph_index skips (bug-0010).
+                if let Some(glyph_id) =
+                    glyph_index_symbol_aware(&face, Some(ch), unicode_to_winansi(ch) as u32)
+                {
                     width += face.glyph_hor_advance(glyph_id).unwrap_or_else(|| {
                         log::trace!(
                             "Missing glyph advance for glyph {:?} (char '{}')",
