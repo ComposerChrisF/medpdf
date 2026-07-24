@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.7] - 2026-07-24
+### Fixed
+- bug-0036: converting an SVG spliced the raw compressed bytes of a content stream into
+  the decoded content buffer when decompression failed, silently producing a garbled or
+  blank page; the failure is now a loud error naming the object.
+
 ## [0.4.6] - 2026-07-24
 ### Added
 - `DrawImageParams::jpeg_quality` (default 85) controls the JPEG quality used when a

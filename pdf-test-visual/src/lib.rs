@@ -211,6 +211,13 @@ fn count_pages(pdf_path: &Path, password: Option<&str>) -> Result<u32, VisualTes
     }
 }
 
+/// Reads a pipe to EOF, discarding read errors (best-effort output capture).
+fn read_all<R: std::io::Read>(mut r: R) -> Vec<u8> {
+    let mut buf = Vec::new();
+    std::io::Read::read_to_end(&mut r, &mut buf).ok();
+    buf
+}
+
 fn run_with_timeout(
     cmd: &mut Command,
     timeout_secs: u64,
@@ -224,49 +231,63 @@ fn run_with_timeout(
     let timeout = std::time::Duration::from_secs(timeout_secs);
     let start = std::time::Instant::now();
 
-    loop {
+    // Drain stdout/stderr concurrently with the wait: one reader thread per pipe. Reading
+    // only after the child exits (above) let a child writing more than the OS pipe buffer
+    // (~64 KB) block forever on write while we polled try_wait — a circular wait that
+    // surfaced as a spurious 30 s timeout for a healthy-but-verbose run (bug-0022).
+    let stdout_reader = child
+        .stdout
+        .take()
+        .map(|s| std::thread::spawn(move || read_all(s)));
+    let stderr_reader = child
+        .stderr
+        .take()
+        .map(|s| std::thread::spawn(move || read_all(s)));
+
+    let mut timed_out = false;
+    let mut wait_err: Option<String> = None;
+    let status = loop {
         match child.try_wait() {
-            Ok(Some(status)) => {
-                let stdout = child
-                    .stdout
-                    .take()
-                    .map(|mut s| {
-                        let mut buf = Vec::new();
-                        std::io::Read::read_to_end(&mut s, &mut buf).ok();
-                        buf
-                    })
-                    .unwrap_or_default();
-                let stderr = child
-                    .stderr
-                    .take()
-                    .map(|mut s| {
-                        let mut buf = Vec::new();
-                        std::io::Read::read_to_end(&mut s, &mut buf).ok();
-                        buf
-                    })
-                    .unwrap_or_default();
-                return Ok(std::process::Output {
-                    status,
-                    stdout,
-                    stderr,
-                });
+            Ok(Some(status)) => break Some(status),
+            Ok(None) if start.elapsed() > timeout => {
+                let _ = child.kill();
+                timed_out = true;
+                break None;
             }
-            Ok(None) => {
-                if start.elapsed() > timeout {
-                    let _ = child.kill();
-                    return Err(VisualTestError::RasterizationFailed(format!(
-                        "timed out after {timeout_secs}s"
-                    )));
-                }
-                std::thread::sleep(std::time::Duration::from_millis(50));
-            }
+            Ok(None) => std::thread::sleep(std::time::Duration::from_millis(50)),
             Err(e) => {
-                return Err(VisualTestError::RasterizationFailed(format!(
-                    "wait failed: {e}"
-                )));
+                let _ = child.kill();
+                wait_err = Some(e.to_string());
+                break None;
             }
         }
+    };
+
+    // Reap so the pipes close, then join the readers (they finish at EOF). Joining always,
+    // on every exit path, means the reader threads never leak.
+    let _ = child.wait();
+    let stdout = stdout_reader
+        .map(|h| h.join().unwrap_or_default())
+        .unwrap_or_default();
+    let stderr = stderr_reader
+        .map(|h| h.join().unwrap_or_default())
+        .unwrap_or_default();
+
+    if let Some(e) = wait_err {
+        return Err(VisualTestError::RasterizationFailed(format!(
+            "wait failed: {e}"
+        )));
     }
+    if timed_out {
+        return Err(VisualTestError::RasterizationFailed(format!(
+            "timed out after {timeout_secs}s"
+        )));
+    }
+    Ok(std::process::Output {
+        status: status.expect("status is Some when not timed out or errored"),
+        stdout,
+        stderr,
+    })
 }
 
 fn rasterize_pdftoppm(
@@ -696,6 +717,30 @@ mod tests {
     fn test_rasterizer_detection() {
         // Just verify it doesn't panic; result depends on system
         let _ = detect_rasterizer();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn run_with_timeout_drains_large_output_without_deadlock() {
+        // bug-0022: a child that writes more than the OS pipe buffer (~64 KB) then exits
+        // must return promptly with its output fully captured — not block on write while
+        // the parent polls try_wait, then get killed as a spurious timeout. Concurrent
+        // pipe draining removes the circular wait.
+        let big = 200_000usize; // well over the ~64 KB pipe buffer
+        let mut cmd = std::process::Command::new("sh");
+        cmd.arg("-c")
+            .arg(format!("yes X | head -c {big} >&2; echo done"));
+        // Post-fix the child finishes in well under a second regardless of this timeout;
+        // the timeout only bites the pre-fix (deadlocked) path.
+        let output =
+            run_with_timeout(&mut cmd, 5).expect("must not deadlock or time out — bug-0022");
+        assert!(output.status.success(), "child should exit 0");
+        assert_eq!(output.stdout, b"done\n", "stdout must be captured");
+        assert!(
+            output.stderr.len() >= big,
+            "all {big} bytes of stderr must be captured; got {}",
+            output.stderr.len()
+        );
     }
 
     #[test]

@@ -464,7 +464,16 @@ fn append_stream_bytes(doc: &Document, obj_id: ObjectId, buf: &mut Vec<u8>) -> R
     if stream.is_compressed() {
         match stream.decompressed_content() {
             Ok(decompressed) => buf.extend_from_slice(&decompressed),
-            Err(_) => buf.extend_from_slice(&stream.content),
+            // A decompression failure is an ERROR, not data. Splicing the raw compressed
+            // bytes into the content buffer renders a garbled or blank SVG silently — the
+            // unreadable-treated-as-readable shape the portfolio rules flag. Fail loudly,
+            // naming the object (bug-0036).
+            Err(e) => {
+                return Err(MedpdfError::new(format!(
+                    "Failed to decompress SVG content stream object {obj_id:?}: {e}; \
+                     refusing to splice raw compressed bytes into the content (bug-0036)"
+                )));
+            }
         }
     } else {
         buf.extend_from_slice(&stream.content);
@@ -497,6 +506,35 @@ mod tests {
     const PORTRAIT_SVG: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" width="50" height="150">
   <rect width="50" height="150" fill="green"/>
 </svg>"#;
+
+    #[test]
+    fn append_stream_bytes_errors_when_decompression_fails() {
+        // bug-0036: when a content stream's decompression fails, append_stream_bytes must
+        // error naming the object, not splice the raw compressed bytes into the decoded
+        // content buffer (an error answer used as data).
+        //
+        // NOTE: lopdf 0.42's FlateDecode is lenient — bad zlib retries as raw deflate and
+        // returns Ok, so it can't drive this branch. A filter lopdf does not implement
+        // (RunLengthDecode) makes decompressed_content() return Err deterministically,
+        // which is exactly the failure the fix must not swallow.
+        let mut doc = Document::with_version("1.7");
+        let stream = Stream::new(
+            dictionary! { "Filter" => "RunLengthDecode" },
+            vec![0x01, 0x02, 0x03, 0x04],
+        );
+        let id = doc.add_object(Object::Stream(stream));
+
+        let mut buf = Vec::new();
+        let result = append_stream_bytes(&doc, id, &mut buf);
+        assert!(
+            result.is_err(),
+            "a stream whose decompression fails must error, not splice raw bytes — bug-0036"
+        );
+        assert!(
+            buf.is_empty(),
+            "no bytes may be appended when decompression fails — bug-0036"
+        );
+    }
 
     /// SVG with text content.
     const TEXT_SVG: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100">
