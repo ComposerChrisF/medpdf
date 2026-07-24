@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.6] - 2026-07-24
+### Added
+- `DrawImageParams::jpeg_quality` (default 85) controls the JPEG quality used when a
+  JPEG must be re-encoded after `max_dpi` downsampling (bug-0014).  Previously the
+  re-encode used the `image` crate’s default quality of 75 with no control.
+### Fixed
+- bug-0014: documented that JPEG pass-through does not apply when `max_dpi` forces a
+  downsample; that case re-encodes (lossily) and now warns.
+- bug-0003: images with an alpha channel are now downsampled in premultiplied-alpha
+  space, eliminating the dark halo that straight-alpha resampling bled into opaque
+  transparency edges.
+- bug-0015: `parse_jpeg_sof` rejects lossless JPEG (SOF3), non-8-bit sample precision,
+  and zero width/height instead of embedding silently unrenderable or invalid output.
+
 ## [0.4.5] - 2026-07-24
 ### Fixed
 - bug-0033: `ImageFit::Stretch` downsampling computed a single scale from the

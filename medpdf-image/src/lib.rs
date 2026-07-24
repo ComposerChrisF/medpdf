@@ -29,7 +29,10 @@ pub enum ImageFit {
 /// Raw image data ready for embedding.
 #[derive(Debug, Clone)]
 pub enum ImageData {
-    /// JPEG bytes with pre-parsed dimensions (embedded as DCTDecode without re-encoding).
+    /// JPEG bytes with pre-parsed dimensions. Embedded as DCTDecode **without
+    /// re-encoding** — *unless* the image's effective DPI at the placed size exceeds
+    /// `DrawImageParams::max_dpi` (default 300), in which case it is decoded, downsampled,
+    /// and re-encoded (lossily) at `DrawImageParams::jpeg_quality` (default 85).
     Jpeg {
         data: Vec<u8>,
         pixel_width: u32,
@@ -89,6 +92,11 @@ pub struct DrawImageParams {
     pub rotation: f32,
     /// If true, draw over existing content; if false, draw under. Default: true.
     pub layer_over: bool,
+    /// JPEG quality (1–100) used **only** when a JPEG must be re-encoded because its
+    /// effective DPI at the placed size exceeds [`Self::max_dpi`]. A JPEG within the DPI
+    /// cap is embedded byte-for-byte (no re-encode), so this has no effect on it.
+    /// Default: 85 (matching `RecompressParams`).
+    pub jpeg_quality: u8,
 }
 
 impl DrawImageParams {
@@ -105,6 +113,7 @@ impl DrawImageParams {
             alpha: 1.0,
             rotation: 0.0,
             layer_over: true,
+            jpeg_quality: 85,
         }
     }
 
@@ -130,6 +139,13 @@ impl DrawImageParams {
 
     pub fn layer_over(mut self, layer_over: bool) -> Self {
         self.layer_over = layer_over;
+        self
+    }
+
+    /// Sets the JPEG quality (1–100) used when a JPEG is re-encoded after `max_dpi`
+    /// downsampling. No effect on JPEGs that pass through without re-encoding.
+    pub fn jpeg_quality(mut self, quality: u8) -> Self {
+        self.jpeg_quality = quality.clamp(1, 100);
         self
     }
 }
@@ -162,16 +178,34 @@ fn parse_jpeg_sof(data: &[u8]) -> Result<(u32, u32, u8)> {
         let marker = data[i + 1];
         i += 2;
 
-        // SOF markers: SOF0 (0xC0), SOF1 (0xC1), SOF2 (0xC2), SOF3 (0xC3)
-        // We accept any baseline/progressive/lossless SOF
+        // SOF markers: SOF0 (0xC0) baseline, SOF1 (0xC1) extended sequential, SOF2 (0xC2)
+        // progressive, SOF3 (0xC3) lossless. PDF DCTDecode renders only SOF0/1/2.
         if matches!(marker, 0xC0..=0xC3) {
             if i + 8 > data.len() {
                 return Err(MedpdfError::new("JPEG SOF marker truncated"));
             }
-            // Skip length (2 bytes) and precision (1 byte)
+            // SOF segment layout after the marker: length(2), precision(1), height(2),
+            // width(2), components(1).
+            if marker == 0xC3 {
+                return Err(MedpdfError::new(
+                    "Lossless JPEG (SOF3) is not supported by PDF DCTDecode (bug-0015)",
+                ));
+            }
+            let precision = data[i + 2];
+            if precision != 8 {
+                return Err(MedpdfError::new(format!(
+                    "Unsupported JPEG sample precision {precision}-bit; only 8-bit is \
+                     supported by DCTDecode (bug-0015)"
+                )));
+            }
             let height = u16::from_be_bytes([data[i + 3], data[i + 4]]) as u32;
             let width = u16::from_be_bytes([data[i + 5], data[i + 6]]) as u32;
             let components = data[i + 7];
+            if width == 0 || height == 0 {
+                return Err(MedpdfError::new(format!(
+                    "JPEG has a zero dimension (width {width}, height {height}) (bug-0015)"
+                )));
+            }
             return Ok((width, height, components));
         }
 
@@ -315,6 +349,7 @@ fn maybe_downsample(
     output_w_pts: f32,
     output_h_pts: f32,
     max_dpi: f32,
+    jpeg_quality: u8,
 ) -> Result<ImageData> {
     if max_dpi <= 0.0 {
         return Ok(image_data);
@@ -359,19 +394,27 @@ fn maybe_downsample(
             pixel_height: _,
             components,
         } => {
-            // Decode JPEG, resize, re-encode as JPEG
+            // Decode JPEG, resize, re-encode as JPEG. This is a LOSSY re-encode — the only
+            // path where an ImageData::Jpeg does not pass through byte-for-byte — so honor
+            // the caller's jpeg_quality (default 85) instead of the image crate's default
+            // of 75, and warn (bug-0014).
+            log::warn!(
+                "Re-encoding (lossy) a downsampled JPEG at quality {jpeg_quality} — its \
+                 effective DPI exceeded max_dpi {max_dpi:.0}"
+            );
             let img = image::load_from_memory(&data).map_err(|e| {
                 MedpdfError::new(format!("Failed to decode JPEG for downsampling: {e}"))
             })?;
             let resized = img.resize_exact(new_w, new_h, image::imageops::FilterType::Lanczos3);
 
-            let mut jpeg_buf = std::io::Cursor::new(Vec::new());
-            resized
-                .write_to(&mut jpeg_buf, image::ImageFormat::Jpeg)
+            let mut jpeg_data = Vec::new();
+            let mut encoder =
+                image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg_data, jpeg_quality);
+            encoder
+                .encode_image(&resized)
                 .map_err(|e| MedpdfError::new(format!("Failed to re-encode JPEG: {e}")))?;
 
             // Re-parse the new JPEG to get exact dimensions
-            let jpeg_data = jpeg_buf.into_inner();
             let (actual_w, actual_h, actual_c) = parse_jpeg_sof(&jpeg_data)?;
 
             Ok(ImageData::Jpeg {
@@ -388,42 +431,44 @@ fn maybe_downsample(
             pixel_height,
             components,
         } => {
-            // Resize the pixel buffer
-            let resized_pixels = if components == 3 {
-                let img = image::RgbImage::from_raw(pixel_width, pixel_height, pixels)
-                    .ok_or_else(|| MedpdfError::new("Invalid RGB pixel buffer dimensions"))?;
-                let resized = image::imageops::resize(
-                    &img,
-                    new_w,
-                    new_h,
-                    image::imageops::FilterType::Lanczos3,
-                );
-                resized.into_raw()
-            } else {
-                // Grayscale
-                let img = image::GrayImage::from_raw(pixel_width, pixel_height, pixels)
-                    .ok_or_else(|| MedpdfError::new("Invalid Gray pixel buffer dimensions"))?;
-                let resized = image::imageops::resize(
-                    &img,
-                    new_w,
-                    new_h,
-                    image::imageops::FilterType::Lanczos3,
-                );
-                resized.into_raw()
-            };
+            let cc = components as usize; // channels per pixel (1 gray, 3 RGB)
+            let (resized_pixels, resized_alpha) = match alpha_channel {
+                Some(alpha) => {
+                    // Resample in premultiplied-alpha space (bug-0003). PNG alpha is
+                    // straight, so RGB under fully-transparent pixels is arbitrary (often
+                    // black); resampling the color plane independently bleeds that hidden
+                    // color into opaque edge pixels — a dark halo. Premultiplying makes a
+                    // transparent pixel contribute zero to the filter, so only visible
+                    // color survives; un-premultiplying restores straight alpha.
+                    let mut premult = pixels.clone();
+                    for (i, chunk) in premult.chunks_exact_mut(cc).enumerate() {
+                        let a = alpha[i] as u32;
+                        for c in chunk {
+                            *c = ((*c as u32 * a + 127) / 255) as u8;
+                        }
+                    }
+                    let resized_premult =
+                        resize_plane(premult, pixel_width, pixel_height, new_w, new_h, components)?;
+                    let resized_alpha =
+                        resize_plane(alpha, pixel_width, pixel_height, new_w, new_h, 1)?;
 
-            let resized_alpha = if let Some(alpha) = alpha_channel {
-                let alpha_img = image::GrayImage::from_raw(pixel_width, pixel_height, alpha)
-                    .ok_or_else(|| MedpdfError::new("Invalid alpha channel dimensions"))?;
-                let resized = image::imageops::resize(
-                    &alpha_img,
-                    new_w,
-                    new_h,
-                    image::imageops::FilterType::Lanczos3,
-                );
-                Some(resized.into_raw())
-            } else {
-                None
+                    let mut out = resized_premult;
+                    for (i, chunk) in out.chunks_exact_mut(cc).enumerate() {
+                        let a = resized_alpha[i] as u32;
+                        for c in chunk {
+                            // rgb = round(premult * 255 / alpha); a fully-transparent pixel
+                            // (alpha 0) has no recoverable color → 0.
+                            *c = (*c as u32 * 255 + a / 2)
+                                .checked_div(a)
+                                .map_or(0, |v| v.min(255)) as u8;
+                        }
+                    }
+                    (out, Some(resized_alpha))
+                }
+                None => (
+                    resize_plane(pixels, pixel_width, pixel_height, new_w, new_h, components)?,
+                    None,
+                ),
             };
 
             Ok(ImageData::Decoded {
@@ -434,6 +479,34 @@ fn maybe_downsample(
                 components,
             })
         }
+    }
+}
+
+/// Resizes a raw pixel plane with Lanczos3. `components` selects the interpretation:
+/// 3 = RGB, anything else = single-channel gray (used for grayscale planes and the alpha
+/// plane).
+fn resize_plane(
+    data: Vec<u8>,
+    w: u32,
+    h: u32,
+    new_w: u32,
+    new_h: u32,
+    components: u8,
+) -> Result<Vec<u8>> {
+    if components == 3 {
+        let img = image::RgbImage::from_raw(w, h, data)
+            .ok_or_else(|| MedpdfError::new("Invalid RGB pixel buffer dimensions"))?;
+        Ok(
+            image::imageops::resize(&img, new_w, new_h, image::imageops::FilterType::Lanczos3)
+                .into_raw(),
+        )
+    } else {
+        let img = image::GrayImage::from_raw(w, h, data)
+            .ok_or_else(|| MedpdfError::new("Invalid Gray pixel buffer dimensions"))?;
+        Ok(
+            image::imageops::resize(&img, new_w, new_h, image::imageops::FilterType::Lanczos3)
+                .into_raw(),
+        )
     }
 }
 
@@ -538,7 +611,13 @@ pub fn add_image(doc: &mut Document, page_id: ObjectId, params: DrawImageParams)
         compute_fit(img_w, img_h, params.width, params.height, params.fit);
 
     // Downsample if needed
-    let image_data = maybe_downsample(params.image_data, actual_w, actual_h, params.max_dpi)?;
+    let image_data = maybe_downsample(
+        params.image_data,
+        actual_w,
+        actual_h,
+        params.max_dpi,
+        params.jpeg_quality,
+    )?;
 
     // Create the image XObject
     let img_name = unique_xobject_name(doc, page_id, "Img");
@@ -775,6 +854,57 @@ mod tests {
         assert_eq!(w, 160);
         assert_eq!(h, 80);
         assert_eq!(c, 1);
+    }
+
+    #[test]
+    fn test_parse_jpeg_sof3_lossless_rejected() {
+        // bug-0015: lossless JPEG (SOF3) is unrenderable via DCTDecode → must be rejected.
+        let data = vec![
+            0xFF, 0xD8, // SOI
+            0xFF, 0xC3, // SOF3 (lossless)
+            0x00, 0x0B, 0x08, // precision 8
+            0x00, 0x64, // height 100
+            0x00, 0xC8, // width 200
+            0x03,
+        ];
+        assert!(
+            parse_jpeg_sof(&data).is_err(),
+            "a lossless SOF3 JPEG must be rejected, not embedded unrenderable — bug-0015"
+        );
+    }
+
+    #[test]
+    fn test_parse_jpeg_sof_precision_12_rejected() {
+        // bug-0015: 12-bit precision would embed with hardcoded BitsPerComponent 8.
+        let data = vec![
+            0xFF, 0xD8, // SOI
+            0xFF, 0xC0, // SOF0
+            0x00, 0x0B, 0x0C, // precision 12
+            0x00, 0x64, // height 100
+            0x00, 0xC8, // width 200
+            0x03,
+        ];
+        assert!(
+            parse_jpeg_sof(&data).is_err(),
+            "a non-8-bit JPEG must be rejected (dict/data mismatch otherwise) — bug-0015"
+        );
+    }
+
+    #[test]
+    fn test_parse_jpeg_sof_zero_dimension_rejected() {
+        // bug-0015: zero width makes compute_fit divide by zero → `inf` in the stream.
+        let data = vec![
+            0xFF, 0xD8, // SOI
+            0xFF, 0xC0, // SOF0
+            0x00, 0x0B, 0x08, // precision 8
+            0x00, 0x64, // height 100
+            0x00, 0x00, // width 0
+            0x03,
+        ];
+        assert!(
+            parse_jpeg_sof(&data).is_err(),
+            "a zero-dimension JPEG must be rejected, not produce `inf` tokens — bug-0015"
+        );
     }
 
     #[test]
@@ -1087,7 +1217,7 @@ mod tests {
             pixel_height: 100,
             components: 3,
         };
-        let result = maybe_downsample(data, 100.0, 100.0, 300.0).unwrap();
+        let result = maybe_downsample(data, 100.0, 100.0, 300.0, 85).unwrap();
         assert_eq!(result.pixel_width(), 100); // unchanged
     }
 
@@ -1101,7 +1231,7 @@ mod tests {
             pixel_height: 3000,
             components: 3,
         };
-        let result = maybe_downsample(data, 100.0, 100.0, 300.0).unwrap();
+        let result = maybe_downsample(data, 100.0, 100.0, 300.0, 85).unwrap();
         // Should be downsampled to ~417px (300 DPI at 100pt)
         assert!(result.pixel_width() < 3000);
         assert!(result.pixel_width() > 300);
@@ -1117,7 +1247,7 @@ mod tests {
             pixel_height: 10,
             components: 3,
         };
-        let result = maybe_downsample(data, 10.0, 10.0, 0.0).unwrap();
+        let result = maybe_downsample(data, 10.0, 10.0, 0.0, 85).unwrap();
         assert_eq!(result.pixel_width(), 3000); // unchanged
     }
 
@@ -1134,7 +1264,7 @@ mod tests {
             pixel_height: 1000,
             components: 3,
         };
-        let result = maybe_downsample(data, 720.0, 72.0, 300.0).unwrap();
+        let result = maybe_downsample(data, 720.0, 72.0, 300.0, 85).unwrap();
         assert_eq!(
             result.pixel_width(),
             1000,
@@ -1159,8 +1289,101 @@ mod tests {
             components: 3,
         };
         // 600px at 72pt output = 600 DPI -> should downsample to ~300 DPI
-        let result = maybe_downsample(data, 72.0, 72.0, 300.0).unwrap();
+        let result = maybe_downsample(data, 72.0, 72.0, 300.0, 85).unwrap();
         assert!(result.pixel_width() < 600);
+    }
+
+    #[test]
+    fn test_downsample_jpeg_honors_quality() {
+        // bug-0014: a JPEG that must be downsampled (effective DPI > max_dpi) is re-encoded
+        // at the caller's jpeg_quality, not the image crate's hardcoded default of 75.
+        // Behavioral proof: encoding the same downsampled image at high vs low quality
+        // yields different file sizes (higher quality → larger). A hardcoded quality would
+        // make both identical.
+        let jpeg = make_real_jpeg(1000, 1000);
+        let (w, h, _) = parse_jpeg_sof(&jpeg).unwrap();
+        let mk = || ImageData::Jpeg {
+            data: jpeg.clone(),
+            pixel_width: w,
+            pixel_height: h,
+            components: 3,
+        };
+        let jpeg_len = |d: ImageData| match d {
+            ImageData::Jpeg { data, .. } => data.len(),
+            _ => panic!("expected a re-encoded JPEG"),
+        };
+        // 1000 px into a 72 pt (1 in) box = 1000 DPI, exceeds 300 → re-encode.
+        let lo = jpeg_len(maybe_downsample(mk(), 72.0, 72.0, 300.0, 40).unwrap());
+        let hi = jpeg_len(maybe_downsample(mk(), 72.0, 72.0, 300.0, 95).unwrap());
+        assert!(
+            hi > lo,
+            "jpeg_quality must be honored: quality 95 ({hi} B) must exceed quality 40 \
+             ({lo} B); a hardcoded quality would make them equal — bug-0014"
+        );
+    }
+
+    #[test]
+    fn test_downsample_alpha_no_halo() {
+        // bug-0003: downsampling an image with straight (un-premultiplied) alpha must not
+        // bleed hidden color into opaque edges. Left half opaque red, right half fully
+        // transparent black; after downsampling, every substantially-opaque pixel must
+        // stay ~pure red. The pre-fix straight-alpha resample dropped boundary red to ~241.
+        let (w, h) = (600u32, 600u32);
+        let mut pixels = vec![0u8; (w * h * 3) as usize];
+        let mut alpha = vec![0u8; (w * h) as usize];
+        for y in 0..h {
+            for x in 0..300 {
+                let i = (y * w + x) as usize;
+                pixels[i * 3] = 255; // red
+                alpha[i] = 255; // opaque
+            }
+            // x >= 300 stays (0,0,0) with alpha 0 (transparent black).
+        }
+        let data = ImageData::Decoded {
+            pixels,
+            alpha_channel: Some(alpha),
+            pixel_width: w,
+            pixel_height: h,
+            components: 3,
+        };
+        // 600 px into a 72 pt (1 in) box = 600 DPI > 300 → downsample to 300 px.
+        let (rp, ra, nw, nh) = match maybe_downsample(data, 72.0, 72.0, 300.0, 85).unwrap() {
+            ImageData::Decoded {
+                pixels,
+                alpha_channel,
+                pixel_width,
+                pixel_height,
+                ..
+            } => (pixels, alpha_channel.unwrap(), pixel_width, pixel_height),
+            _ => panic!("expected Decoded output"),
+        };
+        let mut checked = 0;
+        for i in 0..(nw * nh) as usize {
+            if ra[i] >= 200 {
+                let red = rp[i * 3];
+                assert!(
+                    red >= 250,
+                    "a substantially-opaque pixel must stay ~pure red (no dark halo); got \
+                     red={red}, alpha={} — bug-0003",
+                    ra[i]
+                );
+                checked += 1;
+            }
+        }
+        assert!(checked > 0, "the test must exercise some opaque pixels");
+    }
+
+    /// Builds a real JPEG with non-trivial content (so quality visibly affects size).
+    fn make_real_jpeg(w: u32, h: u32) -> Vec<u8> {
+        let img = image::RgbImage::from_fn(w, h, |x, y| {
+            let v = (128.0 + 60.0 * ((x as f32 * 0.31).sin() + (y as f32 * 0.19).sin())) as u8;
+            image::Rgb([v, v.wrapping_add(40), v.wrapping_sub(30)])
+        });
+        let mut buf = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgb8(img)
+            .write_to(&mut buf, image::ImageFormat::Jpeg)
+            .unwrap();
+        buf.into_inner()
     }
 
     // --- Validation tests ---
@@ -1239,7 +1462,7 @@ mod tests {
             pixel_height: 600,
             components: 3,
         };
-        let result = maybe_downsample(data, 72.0, 72.0, 300.0).unwrap();
+        let result = maybe_downsample(data, 72.0, 72.0, 300.0, 85).unwrap();
         if let ImageData::Decoded {
             alpha_channel,
             pixel_width,

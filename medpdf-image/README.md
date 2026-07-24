@@ -6,13 +6,13 @@ Provides high-level functions for embedding raster images (JPEG, PNG, GIF, BMP, 
 
 ## Features
 
-- **JPEG pass-through** -- JPEG files are embedded directly as DCTDecode streams without re-encoding
-- **PNG/other formats** -- decoded and embedded as FlateDecode streams with alpha support
-- **SVG** -- optional `svg` feature converts SVG to PDF vector content via svg2pdf
-- **Fit modes** -- `Stretch`, `Contain`, `Cover` when both width and height are specified
-- **DPI limiting** -- automatic downscaling to a configurable max DPI
-- **Alpha/opacity** -- per-image alpha via ExtGState
-- **Rotation** -- arbitrary rotation around the image anchor point
+- **JPEG pass-through** – JPEG files are embedded directly as DCTDecode streams without re-encoding, _unless_ downsampling is required by `max_dpi` (see below), in which case the downsampled JPEG is re-encoded at `jpeg_quality` (default 85)
+- **PNG/other formats** – decoded and embedded as FlateDecode streams with alpha support
+- **SVG** – optional `svg` feature converts SVG to PDF vector content via svg2pdf
+- **Fit modes** – `Stretch`, `Contain`, `Cover` when both width and height are specified
+- **DPI limiting** – automatic downscaling to a configurable max DPI; a JPEG whose effective DPI exceeds `max_dpi` is decoded, downsampled, and re-encoded (lossily) at `jpeg_quality`
+- **Alpha/opacity** – per-image alpha via ExtGState
+- **Rotation** – arbitrary rotation around the image anchor point
 
 ## Installation
 
