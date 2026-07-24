@@ -15,7 +15,7 @@ never touches git state — it only reads.
 
 Version comparison is SEMVER (Cargo package versions), where numeric ordering
 is correct and 1.10.0 > 1.9.0.  This is deliberately NOT the artifact-filename
-version scheme (~/.claude/rules/file-version-scheme.md); package versions and
+version scheme (~/.claude/rules/document-version-naming-scheme.md); package versions and
 artifact-filename versions are different schemes with different comparators, so
 keep them in separate code paths.
 
