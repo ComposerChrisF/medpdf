@@ -30,8 +30,22 @@ pub fn place_page(
     source_page_num: u32,
     params: &PlacePageParams,
 ) -> Result<()> {
-    if !params.scale.is_finite() {
-        return Err(MedpdfError::new("PlacePageParams scale must be finite"));
+    // Every placement parameter flows into `cm`/`re` operands; a NaN or infinity (e.g.
+    // from a caller dividing by a zero page dimension) would serialize as the literal
+    // tokens `NaN`/`inf`, which are not valid PDF numbers — a silently corrupt content
+    // stream. Fail loudly instead, naming the offending field (bug-0026 extended this
+    // from the scale-only check to x/y/rotation too).
+    for (name, value) in [
+        ("x", params.x),
+        ("y", params.y),
+        ("scale", params.scale),
+        ("rotation", params.rotation),
+    ] {
+        if !value.is_finite() {
+            return Err(MedpdfError::new(format!(
+                "PlacePageParams {name} must be finite (got {value})"
+            )));
+        }
     }
 
     let source_page_id = pdf_helpers::get_page_object_id_from_doc(source_doc, source_page_num)?;
@@ -146,17 +160,25 @@ pub fn place_page(
 
     // Rotation matrix coefficients: exact values for 90° increments, trig for arbitrary angles
     let theta = params.rotation.rem_euclid(360.0);
-    let (a, b, c, d) = if (theta - 0.0).abs() < 1e-10 {
-        (s, 0.0, 0.0, s)
+    // `axis_aligned` marks the 90°-step rotations, whose transformed MediaBox is itself
+    // an axis-aligned rectangle (AABB == the rect) — the clip can stay a compact `re`.
+    let (a, b, c, d, axis_aligned) = if (theta - 0.0).abs() < 1e-10 {
+        (s, 0.0, 0.0, s, true)
     } else if (theta - 90.0).abs() < 1e-10 {
-        (0.0, s, -s, 0.0)
+        (0.0, s, -s, 0.0, true)
     } else if (theta - 180.0).abs() < 1e-10 {
-        (-s, 0.0, 0.0, -s)
+        (-s, 0.0, 0.0, -s, true)
     } else if (theta - 270.0).abs() < 1e-10 {
-        (0.0, -s, s, 0.0)
+        (0.0, -s, s, 0.0, true)
     } else {
         let rad = theta.to_radians();
-        (s * rad.cos(), s * rad.sin(), -s * rad.sin(), s * rad.cos())
+        (
+            s * rad.cos(),
+            s * rad.sin(),
+            -s * rad.sin(),
+            s * rad.cos(),
+            false,
+        )
     };
 
     trace!("cm matrix: a={a}, b={b}, c={c}, d={d}, tx={tx}, ty={ty}");
@@ -164,35 +186,54 @@ pub fn place_page(
     let mut open_ops = vec![Operation::new("q", vec![])];
 
     if params.clip {
-        // Clip rect = axis-aligned bounding box of the 4 transformed MediaBox corners.
-        // Transform each corner (sx, sy) → (a*sx + c*sy + tx, b*sx + d*sy + ty).
-        let corners = [
+        // Transform each MediaBox corner (sx, sy) → (a*sx + c*sy + tx, b*sx + d*sy + ty).
+        let quad: Vec<(f64, f64)> = [
             (x0 as f64, y0 as f64),
             (x1 as f64, y0 as f64),
             (x1 as f64, y1 as f64),
             (x0 as f64, y1 as f64),
-        ];
-        let mut min_x = f64::INFINITY;
-        let mut min_y = f64::INFINITY;
-        let mut max_x = f64::NEG_INFINITY;
-        let mut max_y = f64::NEG_INFINITY;
-        for &(sx, sy) in &corners {
-            let dx = a * sx + c * sy + tx;
-            let dy = b * sx + d * sy + ty;
-            min_x = min_x.min(dx);
-            min_y = min_y.min(dy);
-            max_x = max_x.max(dx);
-            max_y = max_y.max(dy);
+        ]
+        .into_iter()
+        .map(|(sx, sy)| (a * sx + c * sy + tx, b * sx + d * sy + ty))
+        .collect();
+
+        if axis_aligned {
+            // 90°-step rotation: the transformed MediaBox is axis-aligned, so its AABB
+            // equals the rect — emit the compact `re` (keeps the common-case output
+            // byte-stable).
+            let min_x = quad.iter().map(|p| p.0).fold(f64::INFINITY, f64::min);
+            let min_y = quad.iter().map(|p| p.1).fold(f64::INFINITY, f64::min);
+            let max_x = quad.iter().map(|p| p.0).fold(f64::NEG_INFINITY, f64::max);
+            let max_y = quad.iter().map(|p| p.1).fold(f64::NEG_INFINITY, f64::max);
+            open_ops.push(Operation::new(
+                "re",
+                vec![
+                    Object::Real(min_x as f32),
+                    Object::Real(min_y as f32),
+                    Object::Real((max_x - min_x) as f32),
+                    Object::Real((max_y - min_y) as f32),
+                ],
+            ));
+        } else {
+            // Arbitrary angle: the AABB strictly contains the rotated page, so source
+            // content outside the MediaBox (bleed, crop-hidden artwork — exactly what
+            // clipping exists to suppress) would leak through the four corner wedges.
+            // Clip to the transformed MediaBox quadrilateral itself (bug-0027).
+            open_ops.push(Operation::new(
+                "m",
+                vec![
+                    Object::Real(quad[0].0 as f32),
+                    Object::Real(quad[0].1 as f32),
+                ],
+            ));
+            for &(px, py) in &quad[1..] {
+                open_ops.push(Operation::new(
+                    "l",
+                    vec![Object::Real(px as f32), Object::Real(py as f32)],
+                ));
+            }
+            open_ops.push(Operation::new("h", vec![]));
         }
-        open_ops.push(Operation::new(
-            "re",
-            vec![
-                Object::Real(min_x as f32),
-                Object::Real(min_y as f32),
-                Object::Real((max_x - min_x) as f32),
-                Object::Real((max_y - min_y) as f32),
-            ],
-        ));
         open_ops.push(Operation::new("W", vec![]));
         open_ops.push(Operation::new("n", vec![]));
     }

@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.18] - 2026-07-23
+### Fixed
+- bug-0027: `place_page` clipped an arbitrarily-rotated page to the axis-aligned
+  bounding box of its transformed MediaBox, which strictly contains the
+  rotated page, so content outside the MediaBox leaked through the corner
+  wedges.  It now clips to the transformed MediaBox quadrilateral for
+  non-90° rotations; the 90°-step cases keep the compact rectangle.
+- bug-0026: `place_page` validated only `scale` for finiteness, so a NaN or
+  infinity in `x`, `y`, or `rotation` was written into the content stream as
+  the invalid tokens `NaN`/`inf`; it now validates all four and returns an
+  error naming the offending field.
+
 ## [0.11.17] - 2026-07-23
 ### Fixed
 - bug-0011: the built-in-font text-width fallback in `compute_text_metrics` counted

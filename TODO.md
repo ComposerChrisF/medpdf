@@ -54,8 +54,8 @@ Order matters here; later fixes reuse mechanisms and helpers from earlier ones.
 
 - [ ] **bug-0024** per ruling (origin compensation or doc fix) — remember `place_page_tests.rs:375` pins today’s behavior.
 - [ ] **bug-0023** per ruling (`/Rotate` in transform or documented caller responsibility).
-- [ ] **bug-0027** (Low-Medium) — clip with the transformed quad, not its AABB.
-- [ ] **bug-0026** (Low) — validate x/y/rotation finiteness.
+- [x] **bug-0027** (Low-Medium) — clip with the transformed quad, not its AABB.  _Done: `place_page`’s clip for a non-90° rotation now emits the transformed MediaBox quadrilateral (`m`/`l`/`l`/`l`/`h`) instead of the axis-aligned bounding box of the four corners — the AABB strictly contains the rotated page, leaking out-of-MediaBox content (bleed, crop-hidden art) through the corner wedges.  The 90°-step cases (`axis_aligned`, where AABB == the rect) keep the compact `re`, so common-case output stays byte-stable and all 21 existing place_page tests pass unchanged.  `tests/place_page_rotated_clip_regression.rs` (45° clip is a quad matching the transformed corners; verified to fail under `MEDPDF_TEMP_BUG0027`)._
+- [x] **bug-0026** (Low) — validate x/y/rotation finiteness.  _Done: `place_page` now validates `x`, `y`, `scale`, and `rotation` for `is_finite()` (was scale-only), returning a `MedpdfError` naming the offending field — a NaN/∞ otherwise serialized into `cm`/`re` operands as the literal tokens `NaN`/`inf`, silently corrupting the content stream.  `tests/place_page_nonfinite_params_regression.rs` (NaN x, ∞ y, NaN rotation rejected; finite still succeeds; the three verified to return Ok under `MEDPDF_TEMP_BUG0026`)._
 
 ## Step 6 — medpdf-image
 
