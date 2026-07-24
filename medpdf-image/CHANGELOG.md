@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.4] - 2026-07-24
+### Fixed
+- bug-0029: image recompression ignored `/DecodeParms`, so a FlateDecode image using
+  TIFF Predictor 2 (which lopdf hands back still horizontally differenced) was
+  JPEG-encoded as if raw — total, permanent corruption reported as a successful
+  optimization.  Recompression now consults `/DecodeParms` and only proceeds for
+  no-predictor / Predictor 1 / PNG predictors 10-15; Predictor 2, any unknown value, or
+  an unresolvable `/DecodeParms` is skipped.
+- bug-0028: recompression skipped `/SMask` but not `/Mask`, so lossy JPEG re-encoding
+  silently broke color-key (`/Mask` array) transparency.  Images carrying `/Mask` (array
+  or reference) are now skipped, symmetric with the `/SMask` policy.
+
 ## [0.4.3] - 2026-06-29
 ### Changed
 - Bump `lopdf` 0.39 → 0.42 (toolchain-wide coordinated bump); code-review

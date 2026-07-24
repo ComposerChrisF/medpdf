@@ -135,8 +135,27 @@ fn extract_image_info(doc: &Document, id: ObjectId, min_size: usize) -> Option<I
         _ => return None,
     }
 
+    // /DecodeParms predictor guard (bug-0029). lopdf's decompressed_content() un-applies
+    // PNG predictors (10-15) and strips the parms, but hands TIFF Predictor 2 data back
+    // still horizontally differenced — which would then be JPEG-encoded as if raw, and
+    // set_plain_content drops /DecodeParms on rewrite, making the corruption permanent.
+    // Only recompress when we can prove the decompressed bytes are raw pixels; anything
+    // we cannot resolve or do not understand is skipped (positive evidence of absence).
+    if !decodeparms_recompressible(doc, &stream.dict) {
+        return None;
+    }
+
     // No /SMask (transparency)
     if stream.dict.get(b"SMask").is_ok() {
+        return None;
+    }
+
+    // No /Mask (color-key or stencil transparency). Color-key masking declares exact
+    // sample ranges that render transparent; lossy JPEG drifts samples across those
+    // boundaries — transparency lost where samples leave the range, new holes where they
+    // drift in — while /Mask stays over the now-shifted data. Skipping both forms is safe
+    // and symmetric with the /SMask policy (bug-0028).
+    if stream.dict.get(b"Mask").is_ok() {
         return None;
     }
 
@@ -176,6 +195,35 @@ fn extract_image_info(doc: &Document, id: ObjectId, min_size: usize) -> Option<I
         pixels,
         orig_compressed_size,
     })
+}
+
+/// Whether the stream's `/DecodeParms` permit safe FlateDecode→JPEG recompression.
+///
+/// `decompressed_content()` un-applies PNG predictors (10-15) and strips the parms, so
+/// those come back as raw pixels and are safe. A missing `/DecodeParms`, or `Predictor`
+/// absent/1, likewise means no differencing. But **TIFF Predictor 2 (and any other
+/// value) is handed back still differenced** — re-encoding it corrupts the image
+/// permanently (bug-0029). And if `/DecodeParms` is present but cannot be resolved to a
+/// dictionary, we cannot prove the bytes are raw pixels, so we skip: unknown means skip,
+/// never assume raw (positive-evidence-of-absence).
+fn decodeparms_recompressible(doc: &Document, dict: &lopdf::Dictionary) -> bool {
+    let parms = match dict.get(b"DecodeParms") {
+        // Absent or explicitly null → no predictor stage.
+        Err(_) | Ok(Object::Null) => return true,
+        Ok(Object::Dictionary(d)) => d.clone(),
+        Ok(Object::Reference(r)) => match doc.get_dictionary(*r) {
+            Ok(d) => d.clone(),
+            Err(_) => return false, // unresolvable → cannot prove raw → skip
+        },
+        // An array (multi-filter) or any other type is unexpected for a single
+        // FlateDecode filter and cannot be proven raw → skip.
+        Ok(_) => return false,
+    };
+    match parms.get(b"Predictor") {
+        Err(_) | Ok(Object::Integer(1)) => true, // no differencing
+        Ok(Object::Integer(p)) if (10..=15).contains(p) => true, // PNG: lopdf decodes it
+        _ => false,                              // Predictor 2 (TIFF) or any unknown value → skip
+    }
 }
 
 /// Helper to read an integer from a dictionary.

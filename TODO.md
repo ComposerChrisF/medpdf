@@ -59,8 +59,8 @@ Order matters here; later fixes reuse mechanisms and helpers from earlier ones.
 
 ## Step 6 — medpdf-image
 
-1. [ ] **bug-0029** (Critical for affected inputs) — skip recompression when `/DecodeParms` has Predictor 2 (or is unresolvable).
-2. [ ] **bug-0028** (High) — skip recompression when `/Mask` present.
+1. [x] **bug-0029** (Critical for affected inputs) — skip recompression when `/DecodeParms` has Predictor 2 (or is unresolvable).  _Done: `extract_image_info` now consults `/DecodeParms` via new `decodeparms_recompressible` — lopdf’s `decompressed_content()` un-applies PNG predictors (10-15) and strips the parms, but hands TIFF **Predictor 2** back still horizontally differenced, which was then JPEG-encoded as if raw (mean pixel error ≈85) and `set_plain_content` dropped `/DecodeParms`, making the corruption permanent and reported as success.  Now: absent/`Predictor 1`/PNG 10-15 → recompress; Predictor 2 or any unknown value, or an **unresolvable** `/DecodeParms` → skip (unknown ⇒ skip, never assume raw — positive-evidence-of-absence).  `tests/recompress_predictor_regression.rs` (Predictor-2 + unresolvable skipped, no-parms + PNG-15 not over-skipped; the two skip tests verified to fail under `MEDPDF_TEMP_BUG0029`)._
+2. [x] **bug-0028** (High) — skip recompression when `/Mask` present.  _Done: `extract_image_info` now skips any image carrying `/Mask` (color-key range array **or** stencil reference), next to the existing `/SMask` skip — lossy JPEG drifts samples across a color-key range’s boundaries (transparency lost / new holes) while `/Mask` stays over the shifted data; skipping both forms is safe and symmetric with the `/SMask` policy.  `tests/recompress_mask_regression.rs` (color-key + reference `/Mask` skipped, unmasked not over-skipped; the two skip tests verified to fail under `MEDPDF_TEMP_BUG0028`)._
 3. [ ] **bug-0033** (Medium) — per-axis downsample clamping for Stretch.
 4. [ ] **bug-0035** (Medium) — transparency `/Group` on the SVG Form XObject.
 5. [ ] **bug-0014** (Medium) — document the max-DPI JPEG re-encode; quality parameter defaulting to 85.
