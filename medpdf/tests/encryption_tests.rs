@@ -171,9 +171,13 @@ fn test_encryption_params_builder() {
 
 #[test]
 fn test_encrypt_aes256() {
+    // Must set the algorithm explicitly: the default is Aes128 (the lopdf AES-256 bug —
+    // see visual_encryption_aes256_preserves_rendering), so relying on the default would
+    // silently make this an AES-128 test (bug-0002). In-memory AES-256 construction and
+    // round-trip work even though rendered output is corrupt.
     let mut doc = fixtures::create_pdf_with_pages(1);
     ensure_trailer_id(&mut doc);
-    let params = EncryptionParams::new("user", "owner");
+    let params = EncryptionParams::new("user", "owner").algorithm(EncryptionAlgorithm::Aes256);
     encrypt_document(&mut doc, &params).unwrap();
     assert!(doc.is_encrypted());
 }
@@ -189,9 +193,12 @@ fn test_encrypt_aes128() {
 
 #[test]
 fn test_encrypt_decrypt_aes256_in_memory() {
+    // Explicit Aes256 (the default is Aes128) so this genuinely exercises the AES-256
+    // encrypt/decrypt round-trip, which works in memory despite the lopdf rendering bug
+    // (bug-0002).
     let mut doc = fixtures::create_pdf_with_pages(2);
     ensure_trailer_id(&mut doc);
-    let params = EncryptionParams::new("secret", "admin");
+    let params = EncryptionParams::new("secret", "admin").algorithm(EncryptionAlgorithm::Aes256);
     encrypt_document(&mut doc, &params).unwrap();
     assert!(doc.is_encrypted());
 
@@ -249,10 +256,14 @@ fn test_encrypt_multipage_document() {
 // ──────────────────────────────────────────────
 
 #[test]
-fn test_encrypt_save_produces_valid_file() {
+fn test_encrypt_aes256_save_produces_valid_file() {
+    // Explicit Aes256 (not the Aes128 default): an AES-256-encrypted file still saves and
+    // reloads as a structurally valid encrypted PDF — the lopdf AES-256 bug corrupts
+    // rendered content, not the encryption structure. Fills the AES-256 save-path gap that
+    // the AES-128 default previously hid (bug-0002).
     let mut doc = fixtures::create_pdf_with_pages(2);
     ensure_trailer_id(&mut doc);
-    let params = EncryptionParams::new("secret", "admin");
+    let params = EncryptionParams::new("secret", "admin").algorithm(EncryptionAlgorithm::Aes256);
     encrypt_document(&mut doc, &params).unwrap();
 
     let tmp = tempfile::NamedTempFile::new().unwrap();

@@ -1,5 +1,7 @@
 # Feature Plan (pointer): Unicode Text Beyond WinAnsi
 
+> **Status: Implemented in v0.11.0** (commit `cf7fc76`) — the Type0/CIDFontType2 composite path now renders characters outside WinAnsi (Hawaiian ‘okina, kahakō, etc.) from an embedded font; missing glyphs fail loudly (`MedpdfError::UnrepresentableText`) unless `lossy_text` is set.  Consumer pass-through (pdf-maker / pdf-orchestrator) is unchanged and works once they build against this version.
+
 The full plan lives at `../pdf-maker/feature-plan-unicode-text.md` — it was filed against pdf-maker before the root cause was localized here.  **medpdf is the fix locus**: the single-byte WinAnsi text/embedding path lives in this crate, and both known consumers corrupt any non-CP1252 character (Hawaiian ‘okina U+02BB, kahakō ā ē ī ō ū, and everything else outside the codepage) to a silent `?` while reporting success.
 
 Verified consumers affected (2026-07-10, empirically — same failure signature, `WinAnsiEncoding, CharRange: 32-255`):

@@ -291,4 +291,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Earlier history (0.8.x and before: PDF encryption, edition-2024 migration, the
 initial image-embedding split) is in the git log.
 
-[Unreleased]: https://github.com/ComposerChrisF/medpdf/compare/medpdf-v0.11.1...HEAD
+[Unreleased]: https://github.com/ComposerChrisF/medpdf/compare/medpdf-v0.11.18...HEAD

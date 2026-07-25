@@ -20,21 +20,30 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-medpdf = "0.10.0"
+medpdf = "0.11"
 ```
 
 ## Quick Start
 
 ```rust
-use lopdf::Document;
+use lopdf::{Document, Object, dictionary};
 use medpdf::{copy_page, create_blank_page, parse_page_spec, Result};
 
 fn main() -> Result<()> {
     // Load source document
     let source_doc = Document::load("input.pdf")?;
 
-    // Create destination document
+    // Create the destination document. A fresh lopdf document has no catalog, but
+    // medpdf's page operations require a /Root catalog with a /Pages node, so build
+    // that skeleton first.
     let mut dest_doc = Document::with_version("1.5");
+    let pages_id = dest_doc.new_object_id();
+    dest_doc.objects.insert(
+        pages_id,
+        Object::Dictionary(dictionary! { "Type" => "Pages", "Kids" => vec![], "Count" => 0 }),
+    );
+    let catalog_id = dest_doc.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages_id });
+    dest_doc.trailer.set("Root", catalog_id);
 
     // Parse page specification
     let page_count = source_doc.get_pages().len() as u32;
@@ -70,8 +79,9 @@ use medpdf::{Error, MedpdfError, Result};
 | `FontKit` | `font_kit::error::SelectionError` |
 | `Face` | `ttf_parser::FaceParsingError` |
 | `Message` | Custom error messages |
+| `UnrepresentableText` | Text that the chosen font cannot render (a built-in font asked to draw non-CP1252 text, or an embedded font missing a glyph); carries the offending characters and the font name |
 
-All public functions return `Result<T>`, which is `std::result::Result<T, MedpdfError>`.
+All public functions return `Result<T>`, which is `std::result::Result<T, MedpdfError>`. `MedpdfError` is `#[non_exhaustive]`, so match on it with a wildcard arm.
 
 ### Page Operations
 
@@ -238,15 +248,17 @@ let points = Unit::Mm.to_points(25.4); // 72.0
 
 ### PDF Key Constants
 
-`medpdf::pdf_helpers` exports byte-string constants for common PDF dictionary keys:
+`medpdf::pdf_helpers` exports byte-string constants for common PDF dictionary keys.  The publicly exported ones are:
 
 ```rust
-use medpdf::pdf_helpers::{KEY_PAGES, KEY_RESOURCES, KEY_CONTENTS, KEY_FONT};
+use medpdf::pdf_helpers::{KEY_RESOURCES, KEY_CONTENTS, KEY_EXTGSTATE, KEY_XOBJECT};
 ```
 
-### Deep Copy (Internal)
+(Other keys such as `KEY_PAGES` and `KEY_FONT` are crate-internal.)
 
-`deep_copy_object()` and `deep_copy_object_by_id()` are `pub(crate)` helpers used internally by `copy_page`, `overlay_page`, and other operations.  They recursively clone PDF objects using a `BTreeMap<ObjectId, ObjectId>` to track copies, preventing duplicates and maintaining reference integrity. `Parent` references are skipped to avoid copying the entire page tree.
+### Deep Copy
+
+`deep_copy_object()` and `deep_copy_object_by_id()` are public helpers (re-exported from the crate root), used internally by `copy_page`, `overlay_page`, and other operations.  They recursively clone PDF objects using a `BTreeMap<ObjectId, ObjectId>` to track copies, preventing duplicates and maintaining reference integrity. `Parent` references are skipped to avoid copying the entire page tree.
 
 ## Key Patterns
 

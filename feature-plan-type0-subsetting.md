@@ -1,8 +1,10 @@
 # Feature Plan: Type0/CID Composite-Font Subsetting
 
+> **Status: Planned.** The composite-font path this plan builds on landed in v0.11.0 (commit `cf7fc76`); composite-font _subsetting_ — the subject of this plan — is not yet implemented, so embedded fonts on the composite path are still embedded in full.
+
 ## Problem
 
-The new composite-font path (`pdf_font_composite.rs`, currently uncommitted WIP alongside `lossy_text`) embeds the **full** font whenever watermark/AddText text contains any character outside WinAnsi (CP1252).  `subset_fonts()` in `pdf_subset.rs` explicitly skips composite entries:
+The composite-font path (`pdf_font_composite.rs`, landed in v0.11.0 alongside `lossy_text`) embeds the **full** font whenever watermark/AddText text contains any character outside WinAnsi (CP1252).  `subset_fonts()` in `pdf_subset.rs` explicitly skips composite entries:
 
 ```rust
 // pdf_subset.rs, subset_fonts()

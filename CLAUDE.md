@@ -38,11 +38,14 @@ medpdf/                        # Repository root (workspace)
 │       ├── pdf_overlay_helpers.rs # Shared helpers for overlay/place-page operations
 │       ├── pdf_place_page.rs  # Positioned/scaled page placement
 │       ├── pdf_watermark.rs   # Text watermark rendering
-│       └── pdf_font_composite.rs # Type0/CIDFontType2 (Identity-H) Unicode text encoding
+│       ├── pdf_font_composite.rs # Type0/CIDFontType2 (Identity-H) Unicode text encoding
+│       └── pdf_subset.rs      # Post-watermark font subsetting (allsorts) for embedded fonts
 ├── medpdf-image/              # Image embedding companion crate
 │   ├── Cargo.toml
 │   └── src/
-│       └── lib.rs             # JPEG/PNG/etc. image embedding into PDF pages
+│       ├── lib.rs             # JPEG/PNG/etc. image embedding into PDF pages
+│       ├── recompress.rs      # FlateDecode → DCTDecode (JPEG) image recompression
+│       └── svg.rs             # SVG → PDF vector content via svg2pdf (optional `svg` feature)
 └── pdf-test-visual/           # Visual regression test utility (publish=false)
     ├── Cargo.toml
     └── src/
@@ -73,7 +76,10 @@ medpdf/                        # Repository root (workspace)
 | `medpdf::pdf_place_page` | `place_page()` - place a source page at a specific position, scale, and rotation (arbitrary angle) with optional clipping (default: enabled) |
 | `medpdf::pdf_watermark` | `add_text_params()` - text watermark rendering with color, alignment, rotation, alpha; `EmbeddedFontCache` for deduplicating embedded font objects across pages; picks the WinAnsi simple-font fast path or the Type0 composite path per call |
 | `medpdf::pdf_font_composite` | Type0/CIDFontType2 composite-font pieces (Identity-H GID encoding, `/W` widths, ToUnicode CMap) for text with characters outside WinAnsiEncoding |
+| `medpdf::pdf_subset` | Post-watermark font subsetting via allsorts: shrinks embedded fonts to used glyphs, tagging `/BaseFont` and `/FontName`; `subset_fonts()` |
 | `medpdf_image` | Image embedding companion crate (JPEG, PNG, etc.) |
+| `medpdf_image::recompress` | `recompress_images()` - re-encodes qualifying FlateDecode image XObjects as DCTDecode (JPEG) to shrink Word-style bloated PDFs |
+| `medpdf_image::svg` | SVG embedding via svg2pdf (optional `svg` feature): converts SVG to a Form XObject; `add_svg()`, `load_svg()` |
 
 ### Key Patterns
 

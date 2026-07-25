@@ -38,7 +38,8 @@ pub struct EncryptionParams {
 
 impl EncryptionParams {
     /// Create new encryption params with the given passwords.
-    /// Defaults to AES-256 with all permissions granted.
+    /// Defaults to AES-128 (see [`EncryptionAlgorithm`]; AES-256 is avoided until the
+    /// lopdf content-stream corruption bug is fixed) with all permissions granted.
     pub fn new(user_password: impl Into<String>, owner_password: impl Into<String>) -> Self {
         Self {
             user_password: user_password.into(),

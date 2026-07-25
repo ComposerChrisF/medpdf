@@ -47,6 +47,12 @@ pub struct CachedFontEntry {
 /// embedded both as a simple WinAnsi font (for pure-CP1252 text) and as a composite
 /// font (for Unicode text). Stores font dictionary IDs, stream IDs, and character usage
 /// for post-watermark subsetting and composite `/W`/ToUnicode refresh.
+///
+/// **Document-scoped: use one cache per [`Document`](lopdf::Document), and never reuse it
+/// across documents.** The cache stores `ObjectId`s, which are meaningful only within the
+/// document they were created in. Reusing a cache across two documents takes the cache-hit
+/// path and registers the first document's `ObjectId` into the second document's
+/// resources — a dangling reference, silently.
 pub struct EmbeddedFontCache {
     cache: HashMap<(usize, EncodingKind), CachedFontEntry>,
 }
