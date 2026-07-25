@@ -20,7 +20,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-medpdf = "0.11"
+medpdf = "0.12"
 ```
 
 ## Quick Start
@@ -186,6 +186,8 @@ Supported syntax:
 - Open end: `"5-"` (page 5 through last)
 - Lists: `"1,3,5-7,10"`
 - All pages: `"all"`
+
+**Out-of-range pages are an error, not silently dropped.** A single page, or a range’s start, greater than the page count returns `Err`, and so does an _explicit_ range end beyond it (e.g. `"1-100"` on a 3-page document).  An _open_ end (`"5-"`) means “through the last page” and is never out of range.  This is a fail-loud contract, so callers do not need to re-validate the returned set against the request.
 
 ### Font Handling
 

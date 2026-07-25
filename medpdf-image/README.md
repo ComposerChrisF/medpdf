@@ -12,7 +12,7 @@ Provides high-level functions for embedding raster images (JPEG, PNG, GIF, BMP, 
 - **Fit modes** – `Stretch`, `Contain`, `Cover` control how the image fills the target box (width and height are both required)
 - **DPI limiting** – automatic downscaling to a configurable max DPI; a JPEG whose effective DPI exceeds `max_dpi` is decoded, downsampled, and re-encoded (lossily) at `jpeg_quality`
 - **Alpha/opacity** – per-image alpha via ExtGState
-- **Rotation** – arbitrary rotation around the image anchor point
+- **Rotation** – arbitrary rotation around the box center (the center of the placed `width`×`height` box)
 - **Recompression** – the `recompress` module (`recompress_images`) re-encodes qualifying FlateDecode image XObjects as DCTDecode (JPEG) to shrink Word-style bloated PDFs
 
 ## Installation

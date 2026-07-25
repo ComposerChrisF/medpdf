@@ -43,6 +43,13 @@ fn parse_spec_list(input: &str) -> IResult<&str, Vec<PageItem>> {
 
 /// Parses a page specification string into a vector of 1-based page numbers,
 /// preserving user-specified order. Duplicates are dropped (first occurrence wins).
+///
+/// **Out-of-range pages are an error, not silently dropped (bug-0021).** A single page,
+/// or a range's start, greater than `max_pages` returns `Err`; an *explicit* range end
+/// beyond `max_pages` (e.g. `"1-100"` on a 3-page document) also returns `Err`. An *open*
+/// end (`"3-"`) means "through the last page", so it is defined by `max_pages` and is
+/// never out of range. `"all"` yields every page. This is a fail-loud contract: callers
+/// do not need to re-validate the returned set against the request.
 pub fn parse_page_spec(spec: &str, max_pages: u32) -> Result<Vec<u32>> {
     let mut pages = Vec::new();
     let mut seen = HashSet::new();
@@ -62,8 +69,13 @@ pub fn parse_page_spec(spec: &str, max_pages: u32) -> Result<Vec<u32>> {
                         if num == 0 {
                             return Err(MedpdfError::new("Page numbers must be 1 or greater."));
                         }
-                        // Skip pages beyond the document — acts as a filter
-                        if num <= max_pages && seen.insert(num) {
+                        // Out-of-range is an error, not a silent drop (bug-0021).
+                        if num > max_pages {
+                            return Err(MedpdfError::new(format!(
+                                "Page {num} is out of range: the document has {max_pages} page(s)."
+                            )));
+                        }
+                        if seen.insert(num) {
                             pages.push(num);
                         }
                     }
@@ -85,13 +97,25 @@ pub fn parse_page_spec(spec: &str, max_pages: u32) -> Result<Vec<u32>> {
                                 start, end
                             )));
                         }
-                        // Clamp to actual page count — out-of-bounds pages are silently skipped
-                        let clamped_end = end.min(max_pages);
-                        if start <= clamped_end {
-                            for i in start..=clamped_end {
-                                if seen.insert(i) {
-                                    pages.push(i);
-                                }
+                        // Out-of-range is an error, not a silent clamp/skip (bug-0021). The
+                        // start must exist; an EXPLICIT end beyond the document is an error.
+                        // An OPEN end (`N-`) means "through the last page", so it is defined
+                        // by max_pages and is never out of range.
+                        if start > max_pages {
+                            return Err(MedpdfError::new(format!(
+                                "Page {start} is out of range: the document has {max_pages} page(s)."
+                            )));
+                        }
+                        if let Some(explicit_end) = end_opt
+                            && explicit_end > max_pages
+                        {
+                            return Err(MedpdfError::new(format!(
+                                "Page {explicit_end} is out of range: the document has {max_pages} page(s)."
+                            )));
+                        }
+                        for i in start..=end {
+                            if seen.insert(i) {
+                                pages.push(i);
                             }
                         }
                     }
@@ -154,8 +178,27 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_out_of_range_clamped() {
-        assert_eq!(parse_page_spec("1-100", 3).unwrap(), vec![1, 2, 3]);
+    fn test_parse_out_of_range_single_error() {
+        // bug-0021: a single page beyond the document is a loud error, not a silent drop.
+        assert!(parse_page_spec("99", 3).is_err());
+    }
+
+    #[test]
+    fn test_parse_out_of_range_explicit_range_error() {
+        // bug-0021: an explicit end beyond the document is an error, not a silent clamp.
+        assert!(parse_page_spec("1-100", 3).is_err());
+    }
+
+    #[test]
+    fn test_parse_out_of_range_start_error() {
+        // bug-0021: an open range whose start is beyond the document errors (not empty).
+        assert!(parse_page_spec("5-", 3).is_err());
+    }
+
+    #[test]
+    fn test_parse_open_end_is_not_out_of_range() {
+        // An open end means "through the last page" — defined by max_pages, never an error.
+        assert_eq!(parse_page_spec("2-", 4).unwrap(), vec![2, 3, 4]);
     }
 
     #[test]

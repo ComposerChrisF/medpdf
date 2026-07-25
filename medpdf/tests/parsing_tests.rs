@@ -161,17 +161,19 @@ fn test_error_range_end_zero() {
 }
 
 #[test]
-fn test_single_page_beyond_max_is_empty() {
-    // Page beyond document is silently skipped (filter semantics)
-    let result = parse_page_spec("6", 5).unwrap();
-    assert_eq!(result, Vec::<u32>::new());
+fn test_single_page_beyond_max_errors() {
+    // bug-0021: a page beyond the document is a loud error, not a silent empty result.
+    let result = parse_page_spec("6", 5);
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("out of range"));
 }
 
 #[test]
-fn test_range_clamped_to_max() {
-    // Range beyond document is clamped to actual page count
-    let result = parse_page_spec("3-10", 5).unwrap();
-    assert_eq!(result, vec![3, 4, 5]);
+fn test_range_beyond_max_errors() {
+    // bug-0021: an explicit range end beyond the document is an error, not a silent clamp.
+    let result = parse_page_spec("3-10", 5);
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("out of range"));
 }
 
 #[test]
@@ -253,10 +255,12 @@ fn test_error_negative_number() {
 // --- Edge Cases ---
 
 #[test]
-fn test_open_end_range_beyond_doc_is_empty() {
-    // "2-" on a 1-page document: no pages match, so empty result
-    let result = parse_page_spec("2-", 1).unwrap();
-    assert_eq!(result, Vec::<u32>::new());
+fn test_open_end_range_start_beyond_doc_errors() {
+    // bug-0021: "2-" on a 1-page document has a start beyond the document → error, not
+    // an empty result (the start must exist even for an open-ended range).
+    let result = parse_page_spec("2-", 1);
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("out of range"));
 }
 
 #[test]

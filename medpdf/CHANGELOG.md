@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-07-24
+### Changed
+- **BREAKING** bug-0021: `parse_page_spec` now returns an error for out-of-range
+  pages instead of silently filtering or clamping them.  A single page (or a range
+  start) beyond the document, or an explicit range end beyond it (e.g. `"1-100"` on
+  a 3-page document), is now an `Err`.  An open-ended range (`"3-"`) still means
+  “through the last page”.  Callers no longer need to re-validate the returned set.
+
 ## [0.11.18] - 2026-07-23
 ### Fixed
 - bug-0027: `place_page` clipped an arbitrarily-rotated page to the axis-aligned

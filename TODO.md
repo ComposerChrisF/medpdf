@@ -11,12 +11,12 @@ A deep bug hunt (2026-07-16) filed **37 verified bug reports**: `bugs/bug-0002` 
 - [x] Commit the 37 new bug reports (bug reports are committed when created, per the portfolio bug-reports rule).  _Done: commit `87f7bbf`._
 - [x] In the same or a following commit: **delete `bugs/bug-0001-report-overlay-content-stream-stale-length.md`** — that bug was fixed in v0.10.2 (commit `5c25a85`, pinned by `tests/overlay_length_regression_tests.rs` and `tests/no_raw_stream_content_assignment.rs`); the report was renamed into `bugs/` by `f1a41c0` instead of being deleted.  Commit message should name bug-0001.
 
-## Step 1 — decisions Chris must make (blocks the marked bugs only)
+## Step 1 — Chris’s rulings received 2026-07-24; now implementing
 
-- [ ] **bug-0021 [NEEDS CHRIS]** — `parse_page_spec` silently filters/clamps out-of-range pages.  Document the contract (recommended, non-breaking) or change to error (breaking for pdf-maker/pdf-orchestrator)?
-- [ ] **bug-0024 [NEEDS CHRIS]** — `place_page` (x, y) semantics for non-zero-origin MediaBox: compensate so the visible box lands at (x, y) (matches the feature plan; changes behavior + one pinned test), or keep user-space mapping and fix the three docs?
-- [ ] **bug-0023 [NEEDS CHRIS]** — `place_page` and source `/Rotate`: honor it in the transform (recommended for imposition) or document it as caller responsibility?
-- [ ] **bug-0013 [NEEDS CHRIS]** — image rotation pivot: README says anchor point, code rotates about box center.  Fix the README (recommended; pdf-maker ships on center) or change the code?
+- [x] **bug-0021** — RULING: **change to error on out-of-range (breaking)**.  _Done (medpdf **0.12.0**, MINOR = breaking): `parse_page_spec` now returns `Err` when a single/range-start > `max_pages`, or an EXPLICIT end > `max_pages`; an OPEN end (`N-`) still means “through the last page” (never out of range).  Rustdoc + README document the fail-loud contract; unit + integration tests flipped to assert the error.  Cascade: README caret pins → `"0.12"`, pdf-maker’s `medpdf` constraint → `"0.12"` (and its stale medpdf-image pin → `"0.4"`).  **Consumers adjusted:** pdf-maker `expand` now runs its out-of-range scan BEFORE medpdf (medpdf errors on the first OOR page; the scan still names ALL of them with `what` context) — all pdf-maker tests green; pdf-orchestrator `page_range` test flipped to expect the error — all 491 green._
+- [ ] **bug-0024** — RULING: **compensate (Option 1)** — Chris asked for the model simplest for clients; compensating so the visible box lands at `(x, y)` from `(x, y, scale)` alone (no need to read the source MediaBox origin) is that model.  Update `place_page` transform, the pinned `place_page_tests.rs:375`, and the 3 spec artifacts; audit pdf-maker imposition.
+- [ ] **bug-0023** — RULING: **honor `/Rotate`** (compose the 90°-step rotation about the MediaBox into the transform; swap effective w/h for 90/270).  Interacts with bug-0024’s transform — implement together.  Update feature-plan; audit pdf-maker imposition.
+- [x] **bug-0013 [RULING: fix README, center is intended]** — _Done: medpdf-image README rotation bullet now says “around the box center” (the code was already correct; `T(c)·R·T(−c)` rotates about the box center).  No other anchor-rotation claim exists._
 
 ## Step 2 — doc-only and test-only fixes (no rulings needed; one session)
 
