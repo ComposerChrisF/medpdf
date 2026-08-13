@@ -81,7 +81,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `.notdef` advances the font’s real width instead of `DW=1000`.  Control
   characters (`\n`/`\t`/…) are deferred (not rejected) but now warned about,
   since medpdf renders a single line; multi-line analysis in
-  `feature-plan-multiline-watermark-text.md`.
+  `plans/plan-0002-multiline-watermark-text.md`.
 
 ## [0.11.13] - 2026-07-23
 ### Fixed

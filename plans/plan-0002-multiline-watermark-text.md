@@ -1,4 +1,4 @@
-# Feature Plan: Multi-line watermark text in `add_text_params`
+# Plan: Multi-line watermark text in `add_text_params`
 
 **Status:** Analysis / open decision (2026-07-23).  Prompted by bug-0032, where Chris
 asked: _would supporting multi-line text require a medpdf API change?_  This document

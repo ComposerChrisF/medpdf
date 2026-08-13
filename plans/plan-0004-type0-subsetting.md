@@ -1,4 +1,4 @@
-# Feature Plan: Type0/CID Composite-Font Subsetting
+# Plan: Type0/CID Composite-Font Subsetting
 
 > **Status: Planned.** The composite-font path this plan builds on landed in v0.11.0 (commit `cf7fc76`); composite-font _subsetting_ — the subject of this plan — is not yet implemented, so embedded fonts on the composite path are still embedded in full.
 

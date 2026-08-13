@@ -581,7 +581,7 @@ pub fn add_text_params(
     // medpdf draws a single line and does not interpret control characters (newline,
     // tab, …); they are dropped on the WinAnsi path and rejected on the composite
     // path. Warn loudly so a reader debugging "why did my \n do nothing?" finds the
-    // cause. Multi-line support is deferred (bug-0032; feature-plan-multiline-
+    // cause. Multi-line support is deferred (bug-0032; plans/plan-0002-multiline-
     // watermark-text.md tracks where the fix should live).
     warn_on_control_chars(&params.text, &params.font_name);
 
@@ -1019,7 +1019,7 @@ fn add_embedded_font_composite(
     // CIDFontType0 descendant + FontFile3 /Subtype OpenType, which is not yet
     // implemented — pairing CIDFontType2 with CFF makes viewers substitute a font
     // (bug-0005). Fail loudly rather than emit that mismatch. The composite path is
-    // only reached for text outside WinAnsiEncoding (feature-plan-type0-subsetting.md
+    // only reached for text outside WinAnsiEncoding (plans/plan-0004-type0-subsetting.md
     // scopes composite work to TrueType).
     if font_descriptor.is_cff {
         return Err(MedpdfError::new(format!(

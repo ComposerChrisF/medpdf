@@ -99,5 +99,5 @@ medpdf/                        # Repository root (workspace)
 
 ### Known Limitations
 
-- **Type0 composite fonts are not subsetted.** The full font file is embedded whenever Unicode text needs the composite path, so a Unicode watermark enlarges the PDF by the full font size.  Subsetting composite fonts (a GID-remapping `CIDToGIDMap` pass that leaves content-stream GIDs untouched) is a planned follow-up.  The WinAnsi simple-font path is still subsetted normally by `subset_fonts`.
+- **Type0 composite fonts are not subsetted.** The full font file is embedded whenever Unicode text needs the composite path, so a Unicode watermark enlarges the PDF by the full font size.  Subsetting composite fonts (a GID-remapping `CIDToGIDMap` pass that leaves content-stream GIDs untouched) is a planned follow-up — `plans/plan-0004-type0-subsetting.md`.  The WinAnsi simple-font path is still subsetted normally by `subset_fonts`.
 - **No complex-script shaping.** The composite path emits one glyph per Unicode scalar via the cmap (no ligatures, combining-mark composition, or bidi).  Precomposed forms (e.g. kahakō `ā` = U+0101) render correctly; decomposed sequences do not compose.
