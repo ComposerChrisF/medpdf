@@ -8,6 +8,11 @@ repository = "https://github.com/ComposerChrisF/medpdf"
 readme = "README.md"
 keywords = ["pdf", "image", "embed", "png", "jpeg"]
 categories = ["multimedia::encoding"]
+# Working-tree artifacts, not part of the published crate.  bugs/ and plans/ are
+# delete-on-resolve directories (~/.claude/rules/bug-reports.md, plan-files.md);
+# without this they ship in the tarball.  Defensive: none exist in this member
+# dir today, but rule 7 puts per-sub-project bugs//plans/ exactly here.
+exclude = ["CLAUDE.md", ".claude/", ".github/", "bugs/", "plans/"]
 
 [features]
 svg = ["dep:svg2pdf", "dep:usvg"]

@@ -7,6 +7,11 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/ComposerChrisF/medpdf"
 keywords = ["pdf", "lopdf", "merge", "watermark", "overlay"]
 categories = ["multimedia::encoding"]
+# Working-tree artifacts, not part of the published crate.  bugs/ and plans/ are
+# delete-on-resolve directories (~/.claude/rules/bug-reports.md, plan-files.md);
+# without this they ship in the tarball.  Defensive: none exist in this member
+# dir today, but rule 7 puts per-sub-project bugs//plans/ exactly here.
+exclude = ["CLAUDE.md", ".claude/", ".github/", "bugs/", "plans/"]
 
 [dependencies]
 lopdf = "0.42.0"
