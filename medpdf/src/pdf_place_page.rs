@@ -1,8 +1,64 @@
-//! Place a source PDF page onto a destination page at a specific position and scale.
+//! Place a source PDF page onto a destination page at a specific position, scale,
+//! and rotation.
 //!
 //! Unlike `overlay_page()` which always places at (0,0) with no scaling,
 //! `place_page()` applies a translate + uniform scale transform, enabling
 //! callers to implement booklet imposition and N-up layouts.
+//!
+//! |          | `overlay_page()`           | `place_page()`             |
+//! |----------|----------------------------|----------------------------|
+//! | Position | Always (0, 0)              | Configurable (x, y)        |
+//! | Scaling  | None (1:1)                 | Uniform scale factor       |
+//! | Rotation | None                       | Arbitrary angle            |
+//! | Use case | Full-page overlays         | Imposition (booklet, N-up) |
+//!
+//! Both share the resource-copying and renaming machinery in `pdf_overlay_helpers`
+//! (source resources are suffixed `_p` here to avoid collisions); `place_page()` adds
+//! the transform and an optional clip.
+//!
+//! # Division of labor
+//!
+//! medpdf provides only the primitive: place one page onto another with a transform.
+//! All page-ordering logic — booklet imposition order, back-cover preservation, N-up
+//! normal vs. multi-copy mode, padding — lives in the callers (pdf-maker's `--booklet`
+//! and `--n-up`, pdf-orchestrator's `<Booklet>` and `<NUp>` elements).
+//!
+//! # Transform
+//!
+//! PDF's `cm` operator takes a 6-element matrix `[a b c d e f]`. For a translate plus
+//! uniform scale `s` plus a counterclockwise rotation of θ:
+//!
+//! ```text
+//! a =  s·cos θ    b = s·sin θ
+//! c = −s·sin θ    d = s·cos θ
+//! e =  x          f = y
+//! ```
+//!
+//! Exact coefficients are substituted for the 90° steps, so the common cases stay free
+//! of trig rounding. With `clip` enabled (the default) a `re W n` rectangle precedes the
+//! `cm`, sized from the transformed MediaBox corners, so a placed page cannot bleed into
+//! an adjacent N-up slot.
+//!
+//! # Contract questions still open
+//!
+//! This module's contract was specified by a feature plan, graduated into these docs and
+//! deleted 2026-08-12. Two of its clauses are **ruled but not yet implemented** — the
+//! code below still does the old thing, so do not read current behavior as intended:
+//!
+//! - **Source `/Rotate` is ignored** (bug-0023). Nothing here reads the source page's
+//!   `/Rotate`, so a page every viewer displays rotated is imposed in its unrotated
+//!   orientation, and the effective width/height swap under 90/270 is never applied.
+//!   Ruling: honor `/Rotate` — compose the 90°-step rotation about the MediaBox into the
+//!   placement transform.
+//! - **(x, y) against a non-zero-origin MediaBox** (bug-0024). `tx = params.x` carries no
+//!   `−s·x0` compensation, so source *user space* (0, 0) maps to `(x, y)` and the visible
+//!   MediaBox corner lands at `(x + s·x0, y + s·y0)`; `tests/place_page_tests.rs` pins
+//!   that. Ruling: compensate, so the visible box lands at `(x, y)` given `(x, y, scale)`
+//!   alone, with no need to read the source MediaBox.
+//!
+//! The two interact and are to be implemented together (see `TODO.md`). One test case the
+//! original plan required and that remains uncovered: source pages carrying existing
+//! transforms or rotations.
 
 use crate::error::{MedpdfError, Result};
 use crate::pdf_helpers::{self, KEY_CONTENTS, KEY_PAGES};

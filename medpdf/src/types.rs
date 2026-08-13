@@ -313,8 +313,15 @@ impl DrawLineParams {
 #[derive(Debug, Clone)]
 pub struct PlacePageParams {
     /// X offset in points (from left edge of destination page).
+    ///
+    /// Maps source **user space** (0, 0) to this coordinate, so a source page whose
+    /// MediaBox origin is not (0, 0) lands offset by `scale × origin`. Ruled to change
+    /// to origin compensation (bug-0024) — see [`crate::pdf_place_page`] for the
+    /// contract and its open clauses.
     pub x: f64,
     /// Y offset in points (from bottom edge of destination page).
+    ///
+    /// Same user-space mapping caveat as [`PlacePageParams::x`] (bug-0024).
     pub y: f64,
     /// Uniform scale factor (1.0 = no scaling, 0.5 = half size).
     pub scale: f64,

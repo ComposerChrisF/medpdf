@@ -1,8 +1,33 @@
 //! Image recompression: FlateDecode → DCTDecode (JPEG).
 //!
 //! Word on Mac's "Save As PDF" re-encodes JPEG images as FlateDecode streams,
-//! bloating file sizes. This module finds qualifying image XObjects and
+//! bloating file sizes — a 34 KB JPEG photo comes back as a 233 KB lossless stream
+//! despite having been downsampled. Merged into many documents (a perusal-score cover
+//! merged into 50+ pieces), the waste compounds into megabytes served to every
+//! visitor downloading a score. This module finds qualifying image XObjects and
 //! re-encodes them as JPEG.
+//!
+//! # Why the caller picks the images
+//!
+//! [`recompress_images`] takes an explicit `object_ids` list rather than sweeping the
+//! whole document, because **not all images are photos**. Music-publishing PDFs mix
+//! photographic content (cover art, composer headshots) with graphic design (logos,
+//! ornamental borders, notation fragments), and JPEG is lossy: it introduces visible
+//! artifacts in sharp edges, text, and flat color, which is exactly what those
+//! graphics are made of. They must stay lossless, so the choice belongs to the caller,
+//! which knows what each image is. Scoping to just-copied objects also keeps a merge
+//! from re-encoding images it did not bring in.
+//!
+//! On top of the caller's selection, an image is skipped when it is already
+//! DCTDecode-encoded, is not a single-filter FlateDecode stream, falls below
+//! `min_size`, carries `/SMask` or `/Mask` or `/ImageMask` (JPEG has no transparency —
+//! bug-0028), is not 8 bits per component, is not DeviceRGB / DeviceGray / 1- or
+//! 3-component ICCBased, carries a `/DecodeParms` predictor whose output cannot be
+//! proven to be raw pixels (bug-0029), or would not actually come out smaller as JPEG.
+//!
+//! Recompression normalizes `/ColorSpace` to `DeviceRGB` or `DeviceGray`, dropping an
+//! ICCBased reference: the stream is re-encoded from decoded samples, so the original
+//! profile no longer describes its bytes.
 
 use lopdf::{Document, Object, ObjectId};
 use medpdf::{MedpdfError, Result};

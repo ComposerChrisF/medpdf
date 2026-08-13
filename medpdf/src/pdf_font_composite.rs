@@ -8,7 +8,19 @@
 //! widths array keyed by GID, and a `ToUnicode` CMap so text extraction round-trips.
 //!
 //! v1 embeds the full font (no subsetting); glyph-set subsetting of composite fonts is
-//! a documented follow-up. See the crate feature plan for the layering.
+//! a documented follow-up — see `plans/plan-0004-type0-subsetting.md` for the layering.
+//!
+//! # Why this lives in medpdf
+//!
+//! Before v0.11.0 the single-byte WinAnsi path silently substituted `?` for every
+//! character outside CP1252 — the Hawaiian ‘okina (U+02BB), kahakō vowels, everything —
+//! while reporting success. Both known consumers were affected, verified empirically
+//! 2026-07-10 with the same signature (`WinAnsiEncoding, CharRange: 32-255`):
+//! pdf-maker's `--watermark` and pdf-orchestrator's `<AddText>`, which left the
+//! production `.pdfOrch` pipeline latently broken for Hawaiian overlay text. The text
+//! encoding and font embedding both live in this crate, so this is the fix locus;
+//! consumers needed no change beyond building against v0.11.0. Codepoint evidence and
+//! decision context: `~/Chris/Proj/Coding/okina-codepoint-verification.md`.
 
 use std::collections::HashSet;
 use std::fmt::Write as _;

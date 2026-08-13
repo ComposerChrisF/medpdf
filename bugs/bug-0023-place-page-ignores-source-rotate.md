@@ -2,7 +2,8 @@
 
 **Severity:** Medium — silent wrong output for the feature’s core use case (imposition of scanned/rotated pages)
 **Component:** `medpdf` — `src/pdf_place_page.rs` (no call to `get_page_rotation(source_doc, …)` anywhere; the helper exists at `src/pdf_helpers.rs:83`)
-**Category:** SPEC BUG — **the spec is the defective artifact: `feature-plan-place-page.md:101` lists “Source pages with existing transforms/rotations” as a required case but defines no semantics.  Chris must rule before code changes; do not just bolt rotation handling on.**
+**Category:** SPEC BUG — **the spec is the defective artifact: it listed “Source pages with existing transforms/rotations” as a required case but defined no semantics.  Chris must rule before code changes; do not just bolt rotation handling on.**  _(Ruling recorded 2026-07-24 in `TODO.md` — honor `/Rotate`; implement together with bug-0024.)_
+**Spec home:** the `src/pdf_place_page.rs` module docs, § “Contract questions still open”.  The former spec artifact, `feature-plan-place-page.md`, was graduated into those docs and deleted 2026-08-12 under the plans rollout; it survives in git history.
 **Verified:** 2026-07-16 deep review — confirmed by trace (page-ops subagent): nothing reads source `/Rotate`; the `cm` is built purely from params.
 
 ## Description
@@ -18,9 +19,9 @@ A page with `/Rotate 90` is displayed rotated by every viewer — that is what t
 ## The decision Chris must make
 
 1. **Honor `/Rotate` (recommended for the imposition use case):** compose the 90°-step rotation about the MediaBox into the placement transform so what gets placed is the page as displayed, and swap effective width/height for 90/270 in any caller-facing size reasoning.  This changes output for existing callers whose sources carry `/Rotate` (today they get the raw orientation).
-2. **Document that `/Rotate` is the caller’s responsibility:** state it in the `place_page` docstring and the feature plan, and ensure the caller can retrieve it (`get_page_rotation` is already public).  pdf-maker’s booklet/N-up layer would then need its own handling.
+2. **Document that `/Rotate` is the caller’s responsibility:** state it in the `place_page` docstring and the module docs, and ensure the caller can retrieve it (`get_page_rotation` is already public).  pdf-maker’s booklet/N-up layer would then need its own handling.
 
-Either way, `feature-plan-place-page.md` must be updated to state the chosen semantics — its current silence is the root defect.
+Either way, the `src/pdf_place_page.rs` module docs must be updated to state the chosen semantics — the original silence is the root defect.  Those docs currently record the gap and the ruling as pending; replace that with the settled contract when the fix lands.
 
 ## Why the fix addresses the bug
 
