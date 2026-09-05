@@ -1,6 +1,4 @@
-# CLAUDE.md
-
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+# medpdf — Project Instructions
 
 ## Build Commands
 
@@ -10,51 +8,17 @@ cargo check --workspace          # Fast type checking
 cargo test --workspace           # Run all tests
 ```
 
-Never commit changes to git without permission from the user.
+The `visual_*` tests go through `pdf-test-visual`, which shells out to `pdftoppm` (poppler, `brew install poppler`) or `mutool`; without one they fail with `RasterizerNotFound` — a missing tool, not a regression.
+
+Publishing to crates.io is publish-only through cargo-release steps; `PUBLISHING.md` is the script and `scripts/publish-status.py` says when.  Versions are owned by verset / the `/commit-*` skills, never by cargo-release.
 
 ## Workspace Structure
 
-This is a Cargo workspace with three crates:
-
-```
-medpdf/                        # Repository root (workspace)
-├── Cargo.toml                 # Workspace manifest
-├── medpdf/                    # Library crate (medium-level PDF API)
-│   ├── Cargo.toml
-│   └── src/
-│       ├── lib.rs             # Public API and re-exports
-│       ├── error.rs           # MedpdfError with Display trait
-│       ├── types.rs           # Builder-pattern param types (AddTextParams, PdfColor, etc.)
-│       ├── font_data.rs       # FontData enum (Hack/BuiltIn/Embedded)
-│       ├── parsing.rs         # Page spec parsing with nom
-│       ├── pdf_helpers.rs     # Deep copy, PDF key constants, Unit enum
-│       ├── pdf_font.rs        # Font discovery and caching
-│       ├── font_helpers.rs    # TTF parsing, font metrics, WinAnsi encoding
-│       ├── pdf_copy_page.rs   # Page copying between documents
-│       ├── pdf_delete_page.rs # Page deletion from documents
-│       ├── pdf_blank_page.rs  # Blank page creation
-│       ├── pdf_encryption.rs  # Document encryption (AES-256/AES-128)
-│       ├── pdf_overlay.rs     # Page overlay with resource renaming
-│       ├── pdf_overlay_helpers.rs # Shared helpers for overlay/place-page operations
-│       ├── pdf_place_page.rs  # Positioned/scaled page placement
-│       ├── pdf_watermark.rs   # Text watermark rendering
-│       ├── pdf_font_composite.rs # Type0/CIDFontType2 (Identity-H) Unicode text encoding
-│       └── pdf_subset.rs      # Post-watermark font subsetting (allsorts) for embedded fonts
-├── medpdf-image/              # Image embedding companion crate
-│   ├── Cargo.toml
-│   └── src/
-│       ├── lib.rs             # JPEG/PNG/etc. image embedding into PDF pages
-│       ├── recompress.rs      # FlateDecode → DCTDecode (JPEG) image recompression
-│       └── svg.rs             # SVG → PDF vector content via svg2pdf (optional `svg` feature)
-└── pdf-test-visual/           # Visual regression test utility (publish=false)
-    ├── Cargo.toml
-    └── src/
-        └── lib.rs
-```
+A Cargo workspace of three crates: `medpdf/` (the library, published), `medpdf-image/` (the image companion, published; `svg` is an optional feature), and `pdf-test-visual/` (`publish = false`, the visual-regression harness).  The per-module map is § Module Responsibilities below — the single copy; `ls medpdf/src` is current.
 
 ## Architecture Overview
 
-**medpdf** is a reusable library providing medium-level PDF operations over lopdf.  Consumers include [pdf-maker](https://github.com/ComposerChrisF/pdf-maker) (separate repo).
+**medpdf** is a reusable library providing medium-level PDF operations over lopdf.  Consumers include [pdf-maker](https://github.com/ComposerChrisF/pdf-maker) and pdf-orchestrator (separate repos, both path-deps on this checkout).
 
 ### Module Responsibilities
 
@@ -95,7 +59,7 @@ medpdf/                        # Repository root (workspace)
 
 ### PDF Key Constants
 
-`medpdf::pdf_helpers` defines byte-string constants for PDF dictionary keys (KEY_PAGES, KEY_RESOURCES, KEY_FONT, etc.) to prevent typos and enable type-safe key usage.
+`medpdf::pdf_helpers` defines byte-string constants for PDF dictionary keys to prevent typos and enable type-safe key usage; the public ones are `KEY_RESOURCES`, `KEY_CONTENTS`, `KEY_EXTGSTATE`, `KEY_XOBJECT`, the rest `pub(crate)`.
 
 ### Known Limitations
 
