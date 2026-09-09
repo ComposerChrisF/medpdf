@@ -50,9 +50,12 @@ legal, out-of-range is not, and the two must stay orthogonal.
   raises its `medpdf` requirement.
 - Tests in `medpdf/tests/parsing_tests.rs` and the `parsing` unit tests assert
   deduplicated results in at least some cases; those pin today’s behavior and flip with
-  the change.  Check for an ordering assumption too — dedup may currently be implemented
-  by a sort-and-dedup, in which case removing it also stops reordering `"3,1"`, which is
-  a second behavior change hiding inside the first and needs its own test.
+  the change.
+- **Order is already preserved — there is no second behavior change hiding inside this
+  one.**  Checked against the built parser rather than the source: `parse_page_spec("3,1",
+  10)` returns `[3, 1]`, and `parse_page_spec("1,1", 10)` returns `[1]`.  So dedup is not
+  a sort-and-dedup, and removing it changes exactly one thing.  (This note previously
+  speculated the opposite as a hazard to watch for; it is settled.)
 - Rustdoc, the README page-spec section, and the `parse_page_spec` doc comment must state
   the sequence semantics: duplicates preserved, order as written, bounds still enforced.
 
@@ -83,12 +86,33 @@ clause in `strategy-defaults.md`.
 comma-bearing specs are two `onPages` values — `"6,12,19"` and `"2-5,7-11,13-18,20-"` —
 both strictly ascending and disjoint, and `onPages` is the immune membership site.  Zero
 repeats and zero overlapping ranges in the corpus, so no existing file’s behavior moves.
-_Scope: every `pages=` and `onPages=` attribute value in all 149 files, by regex, counted
-and deduplicated — not a sample._  One value the consumer’s own enumeration omitted turned
-up in the independent pass: `pages="2-end"` (1 occurrence), a non-numeric token resolved
-by `config.resolve` before parsing.  It carries no comma and does not affect the
-conclusion, but it is worth knowing that a spec string reaching `parse_page_spec` may have
-been rewritten upstream.
+_Scope: every `pages=` and `onPages=` attribute value in all 149 `.pdfOrch` files **on
+disk**, by regex, counted and deduplicated — not a sample._
+
+**There are two corpora here, and the difference is worth stating.**  The consumer’s own
+pass covered **124** files, not 149: its `grep` is ugrep, which honors `.gitignore`, and
+`~/Chris/Sibelius/.gitignore` ignores everything and whitelists only the current config
+files — deliberately excluding the `~Old~`, `~AutoMake2~`, and `~BackupScores~` archive
+directories.  The omission was silent: no warning, the count simply came back low.  For
+the question “what do _live_ specs look like?” the tracked subset is arguably the better
+arbiter, since that `.gitignore` is a curated statement of which files are the real build
+instructions — but it must be **chosen and named**, not inherited from a tool’s default.
+Both passes agree on the answer.
+
+**The one value that differed is not live evidence.**  `pages="2-end"` (1 occurrence,
+`F163c-HineMaTov-SATB/With Piano Reduction/#Licensed.pdfOrch`) is untracked and ignored
+(`.gitignore:14`), uses the `<MergeItem>` alias pdf-orchestrator removed in v0.6.0, and
+**does not parse**: `parse_page_spec("2-end", 10)` returns
+`Err(… input: "end", code: Eof)` — there is no `end` keyword in `parsing.rs`, and
+`config.resolve` leaves a bare token alone.  It is a stale artifact that predates two
+breaking changes and would fail on both.
+
+What survives from it is a fact about the **code path, not the corpus**: `pipeline/mod.rs`
+runs `config.resolve` over the `pages` attribute before parsing, so a spec written
+`pages="[$SomeVar$]"` reaches `parse_page_spec` as whatever the variable expands to.  No
+file in either corpus actually does this — a search for a `[$…$]` inside any `pages=` or
+`onPages=` value returns nothing — so it constrains a future “what can a page spec
+contain?” question rather than this one.
 
 **Verdict: safe to land.**  pdf-orchestrator’s session said so explicitly and asked for
 nothing back.
