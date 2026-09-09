@@ -1,22 +1,29 @@
 # Plan: Multi-line watermark text in `add_text_params`
 
-**Status:** Analysis / open decision (2026-07-23).  Prompted by bug-0032, where Chris
-asked: _would supporting multi-line text require a medpdf API change?_  This document
-answers that and proposes where the fix should live.  **No code has been written for
-this feature.**
+**Status:** **Tier 1 IMPLEMENTED in medpdf 0.14.0 (2026-09-09)** — see the banner in the
+Tier 1 section below for what actually shipped.  Tiers 2 and 3 remain open and undecided;
+the plan stays filed for them.  Originally prompted by bug-0032, where Chris asked:
+_would supporting multi-line text require a medpdf API change?_  This document answered
+that (no, not for the basic case) and proposed where the fix should live.
 
 ## Problem
 
-`medpdf::add_text_params` renders exactly **one line** of text.  It does not interpret
-`\n`, `\t`, or any other control character; there is no line-splitting anywhere in the
+_Historical, as of filing (2026-07-23).  Tier 1 fixed the `\n` half of this in 0.14.0; the
+`\t` half still stands.  Kept in the past tense so this section cannot be read as a claim
+about the current code._
+
+`medpdf::add_text_params` rendered exactly **one line** of text.  It did not interpret
+`\n`, `\t`, or any other control character; there was no line-splitting anywhere in the
 watermark path.  A control character therefore:
 
-- **WinAnsi (simple) path** — is emitted as a raw byte in the literal string.  Bytes
+- **WinAnsi (simple) path** — was emitted as a raw byte in the literal string.  Bytes
   `0x00`–`0x1F` / `0x7F` are undefined positions in WinAnsiEncoding, so the character
-  renders as **nothing** (silently dropped, no line break).
-- **Composite (Type0) path** — has no glyph, so `encode_text_identity` returns
+  rendered as **nothing** (silently dropped, no line break).
+- **Composite (Type0) path** — has no glyph, so `encode_text_identity` returned
   `UnrepresentableText` — a **hard error**, confusingly reported as “unrepresentable
   text” for whitespace.
+
+Both still describe `\t` exactly.  For `\n` they describe the pre-0.14.0 behavior.
 
 As of bug-0032 (v0.11.14) `add_text_params` **warns** (`log::warn!`, naming each control
 character) when the text contains any, so a debugging reader can find the cause.  It does
@@ -26,8 +33,9 @@ Downstream, **pdf-maker documents and supports `\n` and `\t` escapes** in `--wat
 text=…` (`spec_types/parse.rs::unescape_text`), unescapes them to literal control
 characters, and passes the string straight to `add_text_params` with `lossy_text = false`
 and **one call per page** — no line-splitting of its own.  So pdf-maker’s documented
-`\n`/`\t` watermark escapes currently produce a single concatenated line, not multiple
-lines: the escapes are effectively non-functional today, in both tools.
+`\n`/`\t` watermark escapes produced a single concatenated line, not multiple lines: the
+escapes were effectively non-functional in both tools.  **`\n` works as of medpdf 0.14.0,
+with no pdf-maker change** (pdf-maker bug-0016); `\t` remains non-functional.
 
 ## The core question: does this need a medpdf API change?
 
@@ -35,6 +43,27 @@ lines: the escapes are effectively non-functional today, in both tools.
 touch the public API.
 
 ### Tier 1 — `\n`-split, metrics-based leading, block alignment.  NO API change.
+
+> **SHIPPED 2026-09-09, medpdf 0.14.0.**  Ruled by Chris (“Yes, that’s a medpdf feature”),
+> relayed through the pdf-maker session.  What landed matches the table below, with three
+> details worth recording because they were decisions, not mechanics:
+>
+> - **`\r\n` and a lone `\r` are line separators too**, not just `\n`.  Text arriving from
+>   a Windows-authored config would otherwise split on the `\n` and leave a stray `\r` to
+>   be dropped or rejected.
+> - **A trailing newline yields a trailing empty line** (`"a\n"` is two lines).  Swallowing
+>   it would make block height depend on invisible trailing whitespace.
+> - **Vertical alignment is the single-line offset plus a share of the block’s extra
+>   height** — zero for `Top`/`CapTop`/`Baseline`, all of it for `Bottom`/`DescentBottom`,
+>   half for `Center` — so single-line output is unchanged by construction rather than by
+>   a special case.
+>
+> The contract is graduated into the `add_text_params` rustdoc and the `AddTextParams::text`
+> field docs; those are canonical, not this section.  Pinned by
+> `tests/multiline_text_regression.rs` (13 tests; 11 fail when the split is reverted, and
+> the 2 that do not are the single-line-unchanged guards, which must pass on both sides).
+> Consumer: pdf-maker’s documented `\n` watermark escape now renders, closing its bug-0016
+> with no pdf-maker change.
 
 Everything Tier 1 needs is already reachable inside `add_text_params`:
 
@@ -100,11 +129,13 @@ land together with the pdf-orchestrator update.
 
 ## Interaction with the bug-0032 control-char decision
 
-Tier 1 resolves the `\n` half of the deferred bug-0032 question: `\n` becomes a line
-separator instead of a dropped byte / hard error.  The remaining control characters
-(`\t`, and the rest of `0x00`–`0x1F` / `0x7F`) stay unsupported and keep the warning — or,
-if we prefer, escalate to bug-0032’s option #1 (reject loudly).  Revisit that once Tier 1
-lands; until then the warning is the agreed behavior.
+**Resolved for `\n` (2026-09-09).**  Tier 1 made `\n` a line separator instead of a
+dropped byte / hard error, and `warn_on_control_chars` no longer warns about `\n` or `\r`.
+The remaining control characters (`\t`, and the rest of `0x00`–`0x1F` / `0x7F`) stay
+unsupported and keep the warning, whose text now says so explicitly.  Whether to escalate
+those to bug-0032’s option #1 (reject loudly) is **still open** — the argument for waiting
+is that `\t` is the only one anyone has actually sent, and it becomes meaningful only with
+the tab-stop model Tier 3 would need.
 
 ## Why Not Python / a consumer-side hack
 

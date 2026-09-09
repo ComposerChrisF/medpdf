@@ -326,14 +326,55 @@ fn bbox_as_object_array(bbox: &[i32]) -> Result<Object> {
     ]))
 }
 
-struct TextMetrics {
-    text_width: f32,
+/// Per-line width and horizontal offset. Alignment is applied to each line
+/// independently, so a centered block is centered line by line.
+struct LineMetrics {
+    width: f32,
     dx: f32,
-    dy: f32,
 }
 
-/// Computes text width and alignment offsets from font metrics.
-fn compute_text_metrics(params: &crate::types::AddTextParams) -> TextMetrics {
+struct TextMetrics {
+    lines: Vec<LineMetrics>,
+    /// Baseline offset of the *first* line, relative to `(params.x, params.y)`.
+    dy: f32,
+    /// Distance between consecutive baselines, in points.
+    leading: f32,
+}
+
+/// Splits text into lines on LF, CRLF, and a lone CR.
+///
+/// Always returns at least one element, so text with no line break yields exactly
+/// one line and every single-line code path below is unchanged.
+fn split_text_lines(text: &str) -> Vec<&str> {
+    let bytes = text.as_bytes();
+    let mut lines = Vec::new();
+    let (mut start, mut i) = (0, 0);
+    while i < bytes.len() {
+        match bytes[i] {
+            b'\n' => {
+                lines.push(&text[start..i]);
+                i += 1;
+                start = i;
+            }
+            b'\r' => {
+                lines.push(&text[start..i]);
+                i += if bytes.get(i + 1) == Some(&b'\n') {
+                    2
+                } else {
+                    1
+                };
+                start = i;
+            }
+            _ => i += 1,
+        }
+    }
+    lines.push(&text[start..]);
+    lines
+}
+
+/// Computes per-line widths, horizontal offsets, the leading, and the first
+/// baseline's vertical offset, from font metrics.
+fn compute_text_metrics(params: &crate::types::AddTextParams, lines: &[&str]) -> TextMetrics {
     let needs_width = params.h_align != crate::types::HAlign::Left
         || params.v_align != crate::types::VAlign::Baseline
         || params.strikeout
@@ -343,23 +384,31 @@ fn compute_text_metrics(params: &crate::types::AddTextParams) -> TextMetrics {
         .embedded_bytes()
         .and_then(|bytes| ttf_parser::Face::parse(bytes, 0).ok());
 
-    let text_width = if needs_width {
+    let measure = |line: &str| -> f32 {
+        if !needs_width {
+            return 0.0;
+        }
         match &face_opt {
-            Some(face) => measure_text_width_with_face(face, params.font_size, &params.text),
+            Some(face) => measure_text_width_with_face(face, params.font_size, line),
             // Count characters, not bytes, so multibyte text is not over-measured — the
             // 0.6-em heuristic is per glyph. Matches font_helpers::measure_text_width;
             // the byte-length form here mis-centered non-ASCII text (bug-0011).
-            None => params.text.chars().count() as f32 * params.font_size * 0.6,
+            None => line.chars().count() as f32 * params.font_size * 0.6,
         }
-    } else {
-        0.0
     };
 
-    let dx = match params.h_align {
-        crate::types::HAlign::Left => 0.0,
-        crate::types::HAlign::Center => -text_width / 2.0,
-        crate::types::HAlign::Right => -text_width,
-    };
+    let line_metrics: Vec<LineMetrics> = lines
+        .iter()
+        .map(|line| {
+            let width = measure(line);
+            let dx = match params.h_align {
+                crate::types::HAlign::Left => 0.0,
+                crate::types::HAlign::Center => -width / 2.0,
+                crate::types::HAlign::Right => -width,
+            };
+            LineMetrics { width, dx }
+        })
+        .collect();
 
     // Compute vertical metrics from font data (scaled to font_size).
     // For built-in/hack fonts, use reasonable approximations.
@@ -387,16 +436,40 @@ fn compute_text_metrics(params: &crate::types::AddTextParams) -> TextMetrics {
     } else {
         approx
     };
+    // Leading from the face's own vertical metrics, so multi-line spacing matches
+    // what the type designer specified; 1.2 em is the conventional fallback when
+    // there is no face to ask (built-in Standard-14 and Hack fonts).
+    let leading = match &face_opt {
+        Some(face) if face.units_per_em() > 0 => {
+            let scale = params.font_size / face.units_per_em() as f32;
+            (face.ascender() as f32 - face.descender() as f32 + face.line_gap() as f32) * scale
+        }
+        _ => params.font_size * 1.2,
+    };
+
+    // Vertical alignment addresses the whole *block*, not the first line. Each arm
+    // below is the single-line offset plus a share of the block's extra height, and
+    // that share is zero for the arms anchored at the top — so for one line every
+    // arm reduces to exactly the pre-multi-line value and output is unchanged.
+    //
+    //   Baseline/Top/CapTop  anchor the first line, so no shift.
+    //   Bottom/DescentBottom anchor the last line, so shift by the full extra height.
+    //   Center               anchors the midpoint, so shift by half.
+    let extra = (lines.len() as f32 - 1.0) * leading;
     let dy = match params.v_align {
         crate::types::VAlign::Baseline => 0.0,
-        crate::types::VAlign::DescentBottom => -descent,
-        crate::types::VAlign::Bottom => -bbox_bottom,
-        crate::types::VAlign::Center => -x_height / 2.0,
+        crate::types::VAlign::DescentBottom => -descent + extra,
+        crate::types::VAlign::Bottom => -bbox_bottom + extra,
+        crate::types::VAlign::Center => -x_height / 2.0 + extra / 2.0,
         crate::types::VAlign::Top => -ascent,
         crate::types::VAlign::CapTop => -cap_height,
     };
 
-    TextMetrics { text_width, dx, dy }
+    TextMetrics {
+        lines: line_metrics,
+        dy,
+        leading,
+    }
 }
 
 /// Pushes alpha transparency operations via ExtGState when not fully opaque.
@@ -429,8 +502,7 @@ fn build_text_ops(
     params: &crate::types::AddTextParams,
     font_key: &str,
     metrics: &TextMetrics,
-    encoded_text: Vec<u8>,
-    string_format: StringFormat,
+    encoded_lines: Vec<(Vec<u8>, StringFormat)>,
 ) -> Result<Vec<Operation>> {
     let mut ops = vec![Operation::new("q", vec![])];
     let color = params.color.clamped();
@@ -469,17 +541,32 @@ fn build_text_ops(
         ],
     ));
 
+    // `Td` is relative to the start of the *previous* line, so the first one carries
+    // the absolute position and each later one carries only the delta: the change in
+    // this line's alignment offset, and one leading downward.
+    let first_dx = metrics.lines.first().map_or(0.0, |l| l.dx);
     let (tx, ty) = if has_rotation {
-        (metrics.dx, metrics.dy)
+        (first_dx, metrics.dy)
     } else {
-        (params.x + metrics.dx, params.y + metrics.dy)
+        (params.x + first_dx, params.y + metrics.dy)
     };
     ops.push(Operation::new("Td", vec![tx.into(), ty.into()]));
 
-    ops.push(Operation::new(
-        "Tj",
-        vec![Object::String(encoded_text, string_format)],
-    ));
+    let mut prev_dx = first_dx;
+    for (i, (encoded, string_format)) in encoded_lines.into_iter().enumerate() {
+        if i > 0 {
+            let dx = metrics.lines[i].dx;
+            ops.push(Operation::new(
+                "Td",
+                vec![(dx - prev_dx).into(), (-metrics.leading).into()],
+            ));
+            prev_dx = dx;
+        }
+        ops.push(Operation::new(
+            "Tj",
+            vec![Object::String(encoded, string_format)],
+        ));
+    }
     ops.push(Operation::new("ET", vec![]));
 
     Ok(ops)
@@ -497,10 +584,11 @@ fn build_decoration_ops(
     // In rotated mode, cm is active so we use (dx, dy) offsets.
     // In non-rotated mode, we use absolute (params.x + dx, params.y + dy) coords.
     let has_rotation = params.rotation.abs() > 0.001;
+    let first_dx = metrics.lines.first().map_or(0.0, |l| l.dx);
     let rect_x = if has_rotation {
-        metrics.dx
+        first_dx
     } else {
-        params.x + metrics.dx
+        params.x + first_dx
     };
     let rect_base_y = if has_rotation {
         metrics.dy
@@ -508,31 +596,36 @@ fn build_decoration_ops(
         params.y + metrics.dy
     };
     let line_height = params.font_size * 0.05;
-    if params.underline {
-        let line_y = rect_base_y - params.font_size * 0.15;
-        ops.push(Operation::new(
-            "re",
-            vec![
-                rect_x.into(),
-                line_y.into(),
-                metrics.text_width.into(),
-                line_height.into(),
-            ],
-        ));
-        ops.push(Operation::new("f", vec![]));
-    }
-    if params.strikeout {
-        let line_y = rect_base_y + params.font_size * 0.3;
-        ops.push(Operation::new(
-            "re",
-            vec![
-                rect_x.into(),
-                line_y.into(),
-                metrics.text_width.into(),
-                line_height.into(),
-            ],
-        ));
-        ops.push(Operation::new("f", vec![]));
+    // One rule per line, at that line's own baseline and its own width.
+    for (i, line) in metrics.lines.iter().enumerate() {
+        let base_y = rect_base_y - i as f32 * metrics.leading;
+        let x = rect_x - metrics.lines[0].dx + line.dx;
+        if params.underline {
+            let line_y = base_y - params.font_size * 0.15;
+            ops.push(Operation::new(
+                "re",
+                vec![
+                    x.into(),
+                    line_y.into(),
+                    line.width.into(),
+                    line_height.into(),
+                ],
+            ));
+            ops.push(Operation::new("f", vec![]));
+        }
+        if params.strikeout {
+            let line_y = base_y + params.font_size * 0.3;
+            ops.push(Operation::new(
+                "re",
+                vec![
+                    x.into(),
+                    line_y.into(),
+                    line.width.into(),
+                    line_height.into(),
+                ],
+            ));
+            ops.push(Operation::new("f", vec![]));
+        }
     }
     ops
 }
@@ -552,6 +645,29 @@ fn encode_and_insert(
 }
 
 /// Adds text to a page using rich parameters (color, f32 coords, rotation, alignment).
+///
+/// # Multi-line text
+///
+/// `text` is split on `\n` (and on `\r\n` or a lone `\r`), and each line is drawn on
+/// its own baseline:
+///
+/// - **Leading** comes from the embedded face's own vertical metrics —
+///   `ascender − descender + line_gap`, scaled to `font_size` — so spacing matches
+///   what the type designer specified. Built-in Standard-14 and Hack fonts have no
+///   face to ask, so they fall back to the conventional `font_size × 1.2`.
+/// - **Horizontal alignment applies per line**, so a centered block is centered
+///   line by line, and underline/strikeout rules follow each line's own width.
+/// - **Vertical alignment addresses the whole block.** `Top`/`CapTop`/`Baseline`
+///   anchor the first line, `Bottom`/`DescentBottom` the last, and `Center` the
+///   block's midpoint. Single-line text is a one-line block, so every arm reduces
+///   to the single-line offset and output is unchanged.
+///
+/// The leading is not caller-settable and there is no wrapping or truncation — see
+/// `plans/plan-0002-multiline-watermark-text.md` for why those are a later, batched
+/// API change. Every **other** control character (`\t` above all) is still
+/// uninterpreted: there is no tab-stop model, so a tab is dropped on the WinAnsi
+/// path and rejected on the composite path, and `add_text_params` warns when it
+/// sees one. Use spaces.
 ///
 /// Vertical alignment uses real font metrics (ascent, descent, x-height) when
 /// font data is available, with reasonable approximations for built-in fonts.
@@ -578,11 +694,11 @@ pub fn add_text_params(
         )));
     }
 
-    // medpdf draws a single line and does not interpret control characters (newline,
-    // tab, …); they are dropped on the WinAnsi path and rejected on the composite
-    // path. Warn loudly so a reader debugging "why did my \n do nothing?" finds the
-    // cause. Multi-line support is deferred (bug-0032; plans/plan-0002-multiline-
-    // watermark-text.md tracks where the fix should live).
+    // A newline is a line break (plan-0002 Tier 1); every *other* control character
+    // is still uninterpreted — dropped on the WinAnsi path, rejected on the composite
+    // path — so warn loudly about those, and only those, so a reader debugging "why
+    // did my \t do nothing?" finds the cause (bug-0032).
+    let lines = split_text_lines(&params.text);
     warn_on_control_chars(&params.text, &params.font_name);
 
     // Decide the encoding: any character outside WinAnsiEncoding requires a Type0
@@ -605,8 +721,12 @@ pub fn add_text_params(
         EncodingKind::Simple
     };
 
-    // Encode the text first so a missing-glyph failure aborts before we mutate the doc.
-    let (encoded_text, string_format) = encode_text_for_font(params, encoding)?;
+    // Encode every line first, so a missing-glyph failure on any line aborts before
+    // we mutate the doc.
+    let encoded_lines = lines
+        .iter()
+        .map(|line| encode_text_for_font(params, line, encoding))
+        .collect::<Result<Vec<_>>>()?;
 
     let font_key = add_font_objects(
         dest_doc,
@@ -617,22 +737,26 @@ pub fn add_text_params(
         encoding,
     )?;
     if let crate::font_data::FontData::Embedded(ref data) = params.font_data {
-        font_cache.record_chars(data, encoding, &params.text);
+        // Record the drawn characters only — the line separators are structure, not
+        // glyphs, and recording them would put a bogus entry in the composite `/W`
+        // array and the ToUnicode CMap.
+        for line in &lines {
+            font_cache.record_chars(data, encoding, line);
+        }
         if encoding == EncodingKind::Composite
             && let Some(entry) = font_cache.get(data, encoding)
         {
             refresh_composite_maps(dest_doc, entry)?;
         }
     }
-    let metrics = compute_text_metrics(params);
+    let metrics = compute_text_metrics(params, &lines);
     let mut ops = build_text_ops(
         dest_doc,
         page_id,
         params,
         &font_key,
         &metrics,
-        encoded_text,
-        string_format,
+        encoded_lines,
     )?;
     ops.extend(build_decoration_ops(params, &metrics));
     ops.push(Operation::new("Q", vec![]));
@@ -645,6 +769,7 @@ pub fn add_text_params(
 /// `lossy_text` is set.
 fn encode_text_for_font(
     params: &crate::types::AddTextParams,
+    text: &str,
     encoding: EncodingKind,
 ) -> Result<(Vec<u8>, StringFormat)> {
     match encoding {
@@ -660,15 +785,14 @@ fn encode_text_for_font(
             match params.font_data.embedded_bytes() {
                 Some(bytes) => {
                     let face = ttf_parser::Face::parse(bytes, 0)?;
-                    let encoded =
-                        encode_text_winansi_checked(&face, &params.text, params.lossy_text)
-                            .map_err(|missing| MedpdfError::UnrepresentableText {
-                                chars: missing,
-                                font: params.font_name.clone(),
-                            })?;
+                    let encoded = encode_text_winansi_checked(&face, text, params.lossy_text)
+                        .map_err(|missing| MedpdfError::UnrepresentableText {
+                            chars: missing,
+                            font: params.font_name.clone(),
+                        })?;
                     Ok((encoded, StringFormat::Literal))
                 }
-                None => Ok((utf8_to_winansi(&params.text), StringFormat::Literal)),
+                None => Ok((utf8_to_winansi(text), StringFormat::Literal)),
             }
         }
         EncodingKind::Composite => {
@@ -676,11 +800,7 @@ fn encode_text_for_font(
                 MedpdfError::new("composite text encoding requires an embedded font")
             })?;
             let face = ttf_parser::Face::parse(bytes, 0)?;
-            match crate::pdf_font_composite::encode_text_identity(
-                &face,
-                &params.text,
-                params.lossy_text,
-            ) {
+            match crate::pdf_font_composite::encode_text_identity(&face, text, params.lossy_text) {
                 Ok(gids) => Ok((gids, StringFormat::Hexadecimal)),
                 Err(missing) => Err(MedpdfError::UnrepresentableText {
                     chars: missing,
@@ -753,7 +873,8 @@ fn encode_text_winansi_checked(
 fn warn_on_control_chars(text: &str, font_name: &str) {
     let mut controls: Vec<char> = Vec::new();
     for ch in text.chars() {
-        if ch.is_control() && !controls.contains(&ch) {
+        // CR and LF are line separators now (plan-0002 Tier 1), not unrendered bytes.
+        if ch.is_control() && ch != '\n' && ch != '\r' && !controls.contains(&ch) {
             controls.push(ch);
         }
     }
@@ -766,9 +887,9 @@ fn warn_on_control_chars(text: &str, font_name: &str) {
         .collect();
     log::warn!(
         "Text for font '{}' contains control character(s) [{}] that medpdf does not render: \
-         it draws a single line and does not interpret newlines, tabs, or other control \
-         characters. They are dropped (WinAnsi path) or cause an UnrepresentableText error \
-         (composite path). Multi-line watermark text is not yet supported.",
+         newlines are line separators, but tabs and other control characters are not \
+         interpreted. They are dropped (WinAnsi path) or cause an UnrepresentableText \
+         error (composite path). There is no tab-stop model; use spaces.",
         font_name,
         named.join(", ")
     );

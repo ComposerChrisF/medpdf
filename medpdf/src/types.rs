@@ -133,6 +133,11 @@ pub enum FontStyle {
 /// Parameters for adding text to a PDF page with full control over rendering.
 #[derive(Debug, Clone)]
 pub struct AddTextParams {
+    /// The text to draw. `\n` (also `\r\n` and a lone `\r`) is a **line
+    /// separator**: the text is drawn as a block of lines with leading taken from
+    /// the font's metrics. No other control character is interpreted — there is no
+    /// tab-stop model, so `\t` is dropped or rejected, with a warning. See
+    /// [`add_text_params`](crate::add_text_params) for the block-layout rules.
     pub text: String,
     pub font_data: crate::font_data::FontData,
     pub font_name: String,

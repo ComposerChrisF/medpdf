@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-09-09
+### Added
+- `add_text_params` now renders multi-line text — `text` is split on `\n` (and
+  `\r\n`, and a lone `\r`), leading comes from the embedded face’s own
+  `ascender − descender + line_gap` scaled to `font_size` (falling back to
+  `font_size × 1.2` for built-in fonts with no face to ask), horizontal
+  alignment and underline/strikeout rules apply per line, and vertical
+  alignment addresses the whole block (`Top`/`CapTop`/`Baseline` anchor the
+  first line, `Bottom`/`DescentBottom` the last, `Center` the midpoint).  No
+  API change: `AddTextParams` and every builder method are unchanged, and
+  single-line text is a one-line block whose output is identical to before.
+  Implements plan-0002 Tier 1, ruled by Chris; resolves the `\n` half of the
+  deferred bug-0032 control-character question.  A `\n` previously rendered as
+  nothing on the WinAnsi path and raised `UnrepresentableText` on the
+  composite path, so pdf-maker’s documented `\n` watermark escape decoded
+  correctly and then did nothing (pdf-maker bug-0016) — that closes with no
+  pdf-maker change.
+
+### Changed
+- `warn_on_control_chars` no longer warns about `\n`/`\r` (they are meaningful
+  now) and its message now says tabs specifically are uninterpreted.
+
 ## [0.13.2] - 2026-09-09
 ### Documentation
 - `placed_page_size` now documents that the footprint is exactly linear in
@@ -359,4 +381,4 @@ change.
 Earlier history (0.8.x and before: PDF encryption, edition-2024 migration, the
 initial image-embedding split) is in the git log.
 
-[Unreleased]: https://github.com/ComposerChrisF/medpdf/compare/medpdf-v0.13.2...HEAD
+[Unreleased]: https://github.com/ComposerChrisF/medpdf/compare/medpdf-v0.14.0...HEAD

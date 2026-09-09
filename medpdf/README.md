@@ -20,7 +20,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-medpdf = "0.13"
+medpdf = "0.14"
 ```
 
 ## Quick Start
