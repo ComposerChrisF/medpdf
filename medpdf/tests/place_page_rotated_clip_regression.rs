@@ -91,8 +91,10 @@ fn rotated_clip_is_transformed_quad_not_aabb() {
     );
 
     // The 4 path points must be the source MediaBox corners transformed by the placement
-    // matrix (a=d=cos45, b=-c=sin45, tx=ty=100). Read the actual source MediaBox rather
-    // than assume a size, and apply the same transform place_page uses.
+    // matrix (a=d=cos45, b=-c=sin45) and then translated so the rotated box's lower-left
+    // corner lands at the requested (100, 100) — placement is by visible box (bug-0024).
+    // Read the actual source MediaBox rather than assume a size, and apply the same
+    // transform place_page uses.
     let src_page_id = fixtures::get_first_page_id(&source);
     let mbox = source
         .get_dictionary(src_page_id)
@@ -108,8 +110,19 @@ fn rotated_clip_is_transformed_quad_not_aabb() {
         obj_to_f32(&mbox[3]),
     );
     let cs = std::f32::consts::FRAC_1_SQRT_2; // cos45 = sin45
-    let tf = |sx: f32, sy: f32| (cs * sx - cs * sy + 100.0, cs * sx + cs * sy + 100.0);
-    let expected = [tf(x0, y0), tf(x1, y0), tf(x1, y1), tf(x0, y1)];
+    let linear = |sx: f32, sy: f32| (cs * sx - cs * sy, cs * sx + cs * sy);
+    let corners = [
+        linear(x0, y0),
+        linear(x1, y0),
+        linear(x1, y1),
+        linear(x0, y1),
+    ];
+    let min_x = corners.iter().map(|p| p.0).fold(f32::INFINITY, f32::min);
+    let min_y = corners.iter().map(|p| p.1).fold(f32::INFINITY, f32::min);
+    let expected: Vec<(f32, f32)> = corners
+        .iter()
+        .map(|(px, py)| (px - min_x + 100.0, py - min_y + 100.0))
+        .collect();
     let got: Vec<(f32, f32)> = path[..4]
         .iter()
         .map(|op| (obj_to_f32(&op.operands[0]), obj_to_f32(&op.operands[1])))

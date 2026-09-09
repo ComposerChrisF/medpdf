@@ -560,8 +560,23 @@ pub(crate) fn resolve_contents_to_ref_array(
             };
             match resolved {
                 Object::Stream(stream) => {
-                    let id = dest_doc.add_object(stream);
-                    Ok(vec![Object::Reference(id)])
+                    match source_doc {
+                        // Destination side: the stream already lives in `dest_doc`,
+                        // so hand back the caller's own reference. Cloning it into a
+                        // fresh object (what this used to do) dropped the original
+                        // from the rewritten /Contents array and orphaned it — one
+                        // unreachable object per destination page, and for a page
+                        // with real content a full duplicate of its content stream
+                        // (bug-0039). Nothing downstream mutates these streams:
+                        // `isolate_dest_content_streams` only reads them and adds
+                        // standalone q/Q wrappers around them.
+                        None => Ok(vec![Object::Reference(*reference)]),
+                        // Source side: a cross-document copy is exactly the point.
+                        Some(_) => {
+                            let id = dest_doc.add_object(stream);
+                            Ok(vec![Object::Reference(id)])
+                        }
+                    }
                 }
                 Object::Array(a) => {
                     if let Some(src) = source_doc {

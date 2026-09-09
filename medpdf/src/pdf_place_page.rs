@@ -23,42 +23,57 @@
 //! normal vs. multi-copy mode, padding — lives in the callers (pdf-maker's `--booklet`
 //! and `--n-up`, pdf-orchestrator's `<Booklet>` and `<NUp>` elements).
 //!
+//! # The placement contract
+//!
+//! **A placed page's bounding box has its lower-left corner at exactly
+//! `(params.x, params.y)`, and its size is
+//! [`placed_page_size`]`(source_doc, page, scale, rotation)`** — for any MediaBox
+//! origin, any source `/Rotate`, and any placement rotation. Two consequences,
+//! both deliberate, both settled by ruling on 2026-07-24 and implemented in
+//! v0.13.0:
+//!
+//! - **Placement is by visible box, not by user space** (bug-0024). The MediaBox
+//!   origin is compensated out of the translation, so `(x, y, scale)` alone says
+//!   where the page lands and a caller never reads the source's origin. Before
+//!   v0.13.0, `tx = params.x` mapped source *user space* `(0, 0)` to `(x, y)`, so
+//!   a cropped page landed offset by `scale × origin`.
+//! - **The source page's `/Rotate` is honored** (bug-0023). What gets placed is the
+//!   page as a viewer displays it, and its effective width and height are swapped
+//!   under `/Rotate` 90/270. Before v0.13.0 nothing read `/Rotate`, so a landscape
+//!   scan imposed sideways — and, worse for any caller deriving a grid from the
+//!   page size, with rows and columns transposed.
+//!
+//! Callers doing grid arithmetic (N-up slots, tile columns and rows) should size
+//! against [`placed_page_size`] rather than
+//! [`get_page_media_box`](crate::get_page_media_box), which is the *pre-rotation*
+//! box; [`get_page_effective_size`](crate::get_page_effective_size) is the
+//! scale-free form of the same number.
+//!
 //! # Transform
 //!
-//! PDF's `cm` operator takes a 6-element matrix `[a b c d e f]`. For a translate plus
-//! uniform scale `s` plus a counterclockwise rotation of θ:
+//! PDF's `cm` operator takes a 6-element matrix `[a b c d e f]`. `/Rotate r` means
+//! "rotate `r` degrees clockwise when displayed" (PDF 32000-1 §7.7.3.3) and
+//! `rotation` is counterclockwise, so the total counterclockwise angle is
+//! θ = `rotation − r`. The scale is uniform, so rotation and scale commute and the
+//! whole linear part is `s · R(θ)`:
 //!
 //! ```text
 //! a =  s·cos θ    b = s·sin θ
 //! c = −s·sin θ    d = s·cos θ
-//! e =  x          f = y
+//! e =  x − min_x  f = y − min_y
 //! ```
 //!
-//! Exact coefficients are substituted for the 90° steps, so the common cases stay free
-//! of trig rounding. With `clip` enabled (the default) a `re W n` rectangle precedes the
-//! `cm`, sized from the transformed MediaBox corners, so a placed page cannot bleed into
-//! an adjacent N-up slot.
+//! where `(min_x, min_y)` is the minimum corner of the MediaBox under the linear
+//! part alone — the compensation that lands the visible box at `(x, y)`. Exact
+//! coefficients are substituted when θ is a 90° step, so the common cases stay free
+//! of trig rounding. With `clip` enabled (the default) the transformed MediaBox
+//! precedes the `cm` as a `W n` clip path — a compact `re` for a 90°-step θ, the
+//! transformed quadrilateral otherwise (bug-0027) — so a placed page cannot bleed
+//! into an adjacent N-up slot.
 //!
-//! # Contract questions still open
-//!
-//! This module's contract was specified by a feature plan, graduated into these docs and
-//! deleted 2026-08-12. Two of its clauses are **ruled but not yet implemented** — the
-//! code below still does the old thing, so do not read current behavior as intended:
-//!
-//! - **Source `/Rotate` is ignored** (bug-0023). Nothing here reads the source page's
-//!   `/Rotate`, so a page every viewer displays rotated is imposed in its unrotated
-//!   orientation, and the effective width/height swap under 90/270 is never applied.
-//!   Ruling: honor `/Rotate` — compose the 90°-step rotation about the MediaBox into the
-//!   placement transform.
-//! - **(x, y) against a non-zero-origin MediaBox** (bug-0024). `tx = params.x` carries no
-//!   `−s·x0` compensation, so source *user space* (0, 0) maps to `(x, y)` and the visible
-//!   MediaBox corner lands at `(x + s·x0, y + s·y0)`; `tests/place_page_tests.rs` pins
-//!   that. Ruling: compensate, so the visible box lands at `(x, y)` given `(x, y, scale)`
-//!   alone, with no need to read the source MediaBox.
-//!
-//! The two interact and are to be implemented together (see `TODO.md`). One test case the
-//! original plan required and that remains uncovered: source pages carrying existing
-//! transforms or rotations.
+//! `compute_placement_transform` is the single definition of all of this;
+//! `place_page` emits it and [`placed_page_size`] reports it, so the geometry a
+//! caller plans against and the geometry that lands cannot drift apart.
 
 use crate::error::{MedpdfError, Result};
 use crate::pdf_helpers::{self, KEY_CONTENTS, KEY_PAGES};
@@ -73,8 +88,154 @@ use lopdf::content::{Content, Operation};
 use lopdf::{Dictionary, Document, Object, ObjectId, Stream};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
+/// The fully-composed transform for one placement.
+///
+/// Built by [`compute_placement_transform`], which is the single place the
+/// placement geometry is defined — `place_page` emits it, and
+/// [`placed_page_size`] reports it, so the two can never disagree about where a
+/// page lands or how much room it takes.
+pub(crate) struct PlacementTransform {
+    /// `cm` operands `[a b c d tx ty]`.
+    pub a: f64,
+    pub b: f64,
+    pub c: f64,
+    pub d: f64,
+    pub tx: f64,
+    pub ty: f64,
+    /// The transformed MediaBox corners in destination space, in MediaBox order
+    /// (`x0y0`, `x1y0`, `x1y1`, `x0y1`).
+    pub quad: [(f64, f64); 4],
+    /// True when the total rotation is a 90° step, so `quad` is itself an
+    /// axis-aligned rectangle (AABB == the rect) and the clip can stay a compact
+    /// `re`.
+    pub axis_aligned: bool,
+    /// Width and height of the placed footprint — the `quad`'s bounding box.
+    pub width: f64,
+    pub height: f64,
+}
+
+/// Composes the source page's `/Rotate`, the requested scale and rotation, and the
+/// translation that lands the placed page's visible box at `(x, y)`.
+///
+/// # The two rulings this encodes
+///
+/// - **Source `/Rotate` is honored** (bug-0023). `/Rotate r` means "rotate `r`
+///   degrees *clockwise* when displayed" (PDF 32000-1 §7.7.3.3), and `rotation`
+///   is counterclockwise, so the total counterclockwise angle is
+///   `rotation − source_rotate`. Because the scale is uniform, rotation and scale
+///   commute and the whole linear part collapses to `s · R(rotation − rotate)` —
+///   the exact 90°-step coefficients still apply to the common cases.
+/// - **Placement is by visible box** (bug-0024). The translation is
+///   `(x, y) − (min_x, min_y)` of the linearly-transformed MediaBox, so the
+///   placed page's bounding box has its lower-left corner at exactly `(x, y)`
+///   for any MediaBox origin and any rotation. A caller never reads the source
+///   MediaBox origin, and a rotated placement no longer swings off the sheet.
+pub(crate) fn compute_placement_transform(
+    media_box: [f32; 4],
+    source_rotate: u32,
+    x: f64,
+    y: f64,
+    scale: f64,
+    rotation: f64,
+) -> PlacementTransform {
+    let s = scale;
+    let theta = (rotation - source_rotate as f64).rem_euclid(360.0);
+
+    // Exact values for the 90° steps; trig for arbitrary angles.
+    let (a, b, c, d, axis_aligned) = if theta.abs() < 1e-10 {
+        (s, 0.0, 0.0, s, true)
+    } else if (theta - 90.0).abs() < 1e-10 {
+        (0.0, s, -s, 0.0, true)
+    } else if (theta - 180.0).abs() < 1e-10 {
+        (-s, 0.0, 0.0, -s, true)
+    } else if (theta - 270.0).abs() < 1e-10 {
+        (0.0, -s, s, 0.0, true)
+    } else {
+        let rad = theta.to_radians();
+        (
+            s * rad.cos(),
+            s * rad.sin(),
+            -s * rad.sin(),
+            s * rad.cos(),
+            false,
+        )
+    };
+
+    let [x0, y0, x1, y1] = media_box.map(f64::from);
+    let corners = [(x0, y0), (x1, y0), (x1, y1), (x0, y1)];
+    // Linear part only: (sx, sy) → (a·sx + c·sy, b·sx + d·sy).
+    let linear = corners.map(|(sx, sy)| (a * sx + c * sy, b * sx + d * sy));
+
+    let min_x = linear.iter().map(|p| p.0).fold(f64::INFINITY, f64::min);
+    let min_y = linear.iter().map(|p| p.1).fold(f64::INFINITY, f64::min);
+    let max_x = linear.iter().map(|p| p.0).fold(f64::NEG_INFINITY, f64::max);
+    let max_y = linear.iter().map(|p| p.1).fold(f64::NEG_INFINITY, f64::max);
+
+    let tx = x - min_x;
+    let ty = y - min_y;
+
+    PlacementTransform {
+        a,
+        b,
+        c,
+        d,
+        tx,
+        ty,
+        quad: linear.map(|(px, py)| (px + tx, py + ty)),
+        axis_aligned,
+        width: max_x - min_x,
+        height: max_y - min_y,
+    }
+}
+
+/// The footprint [`place_page`] will occupy on the destination page: the width and
+/// height of the placed page's bounding box, with the source's `/Rotate`, the
+/// `scale`, and the placement `rotation` all applied.
+///
+/// This is the number to do grid arithmetic with — N-up slot sizing, `--tile`
+/// column and row counts — because it is computed by the same internal transform
+/// that `place_page` emits. Reading
+/// [`get_page_media_box`](crate::get_page_media_box) directly gives the
+/// *pre-rotation* size, which for a `/Rotate 90` source has width and height
+/// swapped relative to what actually lands on the sheet.
+///
+/// Placement is by visible box, so the placed page occupies exactly
+/// `(x, y)`–`(x + width, y + height)` for a `PlacePageParams` with this `scale`
+/// and `rotation`; the MediaBox origin never enters a caller's arithmetic.
+///
+/// Returns `None` if the page has no `/MediaBox` on itself or any ancestor.
+///
+/// ```no_run
+/// # use lopdf::Document;
+/// # fn demo(src: &Document, page_id: lopdf::ObjectId) -> Option<()> {
+/// // How many 8.5×11 sheets does this page need at 200%, unrotated?
+/// let (w, h) = medpdf::placed_page_size(src, page_id, 2.0, 0.0)?;
+/// let cols = (w / 612.0).ceil() as usize;
+/// let rows = (h / 792.0).ceil() as usize;
+/// # let _ = (cols, rows);
+/// # Some(())
+/// # }
+/// ```
+pub fn placed_page_size(
+    doc: &Document,
+    page_id: ObjectId,
+    scale: f64,
+    rotation: f64,
+) -> Option<(f32, f32)> {
+    let media_box = pdf_helpers::get_page_media_box(doc, page_id)?;
+    let rotate = pdf_helpers::get_page_rotation(doc, page_id);
+    let t = compute_placement_transform(media_box, rotate, 0.0, 0.0, scale, rotation);
+    Some((t.width as f32, t.height as f32))
+}
+
 /// Places a source page onto a destination page at the position and scale
 /// specified by `params`.
+///
+/// The placed page's visible box lands with its lower-left corner at
+/// `(params.x, params.y)` and occupies
+/// [`placed_page_size`]`(source_doc, page, params.scale, params.rotation)`, with
+/// the source page's `/Rotate` honored and its MediaBox origin compensated out —
+/// see the module docs for the full contract.
 ///
 /// Each call is self-contained in its own `q ... Q` graphics state wrapper,
 /// so multiple calls can safely compose on the same destination page without
@@ -109,7 +270,6 @@ pub fn place_page(
     // Get source MediaBox (needed for clipping)
     let media_box = pdf_helpers::get_page_media_box(source_doc, source_page_id)
         .ok_or_else(|| MedpdfError::new("Source page has no MediaBox"))?;
-    let [x0, y0, x1, y1] = media_box;
 
     let source_page = source_doc.get_dictionary(source_page_id)?;
 
@@ -206,57 +366,39 @@ pub fn place_page(
         trace!("source_contents_arr: {source_contents_arr:?}");
     }
 
-    // Build transform-open content stream:
+    // Build the transform-open content stream:
     //   q
-    //   [clip rect] re W n       (if params.clip)
-    //   a b c d tx ty cm         (rotation + scale + translate matrix)
-    let s = params.scale;
-    let tx = params.x;
-    let ty = params.y;
-
-    // Rotation matrix coefficients: exact values for 90° increments, trig for arbitrary angles
-    let theta = params.rotation.rem_euclid(360.0);
-    // `axis_aligned` marks the 90°-step rotations, whose transformed MediaBox is itself
-    // an axis-aligned rectangle (AABB == the rect) — the clip can stay a compact `re`.
-    let (a, b, c, d, axis_aligned) = if (theta - 0.0).abs() < 1e-10 {
-        (s, 0.0, 0.0, s, true)
-    } else if (theta - 90.0).abs() < 1e-10 {
-        (0.0, s, -s, 0.0, true)
-    } else if (theta - 180.0).abs() < 1e-10 {
-        (-s, 0.0, 0.0, -s, true)
-    } else if (theta - 270.0).abs() < 1e-10 {
-        (0.0, -s, s, 0.0, true)
-    } else {
-        let rad = theta.to_radians();
-        (
-            s * rad.cos(),
-            s * rad.sin(),
-            -s * rad.sin(),
-            s * rad.cos(),
-            false,
-        )
-    };
+    //   [clip quad/rect] W n     (if params.clip)
+    //   a b c d tx ty cm         (source /Rotate + rotation + scale + translate)
+    let source_rotate = pdf_helpers::get_page_rotation(source_doc, source_page_id);
+    let PlacementTransform {
+        a,
+        b,
+        c,
+        d,
+        tx,
+        ty,
+        quad,
+        axis_aligned,
+        ..
+    } = compute_placement_transform(
+        media_box,
+        source_rotate,
+        params.x,
+        params.y,
+        params.scale,
+        params.rotation,
+    );
 
     trace!("cm matrix: a={a}, b={b}, c={c}, d={d}, tx={tx}, ty={ty}");
 
     let mut open_ops = vec![Operation::new("q", vec![])];
 
     if params.clip {
-        // Transform each MediaBox corner (sx, sy) → (a*sx + c*sy + tx, b*sx + d*sy + ty).
-        let quad: Vec<(f64, f64)> = [
-            (x0 as f64, y0 as f64),
-            (x1 as f64, y0 as f64),
-            (x1 as f64, y1 as f64),
-            (x0 as f64, y1 as f64),
-        ]
-        .into_iter()
-        .map(|(sx, sy)| (a * sx + c * sy + tx, b * sx + d * sy + ty))
-        .collect();
-
         if axis_aligned {
-            // 90°-step rotation: the transformed MediaBox is axis-aligned, so its AABB
-            // equals the rect — emit the compact `re` (keeps the common-case output
-            // byte-stable).
+            // 90°-step total rotation: the transformed MediaBox is axis-aligned, so
+            // its AABB equals the rect — emit the compact `re` (keeps the
+            // common-case output byte-stable).
             let min_x = quad.iter().map(|p| p.0).fold(f64::INFINITY, f64::min);
             let min_y = quad.iter().map(|p| p.1).fold(f64::INFINITY, f64::min);
             let max_x = quad.iter().map(|p| p.0).fold(f64::NEG_INFINITY, f64::max);

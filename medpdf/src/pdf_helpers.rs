@@ -99,6 +99,28 @@ pub fn get_page_rotation(doc: &Document, page_id: ObjectId) -> u32 {
     0
 }
 
+/// The page's size **as displayed**: its MediaBox extents with width and height
+/// swapped when `/Rotate` is 90 or 270.
+///
+/// This is what a viewer shows and what a caller should lay out against;
+/// [`get_page_media_box`] alone is the *pre-rotation* size, so a `/Rotate 90`
+/// page measured with it comes out with width and height exchanged relative to
+/// the sheet it will land on. `place_page` honors `/Rotate`, so for an
+/// unrotated, unscaled placement this equals the footprint the page occupies —
+/// see [`placed_page_size`](crate::placed_page_size) for the general case
+/// (any scale, any placement rotation), which is computed from the same
+/// transform `place_page` emits.
+///
+/// Returns `None` if no `/MediaBox` is found on the page or any ancestor.
+pub fn get_page_effective_size(doc: &Document, page_id: ObjectId) -> Option<(f32, f32)> {
+    let [x0, y0, x1, y1] = get_page_media_box(doc, page_id)?;
+    let (w, h) = ((x1 - x0).abs(), (y1 - y0).abs());
+    match get_page_rotation(doc, page_id) {
+        90 | 270 => Some((h, w)),
+        _ => Some((w, h)),
+    }
+}
+
 /// Resolves an inheritable page attribute by walking the `/Parent` chain.
 ///
 /// Several page attributes (`/Resources`, `/MediaBox`, `/CropBox`, `/Rotate`) are

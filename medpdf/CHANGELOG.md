@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-09-09
+### Changed
+- **BREAKING** bug-0024: `place_page` now places by **visible box**.  The source
+  MediaBox origin is compensated out of the translation, so the placed page's
+  lower-left corner lands at exactly `(params.x, params.y)` and `(x, y, scale)`
+  alone determines where a page goes.  Previously `tx = params.x` mapped source
+  *user space* `(0, 0)` to `(x, y)`, so a cropped or offset page landed
+  `scale × origin` away from where the caller asked.  Output changes only for
+  sources whose MediaBox origin is not `(0, 0)` — and for every rotated
+  placement, whose translation now compensates the rotation's excursion instead
+  of swinging the page off the sheet.
+- **BREAKING** bug-0023: `place_page` now **honors the source page's `/Rotate`**,
+  composing it into the placement transform, so what lands is the page as a
+  viewer displays it and its effective width/height are swapped under
+  `/Rotate` 90/270.  Previously `/Rotate` was ignored: a landscape scan imposed
+  sideways, and any caller deriving a grid from the page's size computed rows and
+  columns transposed.  Output changes only for sources carrying a non-zero
+  `/Rotate`.
+
+### Added
+- `placed_page_size(doc, page_id, scale, rotation)` — the width and height
+  `place_page` will occupy on the destination, computed from the same internal
+  transform `place_page` emits, so grid arithmetic and placement cannot drift
+  apart.  This is the number to size N-up slots and tile columns/rows against;
+  `get_page_media_box` is the *pre-rotation* box.
+- `get_page_effective_size(doc, page_id)` — a page's size **as displayed**: its
+  MediaBox extents with width and height swapped for `/Rotate` 90/270.  The
+  scale-free form of the same measurement.
+
+### Fixed
+- bug-0039: `place_page` and `overlay_page` orphaned one object per destination
+  page.  Resolving the destination's `/Contents` **cloned** a single-reference
+  content stream into a fresh object and rewrote the page to point at the clone,
+  leaving the original unreachable — a zero-byte stream for a
+  `create_blank_page` sheet (one leaked object per imposition sheet), or a full
+  duplicate of the content stream for a destination page that already had
+  content.  The destination's own reference is now passed through untouched; no
+  copy was ever needed on that side.
+
 ## [0.12.0] - 2026-07-24
 ### Changed
 - **BREAKING** bug-0021: `parse_page_spec` now returns an error for out-of-range
@@ -299,4 +338,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Earlier history (0.8.x and before: PDF encryption, edition-2024 migration, the
 initial image-embedding split) is in the git log.
 
-[Unreleased]: https://github.com/ComposerChrisF/medpdf/compare/medpdf-v0.11.18...HEAD
+[Unreleased]: https://github.com/ComposerChrisF/medpdf/compare/medpdf-v0.13.0...HEAD

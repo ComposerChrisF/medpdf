@@ -386,8 +386,8 @@ fn test_place_page_nonzero_media_box_origin() {
         .find(|op| op.operator == "re" && op.operands.len() == 4)
         .unwrap();
 
-    // clip_x = 0 + 50*0.5 = 25
-    // clip_y = 0 + 100*0.5 = 50
+    // Placement is by visible box (bug-0024): the MediaBox origin is compensated
+    // out, so the placed page's lower-left corner lands exactly at (x, y) = (0, 0).
     // clip_w = (662-50)*0.5 = 306
     // clip_h = (892-100)*0.5 = 396
     let clip_x = obj_to_f32(&re_op.operands[0]);
@@ -395,12 +395,12 @@ fn test_place_page_nonzero_media_box_origin() {
     let clip_w = obj_to_f32(&re_op.operands[2]);
     let clip_h = obj_to_f32(&re_op.operands[3]);
     assert!(
-        (clip_x - 25.0).abs() < 0.01,
-        "clip_x should be 25, got {clip_x}"
+        clip_x.abs() < 0.01,
+        "clip_x should be 0 (origin compensated), got {clip_x}"
     );
     assert!(
-        (clip_y - 50.0).abs() < 0.01,
-        "clip_y should be 50, got {clip_y}"
+        clip_y.abs() < 0.01,
+        "clip_y should be 0 (origin compensated), got {clip_y}"
     );
     assert!(
         (clip_w - 306.0).abs() < 0.01,
@@ -410,6 +410,16 @@ fn test_place_page_nonzero_media_box_origin() {
         (clip_h - 396.0).abs() < 0.01,
         "clip_h should be 396, got {clip_h}"
     );
+
+    // The compensation lives in the translation: tx = 0 - 0.5*50, ty = 0 - 0.5*100.
+    let cm = find_cm_ops(&ops)
+        .into_iter()
+        .find(|op| op.operands.len() == 6)
+        .expect("Should find a cm operator");
+    let tx = obj_to_f32(&cm.operands[4]);
+    let ty = obj_to_f32(&cm.operands[5]);
+    assert!((tx - (-25.0)).abs() < 0.01, "tx should be -25, got {tx}");
+    assert!((ty - (-50.0)).abs() < 0.01, "ty should be -50, got {ty}");
 }
 
 #[test]
@@ -444,15 +454,17 @@ fn test_place_page_rotation_90() {
     let cm_ops = find_cm_ops(&ops);
     assert!(!cm_ops.is_empty(), "Should have at least one cm operator");
 
-    // 90°: cm = [0, s, -s, 0, tx, ty]
+    // 90°: cm = [0, s, -s, 0, tx, ty]. Rotating 612×792 by 90° at scale 0.5 sends
+    // the box to x ∈ [-396, 0], y ∈ [0, 306]; placement is by visible box, so the
+    // translation carries the +396 that puts the lower-left corner at (100, 200).
     let cm = cm_ops
         .iter()
         .find(|op| {
             op.operands.len() == 6
-                && (obj_to_f32(&op.operands[4]) - 100.0).abs() < 0.01
+                && (obj_to_f32(&op.operands[4]) - 496.0).abs() < 0.01
                 && (obj_to_f32(&op.operands[5]) - 200.0).abs() < 0.01
         })
-        .expect("Should find cm with translate (100, 200)");
+        .expect("Should find cm with translate (496, 200) — visible box at (100, 200)");
     assert!(
         (obj_to_f32(&cm.operands[0]) - 0.0).abs() < 0.01,
         "a should be 0"
@@ -482,10 +494,16 @@ fn test_place_page_rotation_180() {
 
     let ops = collect_all_ops(&dest, dest_page_id);
     let cm_ops = find_cm_ops(&ops);
+    // 180° sends 612×792 to x ∈ [-612, 0], y ∈ [-792, 0], so the visible-box
+    // translation is (50 + 612, 60 + 792) = (662, 852).
     let cm = cm_ops
         .iter()
-        .find(|op| op.operands.len() == 6 && (obj_to_f32(&op.operands[4]) - 50.0).abs() < 0.01)
-        .expect("Should find cm with tx=50");
+        .find(|op| op.operands.len() == 6 && (obj_to_f32(&op.operands[4]) - 662.0).abs() < 0.01)
+        .expect("Should find cm with tx=662 — visible box at x=50");
+    assert!(
+        (obj_to_f32(&cm.operands[5]) - 852.0).abs() < 0.01,
+        "ty should be 852 — visible box at y=60"
+    );
     // 180°: cm = [-s, 0, 0, -s, tx, ty]
     assert!(
         (obj_to_f32(&cm.operands[0]) - (-1.0)).abs() < 0.01,
@@ -541,11 +559,11 @@ fn test_place_page_rotation_270() {
 
 #[test]
 fn test_place_page_rotation_clip_aabb() {
-    // 90° rotation of 612×792 page at scale 0.5, placed at origin
-    // Source MediaBox: [0, 0, 612, 792]
-    // cm matrix at 90°: a=0, b=0.5, c=-0.5, d=0
-    // Corners: (0,0)→(0,0), (612,0)→(0,306), (612,792)→(-396,306), (0,792)→(-396,0)
-    // AABB: (-396, 0, 396, 306)
+    // 90° rotation of 612×792 page at scale 0.5, placed at origin.
+    // Source MediaBox: [0, 0, 612, 792]; linear part at 90°: a=0, b=0.5, c=-0.5, d=0.
+    // Linear corners: (0,0)→(0,0), (612,0)→(0,306), (612,792)→(-396,306), (0,792)→(-396,0),
+    // so the linear AABB is (-396, 0)–(0, 306). Placement is by visible box, so the
+    // translation shifts that to land at (0, 0): the clip is (0, 0, 396, 306).
     let mut dest = create_pdf_with_pages(1);
     let source = create_pdf_with_content(b"q\n0 0 100 100 re f\nQ\n");
 
@@ -563,8 +581,8 @@ fn test_place_page_rotation_clip_aabb() {
     let re_w = obj_to_f32(&re_op.operands[2]);
     let re_h = obj_to_f32(&re_op.operands[3]);
     assert!(
-        (re_x - (-396.0)).abs() < 0.01,
-        "clip x should be -396, got {re_x}"
+        re_x.abs() < 0.01,
+        "clip x should be 0 (placed by visible box), got {re_x}"
     );
     assert!((re_y - 0.0).abs() < 0.01, "clip y should be 0, got {re_y}");
     assert!(
@@ -588,10 +606,19 @@ fn test_place_page_rotation_45() {
 
     let ops = collect_all_ops(&dest, dest_page_id);
     let cm_ops = find_cm_ops(&ops);
+    // 45° sends 612×792 to x ∈ [-560.03, 432.75]; the visible-box translation is
+    // therefore (100 + 560.03, 100 + 0) — the y minimum is already 0.
+    let expected_tx = 100.0 + 792.0 * std::f32::consts::FRAC_1_SQRT_2;
     let cm = cm_ops
         .iter()
-        .find(|op| op.operands.len() == 6 && (obj_to_f32(&op.operands[4]) - 100.0).abs() < 0.01)
-        .expect("Should find cm with tx=100");
+        .find(|op| {
+            op.operands.len() == 6 && (obj_to_f32(&op.operands[4]) - expected_tx).abs() < 0.01
+        })
+        .expect("Should find cm placing the visible box at x=100");
+    assert!(
+        (obj_to_f32(&cm.operands[5]) - 100.0).abs() < 0.01,
+        "ty should be 100"
+    );
 
     // 45°: cos(45°) = sin(45°) = √2/2 ≈ 0.7071
     let sqrt2_2 = std::f32::consts::FRAC_1_SQRT_2;

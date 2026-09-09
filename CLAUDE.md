@@ -28,7 +28,7 @@ A Cargo workspace of three crates: `medpdf/` (the library, published), `medpdf-i
 | `medpdf::types` | Builder-pattern param types: `AddTextParams`, `DrawRectParams`, `DrawLineParams`, `PlacePageParams`, `PdfColor`, alignment enums |
 | `medpdf::font_data` | `FontData` enum: `Hack(u8)`, `BuiltIn(String)`, `Embedded(Arc<Vec<u8>>)` |
 | `medpdf::parsing` | Page spec parsing with nom (`"1-3,5,7-"`, `"all"`) |
-| `medpdf::pdf_helpers` | Deep object copying, PDF key constants, Unit enum, page rotation |
+| `medpdf::pdf_helpers` | Deep object copying, PDF key constants, Unit enum, page rotation, `get_page_effective_size()` (MediaBox extents swapped under `/Rotate` 90/270) |
 | `medpdf::pdf_font` | Font discovery (system/file) and caching; re-exports `find_font`, `FontCache`, `FontPath` |
 | `medpdf::font_helpers` | TTF parsing, font metrics, PDF FontDescriptor generation, canonical WinAnsi encoding table |
 | `medpdf::pdf_copy_page` | `copy_page()` - copy pages between documents |
@@ -37,7 +37,7 @@ A Cargo workspace of three crates: `medpdf/` (the library, published), `medpdf-i
 | `medpdf::pdf_blank_page` | `create_blank_page()` - add empty pages |
 | `medpdf::pdf_overlay` | `overlay_page()` - merge content with resource renaming |
 | `medpdf::pdf_overlay_helpers` | Shared helpers for overlay/place-page: resource key collection, renaming, content stream normalization |
-| `medpdf::pdf_place_page` | `place_page()` - place a source page at a specific position, scale, and rotation (arbitrary angle) with optional clipping (default: enabled) |
+| `medpdf::pdf_place_page` | `place_page()` - place a source page by its **visible box** at a given position, scale, and rotation (arbitrary angle; the source's `/Rotate` is honored and the MediaBox origin compensated out) with optional clipping (default: enabled); `placed_page_size()` reports the footprint a placement will occupy, from the same transform |
 | `medpdf::pdf_watermark` | `add_text_params()` - text watermark rendering with color, alignment, rotation, alpha; `EmbeddedFontCache` for deduplicating embedded font objects across pages; picks the WinAnsi simple-font fast path or the Type0 composite path per call |
 | `medpdf::pdf_font_composite` | Type0/CIDFontType2 composite-font pieces (Identity-H GID encoding, `/W` widths, ToUnicode CMap) for text with characters outside WinAnsiEncoding |
 | `medpdf::pdf_subset` | Post-watermark font subsetting via allsorts: shrinks embedded fonts to used glyphs, tagging `/BaseFont` and `/FontName`; `subset_fonts()` |

@@ -312,21 +312,23 @@ impl DrawLineParams {
 /// PDF `cm` operator values.
 #[derive(Debug, Clone)]
 pub struct PlacePageParams {
-    /// X offset in points (from left edge of destination page).
+    /// X offset in points, from the left edge of the destination page, of the
+    /// **placed page's visible box** — its lower-left corner after `/Rotate`,
+    /// `scale`, and `rotation` are applied.
     ///
-    /// Maps source **user space** (0, 0) to this coordinate, so a source page whose
-    /// MediaBox origin is not (0, 0) lands offset by `scale × origin`. Ruled to change
-    /// to origin compensation (bug-0024) — see [`crate::pdf_place_page`] for the
-    /// contract and its open clauses.
+    /// The source MediaBox origin is compensated out, so `(x, y, scale)` alone
+    /// says where the page lands; a caller never reads the source's origin.
+    /// See [`crate::pdf_place_page`] for the full placement contract, and
+    /// [`crate::placed_page_size`] for the footprint it occupies.
     pub x: f64,
-    /// Y offset in points (from bottom edge of destination page).
-    ///
-    /// Same user-space mapping caveat as [`PlacePageParams::x`] (bug-0024).
+    /// Y offset in points, from the bottom edge of the destination page, of the
+    /// placed page's visible box. Same contract as [`PlacePageParams::x`].
     pub y: f64,
     /// Uniform scale factor (1.0 = no scaling, 0.5 = half size).
     pub scale: f64,
-    /// Counterclockwise rotation in degrees. Exact values are used for 0/90/180/270;
-    /// arbitrary angles use trig.
+    /// Counterclockwise rotation in degrees, applied **on top of** the source
+    /// page's own `/Rotate` (which `place_page` honors). Exact values are used
+    /// when the resulting total is a 90° step; arbitrary angles use trig.
     pub rotation: f64,
     /// Whether to clip source content to its MediaBox (default: true).
     pub clip: bool,

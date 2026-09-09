@@ -37,11 +37,11 @@ pub use pdf_encryption::{
 pub use pdf_font::{FontCache, FontPath, find_font, find_font_with_style};
 pub use pdf_helpers::{
     KEY_CONTENTS, KEY_EXTGSTATE, KEY_RESOURCES, KEY_XOBJECT, Unit, deep_copy_object,
-    deep_copy_object_by_id, get_page_media_box, get_page_rotation, register_in_page_resources,
-    set_page_rotation,
+    deep_copy_object_by_id, get_page_effective_size, get_page_media_box, get_page_rotation,
+    register_in_page_resources, set_page_rotation,
 };
 pub use pdf_overlay::overlay_page;
-pub use pdf_place_page::place_page;
+pub use pdf_place_page::{place_page, placed_page_size};
 pub use pdf_subset::subset_fonts;
 pub use pdf_watermark::{
     EmbeddedFontCache, add_line, add_rect, add_text_params, insert_content_stream,
