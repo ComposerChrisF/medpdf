@@ -251,3 +251,69 @@ fn effective_size_and_placed_size_agree_for_every_rotate() {
         );
     }
 }
+
+#[test]
+fn placed_size_is_linear_in_scale() {
+    // The property every fit-to-cell caller depends on: the footprint is exactly
+    // `scale ×` the footprint at scale 1, for the same rotation. The scale is
+    // uniform, so it factors out of the whole transform — which is what lets a
+    // caller compute a fit-to-cell scale by one division instead of iterating.
+    for media_box in [[0.0, 0.0, 612.0, 792.0], [50.0, 100.0, 662.0, 892.0]] {
+        for rotate in [0, 90, 180, 270] {
+            let source = source_page(media_box, rotate);
+            let page_id = get_first_page_id(&source);
+            for rotation in [0.0, 90.0, 45.0, 210.0] {
+                let (unit_w, unit_h) = placed_page_size(&source, page_id, 1.0, rotation).unwrap();
+                for scale in [0.25, 0.5, 2.0, 7.5] {
+                    let (w, h) = placed_page_size(&source, page_id, scale, rotation).unwrap();
+                    let case = format!("/Rotate {rotate} rotation {rotation} scale {scale}");
+                    assert!(
+                        (w - unit_w * scale as f32).abs() < 0.01,
+                        "{case}: width {w} must be {scale} × {unit_w}"
+                    );
+                    assert!(
+                        (h - unit_h * scale as f32).abs() < 0.01,
+                        "{case}: height {h} must be {scale} × {unit_h}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn a_fit_to_cell_scale_computed_by_division_actually_fits() {
+    // The recipe in placed_page_size's rustdoc, end to end: measure at scale 1
+    // with the intended rotation, divide, and the placement lands inside the cell
+    // — including the 90° placement rotation that transposes the footprint, which
+    // is the case a naive unrotated measurement overflows.
+    let (cell_w, cell_h) = (306.0_f32, 396.0_f32);
+    for rotate in [0, 90] {
+        for rotation in [0.0, 90.0] {
+            let source = source_page([0.0, 0.0, 612.0, 792.0], rotate);
+            let src_page_id = get_first_page_id(&source);
+            let (unit_w, unit_h) = placed_page_size(&source, src_page_id, 1.0, rotation).unwrap();
+            let scale = (cell_w / unit_w).min(cell_h / unit_h);
+
+            let mut dest = create_pdf_with_pages(1);
+            let dest_page_id = get_first_page_id(&dest);
+            let params = PlacePageParams::new(10.0, 20.0, scale as f64).rotation(rotation);
+            place_page(&mut dest, dest_page_id, &source, 1, &params).unwrap();
+
+            let (x, y, w, h) = clip_bbox(&dest, dest_page_id);
+            let case = format!("/Rotate {rotate} rotation {rotation}");
+            assert!(
+                w <= cell_w + 0.01 && h <= cell_h + 0.01,
+                "{case}: placement {w}×{h} must fit the {cell_w}×{cell_h} cell"
+            );
+            assert!(
+                (w - cell_w).abs() < 0.01 || (h - cell_h).abs() < 0.01,
+                "{case}: a fit scale must touch one cell edge, got {w}×{h}"
+            );
+            assert!(
+                (x - 10.0).abs() < 0.01 && (y - 20.0).abs() < 0.01,
+                "{case}: anchor"
+            );
+        }
+    }
+}

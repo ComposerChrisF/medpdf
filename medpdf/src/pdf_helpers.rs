@@ -111,6 +111,13 @@ pub fn get_page_rotation(doc: &Document, page_id: ObjectId) -> u32 {
 /// (any scale, any placement rotation), which is computed from the same
 /// transform `place_page` emits.
 ///
+/// Nothing here is specific to a *source* page: this is the right measurement for
+/// a **destination** page too — anything drawn onto a page a viewer displays
+/// rotated (text, rectangles, lines, images) must be laid out against the
+/// displayed size, or it lands sideways. The raw MediaBox and this function agree
+/// except under `/Rotate` 90/270, which is exactly when the difference matters and
+/// exactly when it is easiest to miss.
+///
 /// Returns `None` if no `/MediaBox` is found on the page or any ancestor.
 pub fn get_page_effective_size(doc: &Document, page_id: ObjectId) -> Option<(f32, f32)> {
     let [x0, y0, x1, y1] = get_page_media_box(doc, page_id)?;

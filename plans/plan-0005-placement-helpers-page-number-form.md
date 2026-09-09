@@ -41,6 +41,13 @@ this is a plan and not a patch.
 
 Option 3 is the only one that would need a MINOR bump; 1 and 2 are additive.
 
+**The pdf-orchestrator session, told of the page-tree walk below, stated a preference for
+option 2** (2026-09-09), and its reasoning is worth keeping: a page-number overload that
+quietly walks the tree N times in an N-slot loop is a _worse_ API than the asymmetry it
+removes, because the cost is invisible at the call site.  Promoting the conversion leaves
+the walk explicit and hoistable.  Not a request and nothing is blocked on it — recorded in
+case this plan is picked up.
+
 ## Implementation Notes
 
 - The conversion is `doc.get_pages()`, which **walks the whole page tree on every call** —

@@ -212,6 +212,32 @@ pub(crate) fn compute_placement_transform(
 /// `(x, y)`–`(x + width, y + height)` for a `PlacePageParams` with this `scale`
 /// and `rotation`; the MediaBox origin never enters a caller's arithmetic.
 ///
+/// # Fitting a page to a cell
+///
+/// **The footprint is exactly linear in `scale`:** `placed_page_size(d, p, s, r)`
+/// is `s ×` `placed_page_size(d, p, 1.0, r)`, because the scale is uniform and
+/// factors out of the whole transform. So a fit-to-cell scale is one division, not
+/// a fixed-point iteration:
+///
+/// ```no_run
+/// # use lopdf::Document;
+/// # fn demo(src: &Document, page_id: lopdf::ObjectId) -> Option<()> {
+/// # let (cell_w, cell_h, rotation) = (306.0_f32, 396.0_f32, 0.0);
+/// // Measure at scale 1 with the rotation you intend to place at, then divide.
+/// let (unit_w, unit_h) = medpdf::placed_page_size(src, page_id, 1.0, rotation)?;
+/// let scale = (cell_w / unit_w).min(cell_h / unit_h);
+/// // placed_page_size(src, page_id, scale as f64, rotation) now fits the cell exactly.
+/// # Some(())
+/// # }
+/// ```
+///
+/// Measuring at scale 1 with the intended `rotation` is the part to get right: a
+/// 90° placement rotation transposes the footprint, so a fit computed from an
+/// unrotated measurement will overflow the cell. When the placement rotation is 0
+/// this reduces to [`get_page_effective_size`](crate::get_page_effective_size).
+/// The linearity is pinned by `placed_size_is_linear_in_scale` in
+/// `tests/place_page_rotate_and_origin_regression.rs`.
+///
 /// Returns `None` if the page has no `/MediaBox` on itself or any ancestor.
 ///
 /// ```no_run

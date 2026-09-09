@@ -19,7 +19,7 @@ svg = ["dep:svg2pdf", "dep:usvg"]
 svg-filters = ["svg", "svg2pdf/filters"]
 
 [dependencies]
-medpdf = { version = "0.13.1", path = "../medpdf" }
+medpdf = { version = "0.13.2", path = "../medpdf" }
 lopdf = "0.42.0"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "bmp", "tiff", "webp", "rayon"] }
 flate2 = "1"
