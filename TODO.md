@@ -81,6 +81,8 @@ Proposed changes now live in `plans/plan-NNNN-<slug>.md`, per the portfolio `pla
 
 - **`plan-0005-placement-helpers-page-number-form`** — `place_page` takes a 1-based page **number** while the 0.13.0 helpers `placed_page_size` / `get_page_effective_size` take an **ObjectId**, so a caller that plans a placement and then makes it converts between the two in the middle.  Reported by the pdf-orchestrator session on adoption, explicitly as an observation and not a request (both of its call sites already held the `ObjectId`).  Three options, cheapest first: document the asymmetry; promote `get_page_object_id_from_doc` to a public `get_page_id`; or add page-number overloads.  Nothing is blocked on it.
 
+- **`plan-0006-page-spec-honors-duplicates`** — **ruled by Chris 2026-09-09** (“we should honor duplicates, as that is a useful feature”), shape ruled too: change `parse_page_spec` itself rather than adding a sequence variant.  Consumer requirement is pdf-maker `bug-0003`.  The gating consumer audit is **done and verified** (pdf-orchestrator has one call into the parser, no destructive path at all, its one membership test is duplicate-immune, and its three `len()` counters track the merge loop only because they share the function — which is why the single-function shape is the safer one for it).  Breaking ⇒ MINOR bump.  Deconflict with pdf-orchestrator `plan-0002` first; not on pdf-maker’s `--tile` critical path.
+
 ## Standing instructions for whoever picks this up
 
 - Every fix must land with a regression test that **fails when the fix is reverted** (several reports name the exact assertion).  For bug-0007 the repro must run in a child process — the failure is a process abort.

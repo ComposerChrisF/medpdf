@@ -93,6 +93,16 @@ been rewritten upstream.
 **Verdict: safe to land.**  pdf-orchestrator’s session said so explicitly and asked for
 nothing back.
 
+**Deconflict before landing.**  pdf-orchestrator is mid-flight on a plan of its own —
+_pdf-orchestrator_ `plan-0002`, making `--dry-run` execute the pipeline and skip only the
+save.  That plan changes what the dry-run path does with a parsed page list, which is one
+of the three counting sites above, so landing a `parse_page_spec` behavior change
+underneath it would put two changes on the same code at once and make a regression hard
+to attribute.  Check with that session before starting.  (Note the ID collision: a bare
+`plan-0002` is ambiguous portfolio-wide as of 2026-09-09 — medpdf’s is multi-line
+watermark text, pdf-orchestrator’s is the dry-run change.  Cite both with the repo name,
+per the plans rule.)
+
 ## Why Not a Workaround
 
 A caller cannot restore what the parser already discarded — by the time pdf-maker sees
