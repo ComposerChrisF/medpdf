@@ -43,6 +43,15 @@
 //!   scan imposed sideways — and, worse for any caller deriving a grid from the
 //!   page size, with rows and columns transposed.
 //!
+//! One observable consequence, load-bearing enough to state rather than leave to
+//! be rediscovered: with `clip` enabled (the default) and a total rotation that is
+//! a 90° step — which covers every unrotated placement and every quarter-turn —
+//! the emitted clip rectangle is exactly `x y w h re`, where `(w, h)` is
+//! [`placed_page_size`]. Decoding that one operator therefore pins the whole
+//! contract, and pdf-orchestrator's placement tests do exactly that. An arbitrary
+//! angle emits the transformed quadrilateral instead (bug-0027), whose bounding
+//! box is the same rectangle.
+//!
 //! Callers doing grid arithmetic (N-up slots, tile columns and rows) should size
 //! against [`placed_page_size`] rather than
 //! [`get_page_media_box`](crate::get_page_media_box), which is the *pre-rotation*
