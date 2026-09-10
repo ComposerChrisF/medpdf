@@ -41,11 +41,13 @@ Yes — that was the question asked, so answering it precisely:
 - Duplicating a page is now a **supported, documented** operation as of pdf-maker `bug-0003` (it is what medpdf 0.15.0 unblocked), so `"1,1"` on such a file is a normal invocation rather than an exotic one.
 - pdf-maker never edits annotations itself, so it cannot trigger consequence (2) on its own.  It hands the aliased pair to whatever opens the file next.
 
-So: reachable, low frequency, and the harm depends on the consumer.  **Not urgent** — nothing in the portfolio is known to duplicate an annotated page today — but it is the last member of the class `bug-0040` opened, and the fix shape is presumably the same one line, extended to the page’s annotation references.
+So: reachable, low frequency, and the harm depends on the consumer.  **Not urgent** — nothing in the portfolio is known to duplicate an annotated page today — but it is the last member of the class `bug-0040` opened.
 
 ## Suggested fix
 
 The `bug-0040` fix drops the page’s own entry from `copied_objects` before the deep copy so the page node is always freshly copied.  The same reasoning applies one level in: an annotation belongs to exactly one page, so on a repeat copy its entries should be dropped too, giving each copy its own annotation objects — then set each new annotation’s `/P` to the page that now owns it.
+
+**It is a different shape from `bug-0040`’s fix, not the same line extended** — corrected 2026-09-10 by the medpdf session, which is right and whose correction is recorded here so the next reader does not inherit the original underestimate.  `bug-0040` drops **one known id** (the page’s own) before the copy and is done.  This one must walk `/Annots` to drop a **variable set** of ids, and then rewrite each new annotation’s `/P` **after** the copy, because `/P` has to name a page object that does not exist until the copy completes.  Still small, but two-phase rather than one line.
 
 Worth deciding explicitly, since it is a judgment call rather than a mechanical extension: **an annotation’s _appearance stream_ should stay shared** (it is a resource, and that is what the cache is for); only the annotation dictionary and its `/P` need to be per-copy.
 
