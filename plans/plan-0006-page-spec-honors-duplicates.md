@@ -135,8 +135,62 @@ consumer to recover the repeats would duplicate medpdf’s page-spec grammar, in
 open-range and `"all"` forms and the bounds check, in every consumer that wants a
 sequence.  The parser is the only place the information still exists.
 
+## BLOCKER found 2026-09-10 — this plan is not sufficient on its own (medpdf `bug-0040`)
+
+Filed by the pdf-maker session while starting its `bug-0003`, and **verified here against this
+repo’s own code and test fixtures**, not inferred from the consumer side.
+
+**Preserving duplicates in the parsed list is only half of honoring a duplicate page.**  The
+other half is in this repo: `copy_page_with_cache` looks the source page up through the same
+`copied_objects` map it uses for fonts and images, so the **second call for the same page
+returns the already-copied page’s id** — and then appends that id to `/Kids` a second time and
+increments `/Count` again (`pdf_copy_page.rs:88-108`).
+
+Measured, with `fixtures::create_pdf_with_pages(2)`:
+
+```
+first  = (3, 0)
+second = (3, 0)
+get_pages().len() = 2
+```
+
+Two `/Kids` slots, one object.  And because they are one object, a per-page edit to “the second
+page” edits the first — rotating only the second copy leaves the first with `/Rotate Some(90)`.
+Full report and a two-test repro: **`bugs/bug-0040-copy-page-with-cache-aliases-repeated-page.md`**.
+
+**Consequence for sequencing: do not land this plan alone.**  Today the bug is unreachable
+precisely because `parse_page_spec` collapses duplicates; this plan removes that collapse and
+hands both consumers’ merge loops a repeated page number, which is the input that produces the
+malformed tree.  Land `bug-0040` first, or land the two together.
+
+**The consumer audit above missed it, and the reason is worth keeping.**  The audit asked what
+each call site does with the _list_ — iterate, count, or test membership — and that framing was
+right for the question it was asked.  It could not surface this, because the fault is not in
+what the consumers do with the list; it is in what this repo does when the same element arrives
+twice.  A list-shaped audit will not find an identity-shaped bug.
+
+**pdf-orchestrator is exposed too, and nobody has told it.**  `src/pipeline/mod.rs:451-469`
+loops the parsed pages, calls `copy_page_with_cache` with a shared cache, and then calls
+`apply_children_to_page` on the returned id — so `<ImportPdf pages="1,1">` would apply that
+page’s children twice to one object.  That repo has no session running; whoever lands this
+should file there or notify it.
+
+## Deconflict status — checked 2026-09-10
+
+The plan asks for a check with the pdf-orchestrator session before starting.  State as of
+2026-09-10, verified by reading that repo rather than by asking: **_pdf-orchestrator_
+`plan-0002` is filed but unimplemented** — `plans/plan-0002-dry-run-executes-without-saving.md`
+exists, its notes are committed (`88c5ba0`, `eff1030`), and no implementation commits follow;
+that repo’s recent commits are v0.16.5/v0.16.6 work on unrelated paths.  So the two changes are
+**not** in flight together, which was the hazard the deconflict note existed to prevent.
+
+Chris authorized proceeding on 2026-09-10, relayed by the pdf-maker session, which he told to
+hand this work to the medpdf session directly.
+
 ## Related
 
+- **medpdf `bug-0040`** (filed 2026-09-10) — `copy_page_with_cache` aliases a repeated page.
+  **A hard prerequisite for this plan**, per the blocker section above.
 - **pdf-maker `bug-0003`** — the consumer requirement; stays open until this lands.
 - **medpdf `bug-0021`** (fixed, v0.12.0) — the out-of-range contract this must not
   weaken.
