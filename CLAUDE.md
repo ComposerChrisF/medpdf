@@ -27,11 +27,11 @@ A Cargo workspace of three crates: `medpdf/` (the library, published), `medpdf-i
 | `medpdf::error` | Custom `MedpdfError` enum with Display/Error traits |
 | `medpdf::types` | Builder-pattern param types: `AddTextParams`, `DrawRectParams`, `DrawLineParams`, `PlacePageParams`, `PdfColor`, alignment enums |
 | `medpdf::font_data` | `FontData` enum: `Hack(u8)`, `BuiltIn(String)`, `Embedded(Arc<Vec<u8>>)` |
-| `medpdf::parsing` | Page spec parsing with nom (`"1-3,5,7-"`, `"all"`) |
+| `medpdf::parsing` | Page spec parsing with nom (`"1-3,5,7-"`, `"all"`); a spec is a **sequence to emit**, so duplicates are preserved in written order (`"1,1"` → `[1, 1]`), while out-of-range stays a loud error |
 | `medpdf::pdf_helpers` | Deep object copying, PDF key constants, Unit enum, page rotation, `get_page_effective_size()` (MediaBox extents swapped under `/Rotate` 90/270) |
 | `medpdf::pdf_font` | Font discovery (system/file) and caching; re-exports `find_font`, `FontCache`, `FontPath` |
 | `medpdf::font_helpers` | TTF parsing, font metrics, PDF FontDescriptor generation, canonical WinAnsi encoding table |
-| `medpdf::pdf_copy_page` | `copy_page()` - copy pages between documents |
+| `medpdf::pdf_copy_page` | `copy_page()` - copy pages between documents; the shared cache of `copy_page_with_cache()` deduplicates **resources, never pages** — every call yields a fresh page object, so a repeated page gives two independently editable pages |
 | `medpdf::pdf_delete_page` | `delete_page()` - remove pages from documents |
 | `medpdf::pdf_encryption` | `encrypt_document()` - AES-256/AES-128/RC4-128 encryption with permission controls |
 | `medpdf::pdf_blank_page` | `create_blank_page()` - add empty pages |

@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-09-10
+### Changed
+- **BREAKING — `parse_page_spec` now preserves duplicate pages.**  A page spec is
+  a _sequence to emit_, not a set to select: `"1,1"` returns `[1, 1]` and
+  `"1-3,2"` returns `[1, 2, 3, 2]`.  Previously duplicates were collapsed before
+  any caller saw them, so a caller could not express “emit page 1 twice” — a page
+  repeated for a facing-page layout or a duplicated insert — and the information
+  was unrecoverable downstream.  A caller that wants a set can deduplicate the
+  returned list; the reverse was impossible.  Implements plan-0006, ruled by
+  Chris; the consumer requirement is pdf-maker bug-0003.  Order was already
+  preserved, so this changes exactly one thing.  The bug-0021 out-of-range
+  contract is untouched and orthogonal: `"1,1,99"` on a two-page document still
+  errors naming page 99.
+
+### Fixed
+- **bug-0040 — `copy_page_with_cache` no longer aliases a repeated page.**  The
+  shared `copied_objects` cache is keyed on source `ObjectId`, and the page object
+  was looked up through it like any other object, so the second call for the same
+  source page returned the *first copy's* id, appended it to `/Kids` again, and
+  incremented `/Count` again — two slots holding one object.  Because they were
+  one object, a per-page edit to “the second page” also edited the first, which is
+  exactly what a consumer's per-page loop does (a watermark, a stamp, a rotation).
+  The cache now deduplicates resources only: the page's own entry is dropped
+  before the copy, so every call yields a fresh page node while its descendants
+  still hit the cache.  Copying *distinct* pages is byte-for-byte unchanged, and
+  the two copies of a repeated page still share their `/Contents` and
+  `/Resources`.  Reported by the pdf-maker session; unreachable before the
+  `parse_page_spec` change above, which is why the two land together.
+
 ## [0.14.0] - 2026-09-09
 ### Added
 - `add_text_params` now renders multi-line text — `text` is split on `\n` (and
@@ -381,4 +410,5 @@ change.
 Earlier history (0.8.x and before: PDF encryption, edition-2024 migration, the
 initial image-embedding split) is in the git log.
 
-[Unreleased]: https://github.com/ComposerChrisF/medpdf/compare/medpdf-v0.14.0...HEAD
+[Unreleased]: https://github.com/ComposerChrisF/medpdf/compare/medpdf-v0.15.0...HEAD
+[0.15.0]: https://github.com/ComposerChrisF/medpdf/compare/medpdf-v0.14.0...medpdf-v0.15.0

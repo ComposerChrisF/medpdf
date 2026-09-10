@@ -20,7 +20,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-medpdf = "0.14"
+medpdf = "0.15"
 ```
 
 ## Quick Start
@@ -95,7 +95,7 @@ use medpdf::copy_page;
 let new_page_id = copy_page(&mut dest_doc, &source_doc, 1)?;
 ```
 
-Note: Each call creates its own reference tracking map.  Use `copy_page_with_cache` when copying multiple pages to deduplicate shared resources.
+Note: Each call creates its own reference tracking map.  Use `copy_page_with_cache` when copying multiple pages to deduplicate shared resources.  That cache deduplicates _resources_, never _pages_: every call produces a new, independent page object, so copying the same page twice gives two pages a caller can edit separately (they share their `/Contents` and `/Resources`, which is what the cache is for).
 
 #### `copy_page_with_cache`
 
@@ -167,7 +167,13 @@ add_text_params(&mut dest_doc, page_id, &params, &mut font_cache)?;
 
 #### `parse_page_spec`
 
-Parses page range specifications into a vector of page numbers, preserving user-specified order with duplicates removed.
+Parses page range specifications into a vector of page numbers, preserving user-specified order **and repetition**.
+
+A page spec is a _sequence to emit_, not a set to select, so a repeated page is a repeated
+page: `"1,1"` yields `[1, 1]`.  This lets a caller express a page duplicated for a
+facing-page layout or a repeated insert.  (Before v0.15.0 the parser deduplicated, and the
+repetition was lost before any caller could see it — a caller wanting a _set_ can
+deduplicate the returned list, but the reverse was impossible.)
 
 ```rust
 use medpdf::parse_page_spec;
@@ -175,9 +181,18 @@ use medpdf::parse_page_spec;
 let pages = parse_page_spec("1-3,5,7-", 10)?;
 // Returns: [1, 2, 3, 5, 7, 8, 9, 10]
 
+let repeated = parse_page_spec("1,1,3", 10)?;
+// Returns: [1, 1, 3] — repetition preserved, in the position written
+
+let overlapping = parse_page_spec("1-3,2-4", 10)?;
+// Returns: [1, 2, 3, 2, 3, 4] — overlapping ranges emit each page as written
+
 let all_pages = parse_page_spec("all", 10)?;
 // Returns: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 ```
+
+Repetition and range checking are orthogonal: a repeat is legal, an out-of-range page is
+still an error naming the page, so `"1,1,99"` on a two-page document fails on the `99`.
 
 Supported syntax:
 - Single pages: `"5"`

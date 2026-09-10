@@ -1,5 +1,6 @@
 //! Page specification parsing (e.g. `"1-3,5,7-"`, `"all"`).
 
+use crate::error::{MedpdfError, Result};
 use nom::{
     IResult,
     branch::alt,
@@ -8,9 +9,6 @@ use nom::{
     multi::separated_list1,
     sequence::{delimited, separated_pair},
 };
-use std::collections::HashSet;
-
-use crate::error::{MedpdfError, Result};
 
 #[derive(Debug, Clone, Copy)]
 enum PageItem {
@@ -42,17 +40,23 @@ fn parse_spec_list(input: &str) -> IResult<&str, Vec<PageItem>> {
 }
 
 /// Parses a page specification string into a vector of 1-based page numbers,
-/// preserving user-specified order. Duplicates are dropped (first occurrence wins).
+/// preserving user-specified order **and repetition**.
+///
+/// A page spec is a *sequence to emit*, not a set to select: `"1,1"` yields `[1, 1]` and
+/// `"1-3,2"` yields `[1, 2, 3, 2]`, so a caller can express "emit page 1 twice" — a page
+/// repeated for a facing-page layout, or a duplicated insert. Deduplication was removed in
+/// v0.15.0 (plan-0006); before that a repeat was collapsed before any caller saw it, and
+/// the information could not be recovered downstream. A caller that wants a *set* can
+/// deduplicate the returned list itself; the reverse was impossible.
 ///
 /// **Out-of-range pages are an error, not silently dropped (bug-0021).** A single page,
 /// or a range's start, greater than `max_pages` returns `Err`; an *explicit* range end
 /// beyond `max_pages` (e.g. `"1-100"` on a 3-page document) also returns `Err`. An *open*
 /// end (`"3-"`) means "through the last page", so it is defined by `max_pages` and is
 /// never out of range. `"all"` yields every page. This is a fail-loud contract: callers
-/// do not need to re-validate the returned set against the request.
+/// do not need to re-validate the returned list against the request.
 pub fn parse_page_spec(spec: &str, max_pages: u32) -> Result<Vec<u32>> {
     let mut pages = Vec::new();
-    let mut seen = HashSet::new();
     let trimmed_spec = spec.trim();
 
     if trimmed_spec.eq_ignore_ascii_case("all") {
@@ -75,9 +79,7 @@ pub fn parse_page_spec(spec: &str, max_pages: u32) -> Result<Vec<u32>> {
                                 "Page {num} is out of range: the document has {max_pages} page(s)."
                             )));
                         }
-                        if seen.insert(num) {
-                            pages.push(num);
-                        }
+                        pages.push(num);
                     }
                     PageItem::Range(start_opt, end_opt) => {
                         if max_pages == 0 && (start_opt.is_none() || end_opt.is_none()) {
@@ -113,11 +115,7 @@ pub fn parse_page_spec(spec: &str, max_pages: u32) -> Result<Vec<u32>> {
                                 "Page {explicit_end} is out of range: the document has {max_pages} page(s)."
                             )));
                         }
-                        for i in start..=end {
-                            if seen.insert(i) {
-                                pages.push(i);
-                            }
-                        }
+                        pages.extend(start..=end);
                     }
                 }
             }
@@ -217,8 +215,9 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_dedup() {
-        assert_eq!(parse_page_spec("1,1,2", 5).unwrap(), vec![1, 2]);
+    fn test_parse_repeats_are_preserved() {
+        // A page spec is a sequence to emit, not a set to select (plan-0006).
+        assert_eq!(parse_page_spec("1,1,2", 5).unwrap(), vec![1, 1, 2]);
     }
 
     #[test]
@@ -237,8 +236,8 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_order_with_range_dedup() {
-        // 3 first, then range 1-4 adds 1,2,4 (3 already seen)
-        assert_eq!(parse_page_spec("3,1-4", 5).unwrap(), vec![3, 1, 2, 4]);
+    fn test_parse_order_with_range_repeat() {
+        // 3 first, then the whole range 1-4 — including 3 again, in range position.
+        assert_eq!(parse_page_spec("3,1-4", 5).unwrap(), vec![3, 1, 2, 3, 4]);
     }
 }

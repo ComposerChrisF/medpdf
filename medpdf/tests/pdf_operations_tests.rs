@@ -657,12 +657,17 @@ fn test_copy_same_page_multiple_times_without_cache() {
 }
 
 #[test]
-fn test_copy_same_page_with_cache_returns_cached_id() {
-    // When the same source page is copied twice with the same cache,
-    // deep_copy returns the cached ObjectId (the same page object is reused).
-    // However, the page reference IS still added to Kids again, so the document
-    // has 2 page entries pointing to the same underlying page object.
-    // This deduplicates the page's resources (fonts, images, etc.), not the page entry itself.
+fn test_copy_same_page_with_cache_yields_distinct_pages() {
+    // Until bug-0040 this test asserted the OPPOSITE — that the cache returns the
+    // same ObjectId for a repeated page — and its comment described the resulting
+    // two-Kids-one-object tree as intended ("deduplicates the page's resources,
+    // not the page entry itself"). That reading is wrong: /Kids listing one object
+    // twice is a malformed page tree, and because the two entries are one object,
+    // a per-page edit to the second edits the first. The cache deduplicates
+    // resources; it must never deduplicate pages.
+    //
+    // Full contract and the mutation-isolation case:
+    // tests/copy_page_repeated_identity_regression.rs.
     let source = fixtures::create_pdf_with_shared_font(1);
     let mut dest = fixtures::create_empty_pdf();
     let mut cache = BTreeMap::new();
@@ -670,11 +675,11 @@ fn test_copy_same_page_with_cache_returns_cached_id() {
     let id1 = copy_page_with_cache(&mut dest, &source, 1, &mut cache).unwrap();
     let id2 = copy_page_with_cache(&mut dest, &source, 1, &mut cache).unwrap();
 
-    // Cache returns the same ObjectId for the same source object
-    assert_eq!(
+    assert_ne!(
         id1, id2,
-        "Cache should return same destination ID for same source page"
+        "each call must produce its own page object, even for a repeated page"
     );
+    assert_eq!(dest.get_pages().len(), 2, "two copies must be two pages");
 }
 
 #[test]

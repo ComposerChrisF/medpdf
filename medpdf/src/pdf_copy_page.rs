@@ -33,6 +33,14 @@ pub fn copy_page(
 /// multiple calls when copying pages from the same source document to
 /// deduplicate shared resources like fonts and images.
 ///
+/// The cache deduplicates resources, never pages: **each call produces a new,
+/// independent page object**, so copying the same `page_num` twice yields two
+/// distinct pages that a caller can edit separately. The two copies do share
+/// their `/Contents` and `/Resources` objects, which is what the cache is for
+/// and is legal — medpdf's own per-page operations (watermark, overlay,
+/// `place_page`) rebuild the *page dictionary's* `/Contents` and add new stream
+/// objects rather than mutating a referenced stream in place.
+///
 /// # Example
 /// ```ignore
 /// let mut cache = BTreeMap::new();
@@ -48,6 +56,19 @@ pub fn copy_page_with_cache(
 ) -> Result<ObjectId> {
     let source_page_id = pdf_helpers::get_page_object_id_from_doc(source_doc, page_num)?;
     let dest_pages_id = dest_doc.catalog()?.get(KEY_PAGES)?.as_reference()?;
+
+    // The cache deduplicates *resources* — fonts, images, the objects a page
+    // shares with its siblings. It must never deduplicate the *page node*: this
+    // function's contract is "one call, one page", and `deep_copy_object_by_id`
+    // short-circuits on a cache hit, so copying the same page twice would
+    // otherwise return the first copy's id, append it to /Kids a second time,
+    // and increment /Count again — two slots holding one object. Because they
+    // are one object, a per-page edit to the second copy (a watermark, a stamp,
+    // a rotation) also edits the first (bug-0040). Dropping the page's own entry
+    // forces a fresh page node while its descendants still hit the cache, so
+    // resource sharing is untouched. Copying distinct pages never hits this
+    // remove, so that path is byte-for-byte unchanged.
+    copied_objects.remove(&source_page_id);
 
     let new_page_id =
         pdf_helpers::deep_copy_object_by_id(dest_doc, source_doc, source_page_id, copied_objects)?;

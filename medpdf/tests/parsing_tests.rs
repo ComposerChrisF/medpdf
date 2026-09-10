@@ -85,16 +85,17 @@ fn test_complex_mixed_specs() {
 }
 
 #[test]
-fn test_deduplication() {
-    // Overlapping ranges should be deduplicated
+fn test_overlapping_ranges_keep_their_repeats() {
+    // Overlapping ranges emit each page as written — a spec is a sequence, not a
+    // set (plan-0006). Page 2 and 3 fall in both ranges, so each appears twice.
     let result = parse_page_spec("1-3,2-4", 5).unwrap();
-    assert_eq!(result, vec![1, 2, 3, 4]);
+    assert_eq!(result, vec![1, 2, 3, 2, 3, 4]);
 }
 
 #[test]
 fn test_multiple_overlaps() {
     let result = parse_page_spec("1,1,1,2,2,3", 5).unwrap();
-    assert_eq!(result, vec![1, 2, 3]);
+    assert_eq!(result, vec![1, 1, 1, 2, 2, 3]);
 }
 
 #[test]
@@ -288,4 +289,51 @@ fn test_large_page_count() {
 fn test_large_range() {
     let result = parse_page_spec("1-1000", 1000).unwrap();
     assert_eq!(result.len(), 1000);
+}
+
+// ---------------------------------------------------------------------------
+// plan-0006: a page spec is a sequence to emit, not a set to select.
+// Repetition is legal; out-of-range is not. The two are orthogonal, and the
+// second half is a contract invariant pdf-maker records on its side and asked
+// for explicitly — removing the dedup must not weaken the bug-0021 bounds check.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_repeated_single_page_is_preserved() {
+    assert_eq!(parse_page_spec("1,1", 5).unwrap(), vec![1, 1]);
+}
+
+#[test]
+fn test_repeat_after_range_is_preserved_in_position() {
+    assert_eq!(parse_page_spec("1-3,2", 5).unwrap(), vec![1, 2, 3, 2]);
+}
+
+#[test]
+fn test_page_repeated_many_times() {
+    assert_eq!(parse_page_spec("2,2,2,2", 5).unwrap(), vec![2, 2, 2, 2]);
+}
+
+/// The invariant pdf-maker depends on: repetition legal, out-of-range still an
+/// error naming the offending page, even when a repeat precedes it.
+#[test]
+fn test_repeats_do_not_weaken_the_out_of_range_check() {
+    let err = parse_page_spec("1,1,99", 2).unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        msg.contains("99"),
+        "the error must name the out-of-range page; got: {msg}"
+    );
+}
+
+/// The legal half of the same spec on the same document still parses.
+#[test]
+fn test_repeats_within_range_still_succeed() {
+    assert_eq!(parse_page_spec("1,1", 2).unwrap(), vec![1, 1]);
+}
+
+/// `"all"` is a whole-document selection, not a user sequence, so it is
+/// unaffected: every page once, in order.
+#[test]
+fn test_all_is_unaffected_by_the_sequence_change() {
+    assert_eq!(parse_page_spec("all", 4).unwrap(), vec![1, 2, 3, 4]);
 }

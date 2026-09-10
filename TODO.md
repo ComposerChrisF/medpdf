@@ -81,7 +81,14 @@ Proposed changes now live in `plans/plan-NNNN-<slug>.md`, per the portfolio `pla
 
 - **`plan-0005-placement-helpers-page-number-form`** — `place_page` takes a 1-based page **number** while the 0.13.0 helpers `placed_page_size` / `get_page_effective_size` take an **ObjectId**, so a caller that plans a placement and then makes it converts between the two in the middle.  Reported by the pdf-orchestrator session on adoption, explicitly as an observation and not a request (both of its call sites already held the `ObjectId`).  Three options, cheapest first: document the asymmetry; promote `get_page_object_id_from_doc` to a public `get_page_id`; or add page-number overloads.  Nothing is blocked on it.
 
-- **`plan-0006-page-spec-honors-duplicates`** — **ruled by Chris 2026-09-09** (“we should honor duplicates, as that is a useful feature”), shape ruled too: change `parse_page_spec` itself rather than adding a sequence variant.  Consumer requirement is pdf-maker `bug-0003`.  The gating consumer audit is **done and verified** (pdf-orchestrator has one call into the parser, no destructive path at all, its one membership test is duplicate-immune, and its three `len()` counters track the merge loop only because they share the function — which is why the single-function shape is the safer one for it).  Breaking ⇒ MINOR bump.  Deconflict with pdf-orchestrator `plan-0002` first; not on pdf-maker’s `--tile` critical path.
+- ~~**`plan-0006-page-spec-honors-duplicates`**~~ — **landed in medpdf 0.15.0** (2026-09-10), together with **bug-0040**, which the pdf-maker session found while starting its `bug-0003` and which made the plan unsafe to land alone: `copy_page_with_cache` looked the page up through the same cache it uses for fonts and images, so a repeated page returned the first copy’s id and `/Kids` listed one object twice — and a per-page edit to the second copy edited the first.  Both fixed; plan and report deleted per their lifecycles.  Deconflict re-checked before landing: pdf-orchestrator `plan-0002` is filed but unimplemented, so the two were never in flight together.
+
+  **Two consumer actions are still open** (see “Consumer notifications owed”, below).
+
+## Consumer notifications owed (opened 2026-09-10 by the 0.15.0 release)
+
+- **pdf-maker** — asked to be told the version so it can adopt: raise its `medpdf` floor to `"0.15"`, honor duplicates in `merge_pages`, update its README, and close its `bug-0003`.  Its contract invariant survives: `"1,1,99"` on a two-page document is still an error naming page 99 (pinned by `test_repeats_do_not_weaken_the_out_of_range_check`).
+- **pdf-orchestrator** — has the same bug-0040 exposure and no session running.  `src/pipeline/mod.rs:451-469` loops the parsed pages, calls `copy_page_with_cache` with a shared cache, then calls `apply_children_to_page` on the returned id, so `<ImportPdf pages="1,1">` applied that page’s children twice to one object.  **The 0.15.0 upgrade fixes it**, but the page-spec change is breaking, so the adoption is not free — it needs a report filed in that repo.
 
 ## Standing instructions for whoever picks this up
 
