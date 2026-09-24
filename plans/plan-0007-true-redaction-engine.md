@@ -6,7 +6,7 @@ medpdf can draw an opaque rectangle (`DrawRectParams`, pdf-maker’s `--draw-rec
 
 The motivating use is a financial statement (bank, card, brokerage) that must be shown to an AI with account and routing numbers removed.  The adversary is not a human eye but a text extractor _and_ a page rasterizer: an AI may be given the text layer, a rendered image of the page, or both.  Both must be clean.
 
-The format-agnostic half of this problem — the secrets file, the matching tiers, the hold-for-review workflow, the no-echo output contract — is specified as a tool, `~/Chris/Proj/Coding/cli-specs/pii-redact-spec.md`.  This plan is the PDF-native half: the library operation that removes what that matcher selects.
+The format-agnostic half of this problem — the secrets file, the matching tiers, the hold-for-review workflow, the no-echo output contract — is specified as a tool, `~/Chris/Proj/Coding/cli-specs/id-redact-spec.md`.  This plan is the PDF-native half: the library operation that removes what that matcher selects.
 
 ## Proposed Change
 
@@ -18,7 +18,7 @@ pub fn redact_document(doc: &mut Document, spec: &RedactSpec) -> Result<RedactRe
 
 **`RedactSpec`** carries targets of two kinds:
 
-- **Glyph targets** — selected by a caller-supplied matcher over the decoded glyph sequence of each text-showing context (page content, and each Form XObject).  medpdf decodes and positions glyphs; it does not know what an account number is.  The matcher (pii-redact’s engine) returns spans to remove.
+- **Glyph targets** — selected by a caller-supplied matcher over the decoded glyph sequence of each text-showing context (page content, and each Form XObject).  medpdf decodes and positions glyphs; it does not know what an account number is.  The matcher (id-redact’s engine) returns spans to remove.
 - **Area targets** — `(page, rect)` in default user space, for things no text search can find.
 
 **What “redact” does to a target:**
@@ -68,7 +68,7 @@ The output is written to a temporary file and renamed into place only after both
 
 - **Glyph decoding does not exist in medpdf today; pdf-dump has it** (`cmap.rs`, `encodings.rs`, `glyphlist.rs`, and the Reliable/Degraded verdict in `text.rs`).  Glyph _positioning_ exists in neither — it is pdf-dump `plan-0002`.
 - **Open question: share or duplicate the decoder and positioning engine?**  Sharing (extract a crate both depend on) avoids two implementations of the most intricate code in either repo.  Duplicating keeps verification independent: if the redactor and the verifier share a decoder, a decoding bug that hides a match from one hides it from both.  A middle path: share the engine, but make step 2 of verification (the raw-byte scan) and a differential test against poppler’s `pdftotext` carry the independence.  Decide before implementation, and record why.
-- **Which front end?**  The lean is that `pii-redact` accepts PDF input and calls this module, so one secrets file, one set of tiers, and one hold/review workflow cover CSV, OFX, text, and PDF alike, and pdf-maker stays a layout tool.  The alternative is a `pdf-maker --redact` flag.  Whichever it is, `pdf-maker --draw-rect`’s `--help` should gain one line saying a rectangle is not a redaction.
+- **Which front end?**  The lean is that `id-redact` accepts PDF input and calls this module, so one secrets file, one set of tiers, and one hold/review workflow cover CSV, OFX, text, and PDF alike, and pdf-maker stays a layout tool.  The alternative is a `pdf-maker --redact` flag.  Whichever it is, `pdf-maker --draw-rect`’s `--help` should gain one line saying a rectangle is not a redaction.
 - **Rasterize mode** (later): render each page to an image, apply the boxes, and rebuild an image-only PDF.  It needs a renderer, which means a subprocess (`pdftoppm` or `mutool`, as `pdf-test-visual` already uses) — MuPDF is AGPL and cannot be linked into this MIT/Apache crate.  The paranoid answer to vector-outlined text.
 - **Prior art:** MuPDF’s `apply_redactions` is the behavioral reference for glyph removal with position preservation.  Acrobat Pro’s Redact tool is the reference for the “sanitize document” metadata sweep.
 - **Fixtures are synthetic, always.**  Real statements are the one input this feature must never show an AI.  Build fixtures with pdf-maker and hand-assembled lopdf documents: a secret split across `TJ` elements, one glyph per `Tj`, inside a shared Form XObject, in a CID font with `ToUnicode`, in `/Info`, in XMP, in an annotation `/URI`, and in an earlier incremental revision.
@@ -76,4 +76,4 @@ The output is written to a temporary file and renamed into place only after both
 
 ## Why Not a Workaround
 
-The workaround available today — a black `--draw-rect` over the number — is the exact failure this plan exists to prevent, and it _looks_ correct, which is what makes it dangerous.  Extracting text and redacting that (pii-redact’s text path) covers many uses, but not the ones that need the PDF itself: a document to share, or a page an AI must see as laid out.  Glyph removal with position preservation, metadata sanitization, and fail-closed verification is library work, and it belongs beside the other content-stream operations medpdf already owns.
+The workaround available today — a black `--draw-rect` over the number — is the exact failure this plan exists to prevent, and it _looks_ correct, which is what makes it dangerous.  Extracting text and redacting that (id-redact’s text path) covers many uses, but not the ones that need the PDF itself: a document to share, or a page an AI must see as laid out.  Glyph removal with position preservation, metadata sanitization, and fail-closed verification is library work, and it belongs beside the other content-stream operations medpdf already owns.
