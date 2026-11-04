@@ -20,7 +20,7 @@
 //! production `.pdfOrch` pipeline latently broken for Hawaiian overlay text. The text
 //! encoding and font embedding both live in this crate, so this is the fix locus;
 //! consumers needed no change beyond building against v0.11.0. Codepoint evidence and
-//! decision context: `~/Chris/Proj/Coding/okina-codepoint-verification.md`.
+//! decision context: a private note on the ‘okina codepoint.
 
 use std::collections::HashSet;
 use std::fmt::Write as _;
