@@ -22,6 +22,7 @@
 
 mod fixtures;
 
+use std::path::Path;
 use std::sync::Arc;
 
 use lopdf::{Document, Object};
@@ -42,11 +43,13 @@ fn is_cff(data: &[u8]) -> bool {
 
 /// Loads the first available CFF `.otf` font on this machine, or None (test skips).
 fn load_cff_otf() -> Option<Arc<Vec<u8>>> {
+    let user_font = std::env::var_os("HOME")
+        .map(|home| Path::new(&home).join("Library/Fonts/BellMTStd-Regular.otf"));
     let candidates = [
-        "/Users/chris/Library/Fonts/BellMTStd-Regular.otf",
-        "/Library/Fonts/Academico-Regular.otf",
+        user_font.as_deref(),
+        Some(Path::new("/Library/Fonts/Academico-Regular.otf")),
     ];
-    for path in candidates {
+    for path in candidates.into_iter().flatten() {
         if let Ok(bytes) = std::fs::read(path)
             && is_cff(&bytes)
         {

@@ -15,17 +15,17 @@ never touches git state — it only reads.
 
 Version comparison is SEMVER (Cargo package versions), where numeric ordering
 is correct and 1.10.0 > 1.9.0.  This is deliberately NOT the artifact-filename
-version scheme (~/.claude/rules/document-version-naming-scheme.md); package versions and
+version scheme (the house rule on document version naming); package versions and
 artifact-filename versions are different schemes with different comparators, so
 keep them in separate code paths.
 
-Exit codes (canonical portfolio table, ~/.claude/rules/cli-exit-codes.md):
+Exit codes (the canonical portfolio table, the house rule on exit codes):
 
   0  every crate is confirmed up-to-date with crates.io
   1  tool error — a manifest could not be read, or crates.io could not be
      reached for a crate whose status is therefore unknown and NOT clean
      (an unreachable registry is reported as Unknown, never as "up-to-date":
-     ~/.claude/rules/positive-evidence-of-absence.md)
+     the house rule on positive evidence of absence)
   3  findings — at least one crate is ahead of crates.io and worth publishing
 
 `--json` emits the same data as a machine-readable object and still exits 3 on
