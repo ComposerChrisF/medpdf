@@ -1189,7 +1189,7 @@ fn test_embedded_font_data_is_compressed() {
 
     // Find the font file stream (has Length1 key) and verify it's compressed
     let mut found_compressed = false;
-    for (_id, obj) in dest_doc.objects.iter() {
+    for obj in dest_doc.objects.values() {
         if let Ok(stream) = obj.as_stream()
             && stream.dict.has(b"Length1")
         {

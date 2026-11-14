@@ -398,7 +398,7 @@ fn decode_png(png_bytes: &[u8]) -> Result<DecodedImage, VisualTestError> {
         png::ColorType::Rgba => buf,
         png::ColorType::Rgb => {
             let mut rgba = Vec::with_capacity(info.width as usize * info.height as usize * 4);
-            for chunk in buf.chunks_exact(3) {
+            for chunk in buf.as_chunks::<3>().0 {
                 rgba.extend_from_slice(chunk);
                 rgba.push(255);
             }
@@ -406,7 +406,7 @@ fn decode_png(png_bytes: &[u8]) -> Result<DecodedImage, VisualTestError> {
         }
         png::ColorType::GrayscaleAlpha => {
             let mut rgba = Vec::with_capacity(info.width as usize * info.height as usize * 4);
-            for chunk in buf.chunks_exact(2) {
+            for chunk in buf.as_chunks::<2>().0 {
                 rgba.push(chunk[0]);
                 rgba.push(chunk[0]);
                 rgba.push(chunk[0]);
@@ -615,12 +615,16 @@ pub fn assert_images_ssim(
 
     let golden_pixels: Vec<rgb::RGBA8> = golden
         .rgba
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .map(|c| rgb::RGBA8::new(c[0], c[1], c[2], c[3]))
         .collect();
     let actual_pixels: Vec<rgb::RGBA8> = actual
         .rgba
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .map(|c| rgb::RGBA8::new(c[0], c[1], c[2], c[3]))
         .collect();
 

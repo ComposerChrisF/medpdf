@@ -365,7 +365,7 @@ fn test_roundtrip_subsetted_preserves_pages_and_font() {
 
     // Verify BaseFont has TAG+ prefix
     let mut found_tagged = false;
-    for (_id, obj) in reloaded.objects.iter() {
+    for obj in reloaded.objects.values() {
         if let Ok(dict) = obj.as_dict()
             && let Ok(lopdf::Object::Name(n)) = dict.get(b"BaseFont")
         {
@@ -382,7 +382,7 @@ fn test_roundtrip_subsetted_preserves_pages_and_font() {
 
     // Verify font stream has Length1 and Filter
     let mut found_font_stream = false;
-    for (_id, obj) in reloaded.objects.iter() {
+    for obj in reloaded.objects.values() {
         if let Ok(stream) = obj.as_stream()
             && stream.dict.has(b"Length1")
         {

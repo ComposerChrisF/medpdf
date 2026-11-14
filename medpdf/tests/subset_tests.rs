@@ -34,7 +34,7 @@ fn find_font_streams(doc: &lopdf::Document) -> Vec<(ObjectId, Vec<u8>)> {
 /// Total compressed size of all font streams (raw `.content` bytes, before decompression).
 fn total_font_stream_compressed_size(doc: &lopdf::Document) -> usize {
     let mut total = 0;
-    for (_id, obj) in doc.objects.iter() {
+    for obj in doc.objects.values() {
         if let Ok(stream) = obj.as_stream()
             && stream.dict.has(b"Length1")
         {
@@ -47,7 +47,7 @@ fn total_font_stream_compressed_size(doc: &lopdf::Document) -> usize {
 /// Finds all BaseFont name values across Font dictionaries in the document.
 fn find_base_font_names(doc: &lopdf::Document) -> Vec<String> {
     let mut names = Vec::new();
-    for (_id, obj) in doc.objects.iter() {
+    for obj in doc.objects.values() {
         if let Ok(dict) = obj.as_dict()
             && let Ok(Object::Name(n)) = dict.get(b"BaseFont")
         {
@@ -60,7 +60,7 @@ fn find_base_font_names(doc: &lopdf::Document) -> Vec<String> {
 /// Finds all FontName values across FontDescriptor dictionaries.
 fn find_font_descriptor_names(doc: &lopdf::Document) -> Vec<String> {
     let mut names = Vec::new();
-    for (_id, obj) in doc.objects.iter() {
+    for obj in doc.objects.values() {
         if let Ok(dict) = obj.as_dict()
             && dict.get(b"Type").ok().and_then(|v| v.as_name().ok()) == Some(b"FontDescriptor")
             && let Ok(Object::Name(n)) = dict.get(b"FontName")
