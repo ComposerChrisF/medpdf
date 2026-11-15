@@ -25,13 +25,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **bug-0040 — `copy_page_with_cache` no longer aliases a repeated page.**  The
   shared `copied_objects` cache is keyed on source `ObjectId`, and the page object
   was looked up through it like any other object, so the second call for the same
-  source page returned the *first copy's* id, appended it to `/Kids` again, and
+  source page returned the _first copy’s_ id, appended it to `/Kids` again, and
   incremented `/Count` again — two slots holding one object.  Because they were
   one object, a per-page edit to “the second page” also edited the first, which is
-  exactly what a consumer's per-page loop does (a watermark, a stamp, a rotation).
-  The cache now deduplicates resources only: the page's own entry is dropped
+  exactly what a consumer’s per-page loop does (a watermark, a stamp, a rotation).
+  The cache now deduplicates resources only: the page’s own entry is dropped
   before the copy, so every call yields a fresh page node while its descendants
-  still hit the cache.  Copying *distinct* pages is byte-for-byte unchanged, and
+  still hit the cache.  Copying _distinct_ pages is byte-for-byte unchanged, and
   the two copies of a repeated page still share their `/Contents` and
   `/Resources`.  Reported by the pdf-maker session; unreachable before the
   `parse_page_spec` change above, which is why the two land together.
