@@ -21,7 +21,7 @@ Err(_) => {
 
 `/Resources` is inheritable (PDF 32000-1 § 7.7.3.4).  A page without its own entry may be using one on a `/Pages` ancestor.  The helper does not look there: it creates a dictionary holding only the new entry and sets it on the page, and a page’s own `/Resources` replaces the inherited one completely.  Everything the page’s content stream names from the inherited dictionary (`/F1`, an image `/XObject`, an `/ExtGState`) no longer resolves.
 
-`get_page_resources` (`medpdf/src/pdf_helpers.rs:160`) already walks the `/Parent` chain, and the `bug-0017` fix uses it in `pdf_overlay` and `pdf_place_page` to put a private copy of the inherited dictionary on the page before changing it.  This helper predates it.
+`get_page_resources` (`medpdf/src/pdf_helpers.rs:160`) already walks the `/Parent` chain, and the `bug-0017` fix uses it in `pdf_overlay` and `pdf_place_page` to put a private copy of the inherited dictionary on the page before changing it.  That fix added `get_page_resources` but did not change this helper.
 
 **Callers:** `pdf_watermark` (fonts and `ExtGState` for text watermarks, `medpdf/src/pdf_watermark.rs:257`, `:274`), `medpdf-image` (`medpdf-image/src/lib.rs:524`), and any external user of the exported function.
 
