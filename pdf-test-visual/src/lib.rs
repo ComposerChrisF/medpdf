@@ -515,7 +515,8 @@ fn should_update_golden() -> bool {
         .unwrap_or(false)
 }
 
-/// If golden doesn't exist, create it and return Ok (first-run behavior).
+/// If golden doesn't exist, create it and return Ok (first-run behavior); if it
+/// cannot be stat'ed, or is a link to nothing, return an error.
 /// If `PDF_TEST_UPDATE_GOLDEN=1`, overwrite golden and return Ok.
 /// Otherwise return None — caller should proceed with comparison.
 fn handle_golden_creation(
@@ -524,7 +525,26 @@ fn handle_golden_creation(
 ) -> Result<Option<()>, VisualTestError> {
     let update = should_update_golden();
 
-    if !golden_path.exists() {
+    // Only a golden that is provably absent is a first run.  One that cannot be
+    // stat'ed, or a link to nothing, is an error: writing through it would pass
+    // without comparing anything (bug-0044).
+    let golden_absent = match std::fs::metadata(golden_path) {
+        Ok(_) => false,
+        Err(e)
+            if e.kind() == std::io::ErrorKind::NotFound
+                && matches!(std::fs::symlink_metadata(golden_path),
+                    Err(ref l) if l.kind() == std::io::ErrorKind::NotFound) =>
+        {
+            true
+        }
+        Err(e) => {
+            return Err(VisualTestError::IoError(std::io::Error::new(
+                e.kind(),
+                format!("cannot stat golden image {}: {e}", golden_path.display()),
+            )));
+        }
+    };
+    if golden_absent {
         if let Some(parent) = golden_path.parent() {
             #[expect(
                 clippy::disallowed_methods,
@@ -869,6 +889,33 @@ mod tests {
 
         let _ = std::fs::remove_file(&golden_path);
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn golden_link_to_nothing_is_an_error_not_a_first_run() {
+        // bug-0044: a golden that is a link to a missing file read as absent, so the
+        // first-run branch wrote the actual image through the link and passed.
+        let tmp = std::env::temp_dir().join(format!(
+            "pdf_test_visual_dangling_golden_{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let target = tmp.join("missing-target.png");
+        let golden_path = tmp.join("g.png");
+        std::os::unix::fs::symlink(&target, &golden_path).unwrap();
+        let png_bytes = create_test_png(1, 1, &[255, 0, 0, 255]);
+
+        let result = assert_images_exact(&golden_path, &png_bytes);
+        let target_created = std::fs::symlink_metadata(&target).is_ok();
+        let _ = std::fs::remove_dir_all(&tmp);
+
+        assert!(
+            matches!(result, Err(VisualTestError::IoError(_))),
+            "a golden link to nothing must fail the comparison, got {result:?}"
+        );
+        assert!(!target_created, "nothing may be written through the link");
     }
 
     #[test]

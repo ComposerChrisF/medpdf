@@ -1492,7 +1492,7 @@ dependencies = [
 
 [[package]]
 name = "pdf-test-visual"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "dssim-core",
  "imgref",
