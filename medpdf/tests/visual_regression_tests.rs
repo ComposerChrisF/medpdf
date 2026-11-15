@@ -1,3 +1,11 @@
+#![expect(
+    clippy::expect_used,
+    reason = "test helpers outside a #[test] fn; a failure there is meant to fail the test"
+)]
+#![expect(
+    clippy::unwrap_used,
+    reason = "test helpers outside a #[test] fn; a failure there is meant to fail the test"
+)]
 mod fixtures;
 
 use medpdf::pdf_copy_page::copy_page;

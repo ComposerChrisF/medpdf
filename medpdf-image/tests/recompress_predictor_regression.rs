@@ -1,3 +1,7 @@
+#![expect(
+    clippy::unwrap_used,
+    reason = "test helpers outside a #[test] fn; a failure there is meant to fail the test"
+)]
 // tests/recompress_predictor_regression.rs
 //
 // Regression test for bugs/bug-0029: image recompression checked /Filter but never

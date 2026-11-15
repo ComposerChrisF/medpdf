@@ -1,3 +1,11 @@
+#![expect(
+    clippy::expect_used,
+    reason = "test helpers outside a #[test] fn; a failure there is meant to fail the test"
+)]
+#![expect(
+    clippy::panic,
+    reason = "test helpers outside a #[test] fn; a panic there is meant to fail the test"
+)]
 // tests/copy_page_cycle_regression.rs
 //
 // Regression test for bugs/bug-0007: deep_copy_object_by_id recorded the

@@ -1,3 +1,7 @@
+#![expect(
+    clippy::unwrap_used,
+    reason = "test helpers outside a #[test] fn; a failure there is meant to fail the test"
+)]
 // tests/font_collection_rejected_regression.rs
 //
 // Regression test for bugs/bug-0012 (Plan A): font-kit hands back a `font_index`

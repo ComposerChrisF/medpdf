@@ -1,3 +1,15 @@
+#![expect(
+    clippy::disallowed_methods,
+    reason = "walks this crate's own src/ tree, whose modules the compiler has just read"
+)]
+#![expect(
+    clippy::expect_used,
+    reason = "test helpers outside a #[test] fn; a failure there is meant to fail the test"
+)]
+#![expect(
+    clippy::string_slice,
+    reason = "every slice starts at an index find returned or just past the ASCII \".content\", both char boundaries"
+)]
 // tests/no_raw_stream_content_assignment.rs
 //
 // Guard test: forbid raw `<expr>.content = <bytes>` assignments in `src/`.

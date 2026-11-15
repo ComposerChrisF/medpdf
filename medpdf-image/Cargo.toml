@@ -1,6 +1,6 @@
 [package]
 name = "medpdf-image"
-version = "0.4.7"
+version = "0.4.8"
 edition = "2024"
 description = "Image embedding companion for medpdf"
 license = "MIT OR Apache-2.0"
@@ -29,3 +29,6 @@ usvg = { version = "0.45", optional = true }
 
 [dev-dependencies]
 tempfile = "3"
+
+[lints]
+workspace = true

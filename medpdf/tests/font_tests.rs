@@ -1,3 +1,7 @@
+#![expect(
+    clippy::disallowed_methods,
+    reason = "probes a system font path find_font returned; a wrong false only skips that candidate, so it can fail the test but never pass it"
+)]
 // tests/font_tests.rs
 // Tests for pdf_font and font_helpers modules
 //

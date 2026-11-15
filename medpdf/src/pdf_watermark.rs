@@ -352,11 +352,19 @@ fn split_text_lines(text: &str) -> Vec<&str> {
     while i < bytes.len() {
         match bytes[i] {
             b'\n' => {
+                #[expect(
+                    clippy::string_slice,
+                    reason = "start and i are 0, text.len(), the index of an ASCII \\n or \\r byte, or just past one: all char boundaries"
+                )]
                 lines.push(&text[start..i]);
                 i += 1;
                 start = i;
             }
             b'\r' => {
+                #[expect(
+                    clippy::string_slice,
+                    reason = "start and i are 0, text.len(), the index of an ASCII \\n or \\r byte, or just past one: all char boundaries"
+                )]
                 lines.push(&text[start..i]);
                 i += if bytes.get(i + 1) == Some(&b'\n') {
                     2
@@ -368,6 +376,10 @@ fn split_text_lines(text: &str) -> Vec<&str> {
             _ => i += 1,
         }
     }
+    #[expect(
+        clippy::string_slice,
+        reason = "start and i are 0, text.len(), the index of an ASCII \\n or \\r byte, or just past one: all char boundaries"
+    )]
     lines.push(&text[start..]);
     lines
 }

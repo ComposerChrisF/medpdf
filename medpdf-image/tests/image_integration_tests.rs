@@ -1,3 +1,11 @@
+#![expect(
+    clippy::expect_used,
+    reason = "test helpers outside a #[test] fn; a failure there is meant to fail the test"
+)]
+#![expect(
+    clippy::unwrap_used,
+    reason = "test helpers outside a #[test] fn; a failure there is meant to fail the test"
+)]
 // tests/image_integration_tests.rs
 // Integration tests for medpdf-image: load_image, add_image roundtrip, edge cases
 

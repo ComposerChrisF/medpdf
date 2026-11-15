@@ -1,3 +1,7 @@
+#![expect(
+    clippy::unwrap_used,
+    reason = "test helpers outside a #[test] fn; a failure there is meant to fail the test"
+)]
 // tests/watermark_edge_tests.rs
 // Edge case tests for pdf_watermark module
 

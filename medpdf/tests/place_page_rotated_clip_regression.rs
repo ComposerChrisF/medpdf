@@ -1,3 +1,11 @@
+#![expect(
+    clippy::panic,
+    reason = "test helpers outside a #[test] fn; a panic there is meant to fail the test"
+)]
+#![expect(
+    clippy::unwrap_used,
+    reason = "test helpers outside a #[test] fn; a failure there is meant to fail the test"
+)]
 // tests/place_page_rotated_clip_regression.rs
 //
 // Regression test for bugs/bug-0027: with clip = true and a rotation that is not a

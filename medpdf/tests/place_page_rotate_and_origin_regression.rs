@@ -14,6 +14,18 @@
 //! never computes its own `/Rotate` width/height swap (bug-0023). The clip
 //! rectangle, which is built from the same transform, is what the assertions
 //! read back.
+#![expect(
+    clippy::expect_used,
+    reason = "test helpers outside a #[test] fn; a failure there is meant to fail the test"
+)]
+#![expect(
+    clippy::panic,
+    reason = "test helpers outside a #[test] fn; a panic there is meant to fail the test"
+)]
+#![expect(
+    clippy::unwrap_used,
+    reason = "test helpers outside a #[test] fn; a failure there is meant to fail the test"
+)]
 
 mod fixtures;
 

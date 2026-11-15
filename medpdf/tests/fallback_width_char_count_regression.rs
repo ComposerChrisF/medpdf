@@ -1,3 +1,7 @@
+#![expect(
+    clippy::panic,
+    reason = "test helpers outside a #[test] fn; a panic there is meant to fail the test"
+)]
 // tests/fallback_width_char_count_regression.rs
 //
 // Regression test for bugs/bug-0011: compute_text_metrics estimated the width of text in

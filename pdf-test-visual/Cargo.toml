@@ -1,6 +1,6 @@
 [package]
 name = "pdf-test-visual"
-version = "0.1.4"
+version = "0.1.5"
 edition = "2024"
 description = "Visual regression testing for PDF crates"
 license = "MIT OR Apache-2.0"
@@ -15,3 +15,6 @@ dssim-core = "3"
 rgb = "0.8"
 imgref = "1"
 png = "0.18"
+
+[lints]
+workspace = true

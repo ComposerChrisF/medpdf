@@ -1,3 +1,7 @@
+#![expect(
+    clippy::unwrap_used,
+    reason = "test helpers outside a #[test] fn; a failure there is meant to fail the test"
+)]
 // tests/recompress_mask_regression.rs
 //
 // Regression test for bugs/bug-0028: image recompression skipped /SMask (soft masks) but

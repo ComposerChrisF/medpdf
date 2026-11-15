@@ -1,7 +1,21 @@
+#![expect(
+    clippy::expect_used,
+    reason = "test helpers outside a #[test] fn; a failure there is meant to fail the test"
+)]
+#![expect(
+    clippy::panic,
+    reason = "test helpers outside a #[test] fn; a panic there is meant to fail the test"
+)]
+#![expect(
+    clippy::unwrap_used,
+    reason = "test helpers outside a #[test] fn; a failure there is meant to fail the test"
+)]
 // tests/fixtures.rs
 // Helper functions for creating test PDF documents
-
-#![allow(dead_code)] // These are test utilities; not all are used in every test file
+#![allow(
+    dead_code,
+    reason = "These are test utilities; not all are used in every test file"
+)]
 
 use lopdf::{Document, Object, ObjectId, Stream, dictionary};
 use std::sync::Arc;

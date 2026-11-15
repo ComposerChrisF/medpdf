@@ -1,3 +1,11 @@
+#![expect(
+    clippy::expect_used,
+    reason = "test helpers outside a #[test] fn; a failure there is meant to fail the test"
+)]
+#![expect(
+    clippy::unwrap_used,
+    reason = "test helpers outside a #[test] fn; a failure there is meant to fail the test"
+)]
 // tests/cff_otf_font_structure_regression.rs
 //
 // Regression test for bugs/bug-0005: CFF-flavored (.otf) fonts were embedded with

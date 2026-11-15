@@ -1,6 +1,19 @@
+#![cfg_attr(
+    feature = "svg",
+    expect(
+        clippy::expect_used,
+        reason = "test helpers outside a #[test] fn; a failure there is meant to fail the test"
+    )
+)]
+#![cfg_attr(
+    feature = "svg",
+    expect(
+        clippy::unwrap_used,
+        reason = "test helpers outside a #[test] fn; a failure there is meant to fail the test"
+    )
+)]
 // tests/svg_integration_tests.rs
 // Integration tests for medpdf-image SVG support: roundtrip, file loading, mixed content
-
 #![cfg(feature = "svg")]
 
 use lopdf::{Document, Object, Stream, dictionary};

@@ -1,3 +1,11 @@
+#![expect(
+    clippy::expect_used,
+    reason = "test helpers outside a #[test] fn; a failure there is meant to fail the test"
+)]
+#![expect(
+    clippy::unwrap_used,
+    reason = "test helpers outside a #[test] fn; a failure there is meant to fail the test"
+)]
 // tests/unicode_text_tests.rs
 // Unicode text beyond WinAnsi: Type0/CIDFontType2 composite-font embedding, fail-loud
 // behavior for unrepresentable text, and the lossy_text escape hatch.

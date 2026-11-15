@@ -1,3 +1,7 @@
+#![expect(
+    clippy::expect_used,
+    reason = "test helpers outside a #[test] fn; a failure there is meant to fail the test"
+)]
 // tests/font_metrics_scaling_regression.rs
 //
 // Regression test for bugs/bug-0031: the simple-font path emitted /Widths and every

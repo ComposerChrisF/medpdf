@@ -1,3 +1,7 @@
+#![expect(
+    clippy::unwrap_used,
+    reason = "test helpers outside a #[test] fn; a failure there is meant to fail the test"
+)]
 // tests/page_tree_count_regression.rs
 //
 // Regression test for bugs/bug-0020: page-tree /Count maintenance was broken for

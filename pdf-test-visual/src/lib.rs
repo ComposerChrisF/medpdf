@@ -142,6 +142,10 @@ fn rasterize_page_impl(
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     let id = COUNTER.fetch_add(1, Ordering::Relaxed);
     let tmp_dir = std::env::temp_dir().join(format!("pdf_test_visual_{}_{id}", std::process::id()));
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "tool-owned scratch dir: a fresh pid-and-counter-named leaf under the system temp dir, removed below"
+    )]
     std::fs::create_dir_all(&tmp_dir)?;
 
     let result = match rasterizer {
@@ -149,6 +153,10 @@ fn rasterize_page_impl(
         Rasterizer::Mutool => rasterize_mutool(pdf_path, page, dpi, &tmp_dir, password),
     };
 
+    #[expect(
+        clippy::let_underscore_must_use,
+        reason = "best-effort removal of this call's own scratch dir; the rasterization result is already in hand, and a leftover temp dir is harmless"
+    )]
     let _ = std::fs::remove_dir_all(&tmp_dir);
     result
 }
@@ -218,6 +226,10 @@ fn read_all<R: std::io::Read>(mut r: R) -> Vec<u8> {
     buf
 }
 
+#[expect(
+    clippy::expect_used,
+    reason = "the loop yields None only after setting timed_out or wait_err, and both return Err before the expect"
+)]
 fn run_with_timeout(
     cmd: &mut Command,
     timeout_secs: u64,
@@ -250,12 +262,20 @@ fn run_with_timeout(
         match child.try_wait() {
             Ok(Some(status)) => break Some(status),
             Ok(None) if start.elapsed() > timeout => {
+                #[expect(
+                    clippy::let_underscore_must_use,
+                    reason = "kill on a child that has already exited returns Ok, and any other failure leaves the wait below to report the outcome and reap the child"
+                )]
                 let _ = child.kill();
                 timed_out = true;
                 break None;
             }
             Ok(None) => std::thread::sleep(std::time::Duration::from_millis(50)),
             Err(e) => {
+                #[expect(
+                    clippy::let_underscore_must_use,
+                    reason = "already failing with the wait error; a failed kill has nowhere further to go"
+                )]
                 let _ = child.kill();
                 wait_err = Some(e.to_string());
                 break None;
@@ -265,6 +285,10 @@ fn run_with_timeout(
 
     // Reap so the pipes close, then join the readers (they finish at EOF). Joining always,
     // on every exit path, means the reader threads never leak.
+    #[expect(
+        clippy::let_underscore_must_use,
+        reason = "reaps the child so its pipes close; the status that matters was taken in the loop above"
+    )]
     let _ = child.wait();
     let stdout = stdout_reader
         .map(|h| h.join().unwrap_or_default())
@@ -438,7 +462,10 @@ fn decode_png(png_bytes: &[u8]) -> Result<DecodedImage, VisualTestError> {
     })
 }
 
-#[allow(dead_code)]
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "used only by the in-file tests")
+)]
 fn encode_png(img: &DecodedImage) -> Result<Vec<u8>, VisualTestError> {
     let mut buf = Vec::new();
     {
@@ -499,6 +526,10 @@ fn handle_golden_creation(
 
     if !golden_path.exists() {
         if let Some(parent) = golden_path.parent() {
+            #[expect(
+                clippy::disallowed_methods,
+                reason = "the golden tree is this harness's own snapshot store, created on first run; each golden written is named on stderr"
+            )]
             std::fs::create_dir_all(parent)?;
         }
         std::fs::write(golden_path, actual_png)?;
@@ -568,7 +599,15 @@ pub fn assert_images_exact(golden_path: &Path, actual_png: &[u8]) -> Result<(), 
 
     // Clean up any stale actual file from previous failures
     let stale = actual_path_for(golden_path);
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "a wrong false only keeps a stale -actual diff image; the delete runs only on a positive answer"
+    )]
     if stale.exists() {
+        #[expect(
+            clippy::let_underscore_must_use,
+            reason = "best-effort removal of a stale diff image this harness wrote; the comparison already passed, and a leftover file is harmless"
+        )]
         let _ = std::fs::remove_file(&stale);
     }
 
@@ -659,7 +698,15 @@ pub fn assert_images_ssim(
 
     // Clean up any stale actual file from previous failures
     let stale = actual_path_for(golden_path);
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "a wrong false only keeps a stale -actual diff image; the delete runs only on a positive answer"
+    )]
     if stale.exists() {
+        #[expect(
+            clippy::let_underscore_must_use,
+            reason = "best-effort removal of a stale diff image this harness wrote; the comparison already passed, and a leftover file is harmless"
+        )]
         let _ = std::fs::remove_file(&stale);
     }
 
@@ -714,6 +761,11 @@ pub fn assert_all_pages_match(
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
+#[expect(
+    clippy::disallowed_methods,
+    clippy::let_underscore_must_use,
+    reason = "tests assert on fixtures in a temp dir and clean them up best-effort"
+)]
 mod tests {
     use super::*;
 

@@ -1,3 +1,7 @@
+#![expect(
+    clippy::unwrap_used,
+    reason = "test helpers outside a #[test] fn; a failure there is meant to fail the test"
+)]
 // tests/simple_font_missing_glyph_regression.rs
 //
 // Regression test for bugs/bug-0032: the WinAnsi (simple) encoding arm of

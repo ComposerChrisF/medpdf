@@ -118,13 +118,25 @@ pub(crate) fn build_tounicode_cmap(face: &Face, used_chars: &HashSet<char>) -> V
     s.push_str("/CMapName /Adobe-Identity-UCS def\n/CMapType 2 def\n");
     s.push_str("1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n");
     for chunk in entries.chunks(100) {
+        #[expect(
+            clippy::let_underscore_must_use,
+            reason = "fmt::Write into a String never returns Err"
+        )]
         let _ = writeln!(s, "{} beginbfchar", chunk.len());
         for (gid, ch) in chunk {
             let mut dst = String::new();
             let mut buf = [0u16; 2];
             for unit in ch.encode_utf16(&mut buf).iter() {
+                #[expect(
+                    clippy::let_underscore_must_use,
+                    reason = "fmt::Write into a String never returns Err"
+                )]
                 let _ = write!(dst, "{unit:04X}");
             }
+            #[expect(
+                clippy::let_underscore_must_use,
+                reason = "fmt::Write into a String never returns Err"
+            )]
             let _ = writeln!(s, "<{gid:04X}> <{dst}>");
         }
         s.push_str("endbfchar\n");
