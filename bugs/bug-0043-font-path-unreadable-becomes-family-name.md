@@ -8,7 +8,7 @@
 
 ## What Happens
 
-`resolve_non_system_font` (`medpdf/src/pdf_font.rs:99–101`) decides whether the specifier is a file with `font_path.exists()`.  `exists()` answers `false` for every error, not only `NotFound`, so a file the process cannot stat is classed as “not a file”.  `find_font` and `find_font_with_style` then take the file stem as a family name and ask the system font source for it.  When a family of that name is installed, the call succeeds with that font.
+`resolve_non_system_font` (`medpdf/src/pdf_font.rs:100–102`) decides whether the specifier is a file with `font_path.exists()`.  `exists()` answers `false` for every error, not only `NotFound`, so a file the process cannot stat is classed as “not a file”.  `find_font` and `find_font_with_style` then take the file stem as a family name and ask the system font source for it.  When a family of that name is installed, the call succeeds with that font.
 
 Reproduction: copy `Arial.ttf` into a directory, `chmod 000` the directory, and call `find_font(<dir>/Arial.ttf)`.  It returns `Ok(FontPath::Memory(_, "ArialMT"))`, the system Arial, where reading the named file would have failed with `EACCES`.  Any file whose stem matches an installed family behaves the same, so a custom or licensed `Helvetica.ttf` in an unreadable directory silently becomes the system Helvetica.  When no family matches, the error names a missing font rather than the permission failure.
 
