@@ -27,7 +27,7 @@ Err(_) => {
 
 ## Reproduction
 
-`bugs/bug-0042/inherited.pdf` is a one-page document whose `/Resources << /Font << /F1 … >> >>` sit on the `/Pages` node, with a page content stream that uses `/F1`.  `bugs/bug-0042/repro.rs` loads it, registers a new font as `/F9` on page 1, and saves:
+`bugs/bug-0042/fixture-inherited-resources.pdf` is a one-page document whose `/Resources << /Font << /F1 … >> >>` sit on the `/Pages` node, with a page content stream that uses `/F1`.  `bugs/bug-0042/repro.rs` loads it, registers a new font as `/F9` on page 1, and saves:
 
 ```
 page's own /Resources now: <</Font <</F9 6 0 R>>>>
