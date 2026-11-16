@@ -5,7 +5,17 @@ All notable changes to the `medpdf` crate are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0/).
 
-## [Unreleased]
+## [0.15.2] - 2026-11-15
+### Fixed
+- **bug-0042 — `register_in_page_resources` keeps a page’s inherited
+  `/Resources`.**  A page with no `/Resources` of its own, inheriting them from a
+  `/Pages` ancestor, was given a new dictionary holding only the new entry, and a
+  page-level dictionary replaces the inherited one, so the page’s own fonts,
+  images, and graphics states stopped resolving.  The page now gets a private copy
+  of what it inherits, with every sub-dictionary held by reference inlined, so
+  neither this registration nor a later one changes a dictionary that sibling
+  pages share.  An inherited `/Resources` that is neither a dictionary nor a
+  reference is now an error.  The same fault bug-0017 fixed in overlay and place.
 
 ## [0.15.0] - 2026-09-10
 ### Changed

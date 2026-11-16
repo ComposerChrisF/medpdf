@@ -397,6 +397,9 @@ pub fn deep_copy_object(
 /// Handles the three-tier pattern: Page dict -> Resources (inline or ref) -> sub-dict (inline or ref).
 /// `resource_key` selects the sub-dictionary (e.g. `KEY_FONT`, `KEY_EXTGSTATE`, `KEY_XOBJECT`).
 /// `entry_key` is the name under which the reference is stored (e.g. `b"F7"`, `b"GS7"`, `b"Img1"`).
+/// A page that inherits its `/Resources` from a `/Pages` ancestor first gets a private
+/// copy of them, so its content keeps every resource it names and the ancestor is
+/// left unchanged.
 pub fn register_in_page_resources(
     doc: &mut Document,
     page_id: ObjectId,
@@ -404,6 +407,15 @@ pub fn register_in_page_resources(
     entry_key: &[u8],
     obj_id: ObjectId,
 ) -> Result<()> {
+    // A page with no /Resources of its own inherits them from a /Pages ancestor,
+    // and a page-level dictionary replaces the inherited one, so the page's new
+    // dictionary must start from a copy of what it inherits (bug-0042).  Built
+    // here, before the page is borrowed mutably.
+    let inherited_seed = match doc.get_object(page_id)?.as_dict() {
+        Ok(page) if !page.has(KEY_RESOURCES) => inherited_resources_seed(doc, page_id)?,
+        _ => Dictionary::new(),
+    };
+
     // First pass: handle page's Resources (may be inline dict or reference)
     let page_dict = doc
         .get_object_mut(page_id)?
@@ -423,7 +435,7 @@ pub fn register_in_page_resources(
             ));
         }
         Err(_) => {
-            let mut dict = dictionary! {};
+            let mut dict = inherited_seed;
             let r = handle_subdict_in_resources(&mut dict, resource_key, entry_key, obj_id)?;
             page_dict.set(KEY_RESOURCES, Object::Dictionary(dict));
             (r, None)
@@ -449,6 +461,34 @@ pub fn register_in_page_resources(
     }
 
     Ok(())
+}
+
+/// The starting `/Resources` for a page that has none of its own: a copy of the
+/// resources it inherits, empty only when no ancestor has any (bug-0042).  Every
+/// sub-dictionary held by reference is inlined too, so a later registration on this
+/// page, into any category, cannot change a dictionary that sibling pages still share.
+fn inherited_resources_seed(doc: &Document, page_id: ObjectId) -> Result<Dictionary> {
+    let mut seed = match get_page_resources(doc, page_id) {
+        None => return Ok(Dictionary::new()),
+        Some(Object::Dictionary(dict)) => dict,
+        Some(Object::Reference(id)) => doc.get_dictionary(id)?.clone(),
+        Some(_) => {
+            return Err(MedpdfError::new(
+                "Inherited /Resources not a Reference nor a Dictionary!",
+            ));
+        }
+    };
+    let shared: Vec<(Vec<u8>, Dictionary)> = seed
+        .iter()
+        .filter_map(|(key, value)| {
+            let target = doc.get_dictionary(value.as_reference().ok()?).ok()?;
+            Some((key.clone(), target.clone()))
+        })
+        .collect();
+    for (key, sub) in shared {
+        seed.set(key, Object::Dictionary(sub));
+    }
+    Ok(seed)
 }
 
 /// Handles adding an entry to a Resources sub-dictionary.
