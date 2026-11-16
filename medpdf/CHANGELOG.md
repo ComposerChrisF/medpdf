@@ -5,6 +5,17 @@ All notable changes to the `medpdf` crate are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0/).
 
+## [0.15.3] - 2026-11-15
+### Fixed
+- **bug-0043 — `find_font` no longer reads an unreadable font path as a family
+  name.**  It decided whether its argument was a file with `Path::exists`, which
+  answers false for every error, so a font file it could not stat (a directory
+  without search permission, a link to nothing, an I/O error) was looked up by its
+  stem as a family name, and an installed family of that name was embedded in its
+  place without an error.  `find_font` and `find_font_with_style` now return an
+  error naming the path; only a path that is itself `NotFound` falls through to
+  the family lookup.
+
 ## [0.15.2] - 2026-11-15
 ### Fixed
 - **bug-0042 — `register_in_page_resources` keeps a page’s inherited

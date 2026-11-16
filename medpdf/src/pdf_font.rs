@@ -89,28 +89,45 @@ fn parse_font_path_as_number(font_path: &Path) -> Option<u8> {
 /// Times-Bold, Helvetica-Bold, Courier-Bold, ZapfDingbats, Times-Italic, Helvetica-Oblique,
 /// Courier-Oblique, Times-BoldItalic, Helvetica-BoldOblique, Courier-BoldOblique.
 /// Note: PDF 2.0 has *no* built-in fonts; all fonts must be embedded.
-fn resolve_non_system_font(font_path: &Path) -> Option<FontPath> {
+///
+/// A path that cannot be stat'ed for any reason but `NotFound` is an error, not a
+/// family name: reading it as absent would look its stem up as a family and could
+/// embed a different installed font in its place (bug-0043).  A link to nothing is
+/// an error too; only a path that is itself absent falls through to the family lookup.
+fn resolve_non_system_font(font_path: &Path) -> Result<Option<FontPath>> {
     if let Some(n) = parse_font_path_as_number(font_path) {
-        return Some(FontPath::Hack(n));
+        return Ok(Some(FontPath::Hack(n)));
     }
     let s = font_path.to_string_lossy();
     if let Some(name) = s.strip_prefix('@') {
-        return Some(FontPath::BuiltIn(name.into()));
+        return Ok(Some(FontPath::BuiltIn(name.into())));
     }
-    if font_path.exists() {
-        return Some(FontPath::Path(font_path.into()));
+    match fs::metadata(font_path) {
+        Ok(_) => Ok(Some(FontPath::Path(font_path.into()))),
+        Err(e)
+            if e.kind() == std::io::ErrorKind::NotFound
+                && matches!(fs::symlink_metadata(font_path),
+                    Err(ref l) if l.kind() == std::io::ErrorKind::NotFound) =>
+        {
+            Ok(None)
+        }
+        Err(e) => Err(MedpdfError::new(format!(
+            "Cannot read font path {}: {e}",
+            font_path.display()
+        ))),
     }
-    None
 }
 
 /// Find a font with specific weight and style hints.
 /// Falls back to `find_font` if the styled variant is not found.
+/// Errors when the specifier names a path that cannot be stat'ed for any reason
+/// but `NotFound` (see `find_font`).
 pub fn find_font_with_style(
     font_path: &Path,
     weight: crate::types::FontWeight,
     style: crate::types::FontStyle,
 ) -> Result<FontPath> {
-    if let Some(resolved) = resolve_non_system_font(font_path) {
+    if let Some(resolved) = resolve_non_system_font(font_path)? {
         return Ok(resolved);
     }
 
@@ -143,8 +160,12 @@ pub fn find_font_with_style(
 }
 
 /// Resolves a font specifier to a [`FontPath`] using default weight/style.
+///
+/// A specifier that names no file (`NotFound`) is looked up as a family name, by its
+/// file stem.  A path that cannot be stat'ed for any other reason (a permission
+/// error, a link to nothing, an I/O error) is an error, never a family lookup.
 pub fn find_font(font_path: &Path) -> Result<FontPath> {
-    if let Some(resolved) = resolve_non_system_font(font_path) {
+    if let Some(resolved) = resolve_non_system_font(font_path)? {
         return Ok(resolved);
     }
     let source = SystemSource::new();
