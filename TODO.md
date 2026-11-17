@@ -87,6 +87,8 @@ Proposed changes now live in `plans/plan-NNNN-<slug>.md`, per the portfolio `pla
 
   **Two consumer actions are still open** (see “Consumer notifications owed”, below).
 
+- **`plan-0009-flatten-deep-nesting`** — the one block clippy’s `excessive_nesting` flags under house-lints v2 (a `_ => {}` arm in the test `test_overlay_page_preserves_q_balance`, 7 deep) carries a temporary `#[expect]`; flatten it with a helper or an iterator count and drop the attribute.  Test code only; nothing is blocked on it.
+
 ## Consumer notifications owed (opened 2026-09-10 by the 0.15.0 release)
 
 - **pdf-maker** — asked to be told the version so it can adopt: raise its `medpdf` floor to `"0.15"`, honor duplicates in `merge_pages`, update its README, and close its `bug-0003`.  Its contract invariant survives: `"1,1,99"` on a two-page document is still an error naming page 99 (pinned by `test_repeats_do_not_weaken_the_out_of_range_check`).

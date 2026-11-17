@@ -372,6 +372,10 @@ mod tests {
                         match op.operator.as_str() {
                             "q" => total_q += 1,
                             "Q" => total_big_q += 1,
+                            #[expect(
+                                clippy::excessive_nesting,
+                                reason = "plan-0009: nested more than 6 blocks deep; flattening it is that plan's work"
+                            )]
                             _ => {}
                         }
                     }

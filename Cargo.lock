@@ -1267,7 +1267,7 @@ dependencies = [
 
 [[package]]
 name = "medpdf"
-version = "0.15.3"
+version = "0.15.4"
 dependencies = [
  "allsorts",
  "font-kit",
@@ -1283,7 +1283,7 @@ dependencies = [
 
 [[package]]
 name = "medpdf-image"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "flate2",
  "image",
@@ -1492,7 +1492,7 @@ dependencies = [
 
 [[package]]
 name = "pdf-test-visual"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "dssim-core",
  "imgref",
