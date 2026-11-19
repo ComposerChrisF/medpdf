@@ -21,7 +21,8 @@
 //! On top of the caller's selection, an image is skipped when it is already
 //! DCTDecode-encoded, is not a single-filter FlateDecode stream, falls below
 //! `min_size`, carries `/SMask` or `/Mask` or `/ImageMask` (JPEG has no transparency —
-//! bug-0028), is not 8 bits per component, is not DeviceRGB / DeviceGray / 1- or
+//! bug-0028), is itself another image's `/SMask` or `/Mask` stream (bug-0046), is not
+//! 8 bits per component, is not DeviceRGB / DeviceGray / 1- or
 //! 3-component ICCBased, carries a `/DecodeParms` predictor whose output cannot be
 //! proven to be raw pixels (bug-0029), or would not actually come out smaller as JPEG.
 //!
@@ -31,6 +32,7 @@
 
 use lopdf::{Document, Object, ObjectId};
 use medpdf::{MedpdfError, Result};
+use std::collections::HashSet;
 use std::io::Cursor;
 
 /// Parameters controlling image recompression.
@@ -79,8 +81,15 @@ pub fn recompress_images(
     params: &RecompressParams,
 ) -> Result<RecompressStats> {
     let mut stats = RecompressStats::default();
+    let mask_ids = mask_stream_ids(doc);
 
     for &id in object_ids {
+        // A soft mask or stencil mask is itself an image stream; JPEG would corrupt the
+        // alpha of the image that uses it (bug-0046).
+        if mask_ids.contains(&id) {
+            continue;
+        }
+
         // Phase 1: immutable borrow — inspect and decompress
         let info = match extract_image_info(doc, id, params.min_size) {
             Some(info) => info,
@@ -141,6 +150,20 @@ pub fn recompress_images(
     }
 
     Ok(stats)
+}
+
+/// Ids that any stream in the document references as `/SMask` or `/Mask`.
+///
+/// Document-wide, not limited to the caller's ids: being a mask is a property of the
+/// document, and a mask passed without its parent must be skipped too (bug-0046).  Not
+/// narrowed to `/Subtype /Image` referrers: an extra skip only keeps an image lossless.
+fn mask_stream_ids(doc: &Document) -> HashSet<ObjectId> {
+    doc.objects
+        .values()
+        .filter_map(|obj| obj.as_stream().ok())
+        .flat_map(|stream| [b"SMask".as_slice(), b"Mask".as_slice()].map(|k| stream.dict.get(k)))
+        .filter_map(|value| value.ok()?.as_reference().ok())
+        .collect()
 }
 
 /// Inspect an object and extract image info if it qualifies for recompression.

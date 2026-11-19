@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.10] - 2026-11-18
+### Fixed
+- bug-0046: `recompress_images` JPEG-encoded any qualifying 8-bit DeviceGray FlateDecode
+  image, including a stream another object references as its `/SMask` or `/Mask`.  The
+  mask became a DCTDecode stream, which a viewer may not accept as a soft mask, or reads
+  with JPEG artifacts, corrupting the parent image’s alpha.  A stream referenced as
+  `/SMask` or `/Mask` anywhere in the document is now left untouched.
+
 ## [0.4.7] - 2026-07-24
 ### Fixed
 - bug-0036: converting an SVG spliced the raw compressed bytes of a content stream into
